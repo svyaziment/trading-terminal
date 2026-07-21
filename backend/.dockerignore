@@ -6,3 +6,5 @@ __pycache__
 .pytest_cache
 .git
 .gitignore
+**/__pycache__
+**/*.pyc
