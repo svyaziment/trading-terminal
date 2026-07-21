@@ -1,0 +1,16 @@
+[project]
+name = "trading-terminal-backend"
+version = "0.1.0"
+description = "Backend API for AI-assisted trading terminal"
+requires-python = ">=3.12"
+
+dependencies = [
+    "fastapi",
+    "uvicorn",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "httpx",
+]
