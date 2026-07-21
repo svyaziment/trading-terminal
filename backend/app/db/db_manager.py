@@ -88,6 +88,9 @@ class DBManager:
             "user": self.settings.db.user,
             "password": self.settings.db.password,
             "port": self.settings.db.port,
+            "client_encoding": "utf8",
+            "options": "-c client_encoding=UTF8",
+            "connect_timeout": 10,
         }
 
         if DBManager._connection_pool is None:

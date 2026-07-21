@@ -64,8 +64,11 @@ def _load_yaml_config() -> Dict[str, Any]:
     if not CONFIG_PATH.exists():
         return {}
 
-    with open(CONFIG_PATH, "r", encoding="utf-8") as file:
-        data = yaml.safe_load(file)
+    try:
+        with open(CONFIG_PATH, "r", encoding="utf-8") as file:
+            data = yaml.safe_load(file)
+    except UnicodeDecodeError:
+        data = {}
 
     if not isinstance(data, dict):
         return {}
