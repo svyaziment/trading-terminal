@@ -27,7 +27,20 @@ class DataLoader:
     Loads market data from Tinkoff Invest API.
     """
 
-    INTERVAL_MAP: Dict[str, object] = {}
+    INTERVAL_MAP = {
+        "1min": CandleInterval.CANDLE_INTERVAL_1_MIN,
+        "5min": CandleInterval.CANDLE_INTERVAL_5_MIN,
+        "15min": CandleInterval.CANDLE_INTERVAL_15_MIN,
+        "30min": CandleInterval.CANDLE_INTERVAL_30_MIN,
+        "hour": CandleInterval.CANDLE_INTERVAL_HOUR,
+        "1h": CandleInterval.CANDLE_INTERVAL_HOUR,
+        "day": CandleInterval.CANDLE_INTERVAL_DAY,
+        "1d": CandleInterval.CANDLE_INTERVAL_DAY,
+        "week": CandleInterval.CANDLE_INTERVAL_WEEK,
+        "1w": CandleInterval.CANDLE_INTERVAL_WEEK,
+        "month": CandleInterval.CANDLE_INTERVAL_MONTH,
+        "1M": CandleInterval.CANDLE_INTERVAL_MONTH,
+    }
 
     if IS_SDK_AVAILABLE:
         _INTERVAL_NAMES = {
