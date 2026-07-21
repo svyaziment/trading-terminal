@@ -24,6 +24,15 @@ services:
       - "8000:8000"
     environment:
       ENVIRONMENT: dev
+      TINVEST_TOKEN: ${TINVEST_TOKEN:-}
+      TINVEST_ACC: ${TINVEST_ACC:-}
+      PSTGRS_PWD: ${PSTGRS_PWD:-}
+      POSTGRES_HOST: ${POSTGRES_HOST:-host.docker.internal}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      MARKET_DATA_DATABASE_URL: ${MARKET_DATA_DATABASE_URL:-}
+      MARKET_DATA_SCHEMA: ${MARKET_DATA_SCHEMA:-trading}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s

@@ -1,2 +1,7 @@
 fastapi
 uvicorn
+pydantic
+pyyaml
+psycopg2-binary
+pandas
+asyncpg
