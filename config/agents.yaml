@@ -1,0 +1,33 @@
+version: 1
+
+models:
+  orchestrator: qwen2.5-coder:7b
+
+agents:
+  - id: orchestrator
+    name: Orchestrator
+    prompt_file: agents/orchestrator/prompt.md
+    model: qwen2.5-coder:7b
+    temperature: 0.0
+    output_format: json
+    permissions:
+      write_code: false
+      execute_shell: false
+      create_pr: false
+      use_production: false
+
+  - id: devops
+    name: DevOps
+    prompt_file: agents/devops/prompt.md
+    model: qwen2.5-coder:7b
+    temperature: 0.0
+    permissions:
+      write_files: true
+      execute_shell: true
+      create_pr: true
+      use_production: false
+    allowed_commands:
+      - git
+      - mkdir
+      - touch
+      - gh
