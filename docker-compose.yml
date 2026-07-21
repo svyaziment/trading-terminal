@@ -34,7 +34,7 @@ services:
       MARKET_DATA_DATABASE_URL: ${MARKET_DATA_DATABASE_URL:-}
       MARKET_DATA_SCHEMA: ${MARKET_DATA_SCHEMA:-trading}
       PGCLIENTENCODING: "UTF8"
-      PGOPTIONS: "-c client_encoding=UTF8"
+      PGOPTIONS: "-c client_encoding=UTF8 -c lc_messages=C"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s

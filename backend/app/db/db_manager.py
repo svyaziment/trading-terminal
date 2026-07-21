@@ -89,7 +89,7 @@ class DBManager:
             "password": self.settings.db.password,
             "port": self.settings.db.port,
             "client_encoding": "utf8",
-            "options": "-c client_encoding=UTF8",
+            "options": "-c client_encoding=UTF8 -c lc_messages=C",
             "connect_timeout": 10,
         }
 
