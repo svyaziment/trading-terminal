@@ -1,0 +1,16 @@
+name: trading-terminal
+
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    container_name: trading-terminal-agent
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+    command: bash
+    stdin_open: true
+    tty: true
