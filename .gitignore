@@ -21,3 +21,5 @@ reports/
 # OS
 .DS_Store
 Thumbs.db
+backend/config/settings.yaml
+backend/logs_internal/

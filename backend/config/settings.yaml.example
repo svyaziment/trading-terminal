@@ -1,0 +1,17 @@
+api:
+  token: ""
+  account_id: ""
+
+terminal:
+  theme: "dark"
+  refresh_rate_sec: 5
+
+risk:
+  max_daily_loss_pct: 2.0
+  max_position_size: 100000
+
+db:
+  host: "localhost"
+  database: "postgres"
+  user: "postgres"
+  port: 5432
