@@ -31,5 +31,4 @@ RUN find /app -type f -name '*.py' -exec sed -i 's/\r$//' {} + 2>/dev/null || tr
 RUN python -c "import t_tech.invest; from t_tech.invest.constants import INVEST_GRPC_API; print('SDK_OK')"
 
 EXPOSE 8000
-
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
