@@ -8,28 +8,22 @@ from fastapi import FastAPI, HTTPException, Query
 def serialize_value(value: Any) -> Any:
     if isinstance(value, decimal.Decimal):
         return float(value)
-
     if isinstance(value, datetime.datetime):
         return value.isoformat()
-
     if isinstance(value, datetime.date):
         return value.isoformat()
-
     return value
 
 
 def result_to_records(result: Dict[str, Any]) -> List[Dict[str, Any]]:
     columns = result.get("columns", [])
     data = result.get("data", [])
-
     records = []
 
     for row in data:
         record = {}
-
         for column, value in zip(columns, row):
             record[column] = serialize_value(value)
-
         records.append(record)
 
     return records
@@ -178,13 +172,169 @@ def register_routes(app: FastAPI) -> None:
             "count": len(items),
         }
 
+    @app.get("/api/signals/stats")
+    def get_signal_stats(
+        ticker: Optional[str] = Query(None),
+        timeframe: Optional[str] = Query(None),
+        date_from: Optional[str] = Query(None),
+        date_to: Optional[str] = Query(None),
+    ):
+        clauses: List[str] = []
+        params: Dict[str, Any] = {}
+
+        if ticker:
+            clauses.append("ticker = %(ticker)s")
+            params["ticker"] = ticker
+
+        if timeframe:
+            clauses.append("timeframe = %(timeframe)s")
+            params["timeframe"] = timeframe
+
+        if date_from:
+            clauses.append("timestamp >= %(date_from)s::timestamp")
+            params["date_from"] = date_from
+
+        if date_to:
+            clauses.append("timestamp <= %(date_to)s::timestamp")
+            params["date_to"] = date_to
+
+        where = ""
+        if clauses:
+            where = "WHERE " + " AND ".join(clauses)
+
+        try:
+            db = get_db()
+
+            total_records = result_to_records(
+                db.select(
+                    f"SELECT count(*) AS cnt FROM trading.signals {where}",
+                    params,
+                )
+            )
+            total = int(total_records[0]["cnt"]) if total_records else 0
+
+            latest_records = result_to_records(
+                db.select(
+                    f"SELECT max(timestamp) AS latest_timestamp FROM trading.signals {where}",
+                    params,
+                )
+            )
+            latest_timestamp = latest_records[0]["latest_timestamp"] if latest_records else None
+
+            by_direction = result_to_records(
+                db.select(
+                    f"""
+                    SELECT signal, count(*) AS cnt
+                    FROM trading.signals
+                    {where}
+                    GROUP BY signal
+                    ORDER BY cnt DESC
+                    """,
+                    params,
+                )
+            )
+
+            by_timeframe = result_to_records(
+                db.select(
+                    f"""
+                    SELECT timeframe, count(*) AS cnt
+                    FROM trading.signals
+                    {where}
+                    GROUP BY timeframe
+                    ORDER BY cnt DESC
+                    """,
+                    params,
+                )
+            )
+
+            pattern_where_clauses = clauses + [
+                "pattern_name IS NOT NULL",
+                "pattern_name <> ''",
+            ]
+            pattern_where = "WHERE " + " AND ".join(pattern_where_clauses)
+
+            by_pattern_combined = result_to_records(
+                db.select(
+                    f"""
+                    SELECT pattern_name, count(*) AS cnt
+                    FROM trading.signals
+                    {pattern_where}
+                    GROUP BY pattern_name
+                    ORDER BY cnt DESC
+                    LIMIT 50
+                    """,
+                    params,
+                )
+            )
+
+            atomic_query = f"""
+                WITH split_patterns AS (
+                    SELECT trim(unnest(string_to_array(pattern_name, ','))) AS pattern_name
+                    FROM trading.signals
+                    {pattern_where}
+                )
+                SELECT pattern_name, count(*) AS cnt
+                FROM split_patterns
+                WHERE pattern_name IS NOT NULL
+                  AND pattern_name <> ''
+                GROUP BY pattern_name
+                ORDER BY cnt DESC
+                LIMIT 50
+            """
+
+            by_pattern = result_to_records(db.select(atomic_query, params))
+
+            return {
+                "total": total,
+                "latest_timestamp": latest_timestamp,
+                "by_direction": by_direction,
+                "by_timeframe": by_timeframe,
+                "by_pattern": by_pattern,
+                "by_pattern_combined": by_pattern_combined,
+            }
+
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc))
+
     @app.get("/api/signals")
     def get_signals(
         limit: int = Query(100, ge=1, le=1000),
+        offset: int = Query(0, ge=0),
         ticker: Optional[str] = Query(None),
         timeframe: Optional[str] = Query(None),
         signal: Optional[str] = Query(None),
+        date_from: Optional[str] = Query(None),
+        date_to: Optional[str] = Query(None),
+        sort_by: str = Query("timestamp"),
+        sort_dir: str = Query("desc"),
     ):
+        allowed_sort_columns = {
+            "id",
+            "ticker",
+            "figi",
+            "timeframe",
+            "timestamp",
+            "signal",
+            "confidence",
+            "price",
+            "rsi",
+            "macd",
+            "bb_position",
+            "volume_ratio",
+            "atr_pct",
+            "pattern_name",
+            "created_at",
+        }
+
+        if sort_by not in allowed_sort_columns:
+            sort_by = "timestamp"
+
+        sort_dir = sort_dir.lower()
+        if sort_dir not in {"asc", "desc"}:
+            sort_dir = "desc"
+
         clauses = []
         params: Dict[str, Any] = {}
 
@@ -200,40 +350,61 @@ def register_routes(app: FastAPI) -> None:
             clauses.append("signal = %(signal)s")
             params["signal"] = signal
 
+        if date_from:
+            clauses.append("timestamp >= %(date_from)s::timestamp")
+            params["date_from"] = date_from
+
+        if date_to:
+            clauses.append("timestamp <= %(date_to)s::timestamp")
+            params["date_to"] = date_to
+
         where = ""
         if clauses:
             where = "WHERE " + " AND ".join(clauses)
 
-        query = f"""
-            SELECT
-                id,
-                ticker,
-                timeframe,
-                timestamp,
-                signal,
-                confidence,
-                price,
-                rsi,
-                macd,
-                bb_position,
-                volume_ratio,
-                atr_pct,
-                summary,
-                buy_signals,
-                sell_signals,
-                total_signals,
-                created_at
-            FROM trading.signals
-            {where}
-            ORDER BY timestamp DESC
-            LIMIT %(limit)s
-        """
-
-        params["limit"] = limit
-
         try:
             db = get_db()
+
+            total_records = result_to_records(
+                db.select(
+                    f"SELECT count(*) AS cnt FROM trading.signals {where}",
+                    params,
+                )
+            )
+            total = int(total_records[0]["cnt"]) if total_records else 0
+
+            query = f"""
+                SELECT
+                    id,
+                    ticker,
+                    figi,
+                    timeframe,
+                    timestamp,
+                    signal,
+                    confidence,
+                    price,
+                    rsi,
+                    macd,
+                    bb_position,
+                    volume_ratio,
+                    atr_pct,
+                    summary,
+                    buy_signals,
+                    sell_signals,
+                    total_signals,
+                    pattern_name,
+                    created_at
+                FROM trading.signals
+                {where}
+                ORDER BY {sort_by} {sort_dir} NULLS LAST
+                LIMIT %(limit)s OFFSET %(offset)s
+            """
+
+            params["limit"] = limit
+            params["offset"] = offset
+
             result = db.select(query, params)
+
         except HTTPException:
             raise
         except Exception as exc:
@@ -244,6 +415,9 @@ def register_routes(app: FastAPI) -> None:
         return {
             "items": items,
             "count": len(items),
+            "total": total,
+            "limit": limit,
+            "offset": offset,
         }
 
     @app.get("/api/top-stocks-by-volume")
