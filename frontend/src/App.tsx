@@ -17,15 +17,15 @@ export default function App() {
   const [tab, setTab] = useState<Tab>("signals");
 
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-slate-800 bg-slate-900/70 px-6 py-4">
+    <div className="flex h-screen flex-col overflow-hidden">
+      <header className="shrink-0 border-b border-slate-800 bg-slate-900/70 px-6 py-4">
         <h1 className="text-xl font-semibold">Trading Terminal</h1>
         <p className="text-sm text-slate-400">
           MOEX analytics and trading signals
         </p>
       </header>
 
-      <nav className="flex gap-2 border-b border-slate-800 px-6 py-3">
+      <nav className="flex shrink-0 gap-2 border-b border-slate-800 px-6 py-3">
         {tabs.map((item) => (
           <button
             key={item.id}
@@ -42,7 +42,7 @@ export default function App() {
         ))}
       </nav>
 
-      <main className="p-6">
+      <main className="flex min-h-0 flex-1 flex-col overflow-auto p-6">
         {tab === "signals" && <SignalsPanel />}
         {tab === "stats" && <PatternStatsPanel />}
         {tab === "top" && <TopStocksPanel />}
