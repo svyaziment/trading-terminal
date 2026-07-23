@@ -23,3 +23,10 @@ reports/
 Thumbs.db
 backend/config/settings.yaml
 backend/logs_internal/
+.env.local
+.env.*.local
+frontend/node_modules/
+frontend/dist/
+logs_internal/
+*.log
+backend/certs/*.pem
