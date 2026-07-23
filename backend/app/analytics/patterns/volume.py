@@ -5,7 +5,7 @@ Volume-based patterns.
 """
 import pandas as pd
 from typing import Dict, Optional, Any
-from src.core.signal_patterns.base import BasePattern, MarketContext
+from app.analytics.patterns.base import BasePattern, MarketContext
 
 
 class VOL_Spike(BasePattern):

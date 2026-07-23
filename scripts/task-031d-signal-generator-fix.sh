@@ -1,3 +1,352 @@
+#!/usr/bin/env bash
+set -u
+
+TASK_ID="task-031d-signal-generator-fix"
+STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+REPORT_DIR="reports/${TASK_ID}"
+BACKUP_DIR="${REPORT_DIR}/backup"
+LOG_TXT="${REPORT_DIR}/log.txt"
+REPORT_JSON="${REPORT_DIR}/report.json"
+REPORT_MD="${REPORT_DIR}/report.md"
+
+mkdir -p "${BACKUP_DIR}"
+: > "${LOG_TXT}"
+
+log() {
+  echo "$1" | tee -a "${LOG_TXT}"
+}
+
+log "Task: ${TASK_ID}"
+log "Started: ${STARTED_AT}"
+
+if command -v python3 >/dev/null 2>&1; then
+  PY=python3
+elif command -v python >/dev/null 2>&1; then
+  PY=python
+else
+  PY=""
+fi
+
+if [[ -z "${PY}" ]]; then
+  log "ERROR: python not found"
+  cat > "${REPORT_JSON}" <<JSON
+{
+  "task_id": "${TASK_ID}",
+  "status": "failed",
+  "error": "python_not_found",
+  "started_at": "${STARTED_AT}",
+  "finished_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+JSON
+  exit 1
+fi
+
+log "Using Python: ${PY}"
+
+backup_file() {
+  local file_path="$1"
+  if [[ -f "${file_path}" ]]; then
+    local dest="${BACKUP_DIR}/${file_path}"
+    mkdir -p "$(dirname "${dest}")"
+    cp "${file_path}" "${dest}"
+    log "BACKUP ${file_path}"
+  fi
+}
+
+backup_file "backend/app/analytics/patterns/__init__.py"
+backup_file "backend/app/analytics/patterns/trend.py"
+backup_file "backend/app/analytics/patterns/mean_reversion.py"
+backup_file "backend/app/analytics/patterns/breakout.py"
+backup_file "backend/app/analytics/patterns/volume.py"
+backup_file "backend/app/analytics/patterns/price_action.py"
+backup_file "backend/app/analytics/signal_engine.py"
+backup_file "backend/app/analytics/signal_generator.py"
+backup_file "backend/tests/test_signal_generator.py"
+
+log "Creating backend/app/analytics/patterns/base.py"
+cat > backend/app/analytics/patterns/base.py <<'BASE_PY_EOF'
+"""
+Base classes for signal patterns.
+"""
+
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
+
+import pandas as pd
+
+
+@dataclass
+class MarketContext:
+    """
+    Minimal market context passed to every pattern.
+    """
+
+    timeframe: str
+    ticker: str = ""
+    figi: str = ""
+
+
+class BasePattern:
+    """
+    Base class for all trading patterns.
+    """
+
+    name: str = "BasePattern"
+    category: str = "Base"
+
+    allowed_trend_regimes = []
+    allowed_vol_regimes = []
+    timeframe_thresholds: Dict[str, Dict[str, Any]] = {}
+
+    def get_thresholds(self, timeframe: str) -> Dict[str, Any]:
+        """
+        Return thresholds for a timeframe.
+
+        Patterns may define `timeframe_thresholds` as:
+
+            {
+                "30min": {...},
+                "1h": {...},
+            }
+
+        If a timeframe is missing, an empty dict is returned.
+        """
+
+        thresholds = getattr(self, "timeframe_thresholds", {}) or {}
+        return dict(thresholds.get(timeframe, {}))
+
+    def evaluate(
+        self,
+        current_row: pd.Series,
+        history: pd.DataFrame,
+        context: MarketContext,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Evaluate pattern on the current candle.
+
+        Contract:
+        - current_row: current candle/indicator row.
+        - history: candles up to and including current_row.
+        - context: timeframe/ticker/figi context.
+
+        Expected return:
+            {
+                "direction": "BUY" | "SELL",
+                "strength": float,
+                "reason": str,
+            }
+
+        or None if no signal.
+        """
+
+        raise NotImplementedError
+BASE_PY_EOF
+
+log "Rewriting backend/app/analytics/patterns/__init__.py"
+cat > backend/app/analytics/patterns/__init__.py <<'INIT_PY_EOF'
+"""
+Trading patterns package.
+"""
+
+from .trend import Trend_SMA_Alignment
+from .mean_reversion import MR_RSI_Reversal
+from .breakout import BO_BB_Squeeze
+from .volume import VOL_Spike, VOL_Low_Pullback
+from .price_action import (
+    PA_Hammer,
+    PA_HangingMan,
+    PA_Engulfing,
+    PA_ThreeWhiteSoldiers,
+    PA_ThreeBlackCrows,
+)
+
+__all__ = [
+    "Trend_SMA_Alignment",
+    "MR_RSI_Reversal",
+    "BO_BB_Squeeze",
+    "VOL_Spike",
+    "VOL_Low_Pullback",
+    "PA_Hammer",
+    "PA_HangingMan",
+    "PA_Engulfing",
+    "PA_ThreeWhiteSoldiers",
+    "PA_ThreeBlackCrows",
+]
+INIT_PY_EOF
+
+log "Replacing old src.core.signal_patterns.base imports"
+for pattern_file in \
+  backend/app/analytics/patterns/trend.py \
+  backend/app/analytics/patterns/mean_reversion.py \
+  backend/app/analytics/patterns/breakout.py \
+  backend/app/analytics/patterns/volume.py \
+  backend/app/analytics/patterns/price_action.py
+do
+  if [[ -f "${pattern_file}" ]]; then
+    sed -i 's#from src.core.signal_patterns.base import BasePattern, MarketContext#from app.analytics.patterns.base import BasePattern, MarketContext#g' "${pattern_file}"
+    log "PATCHED imports in ${pattern_file}"
+  else
+    log "MISSING ${pattern_file}"
+  fi
+done
+
+log "Fixing MR_RSI_Reversal previous RSI indexing"
+"${PY}" - <<'PYFIX'
+from pathlib import Path
+
+path = Path("backend/app/analytics/patterns/mean_reversion.py")
+if not path.exists():
+    print("MISSING mean_reversion.py")
+    raise SystemExit(0)
+
+text = path.read_text(encoding="utf-8")
+
+old = "        prev_rsi = history['rsi_14'].iloc[-1]"
+new = (
+    "        if len(history) < 2:\n"
+    "            return None\n"
+    "        prev_rsi = history['rsi_14'].iloc[-2]"
+)
+
+if old in text:
+    text = text.replace(old, new)
+    path.write_text(text, encoding="utf-8")
+    print("MR_RSI_FIX=applied")
+else:
+    if "iloc[-2]" in text:
+        print("MR_RSI_FIX=already_fixed")
+    else:
+        print("MR_RSI_FIX=not_found")
+PYFIX
+
+log "Rewriting backend/app/analytics/signal_engine.py"
+cat > backend/app/analytics/signal_engine.py <<'ENGINE_PY_EOF'
+"""
+SignalEngine.
+
+Applies a list of patterns to an indicator DataFrame.
+"""
+
+import logging
+from typing import Any, Dict, List
+
+import pandas as pd
+
+from app.analytics.patterns.base import MarketContext
+
+logger = logging.getLogger(__name__)
+
+
+class SignalEngine:
+    """
+    Applies patterns to each candle in a DataFrame.
+    """
+
+    def __init__(self, patterns: List[Any]):
+        self.patterns = patterns
+
+    def process_dataframe(
+        self,
+        df: pd.DataFrame,
+        timeframe: str,
+        lookback_window: int,
+    ) -> List[Dict[str, Any]]:
+        """
+        Apply all patterns to every candle.
+
+        Returns a list of results:
+
+            {
+                "candle": dict,
+                "triggered_patterns": [
+                    {
+                        "name": ...,
+                        "direction": "BUY" | "SELL",
+                        "strength": float,
+                        "reason": str,
+                    }
+                ],
+                "summary": {
+                    "buy_signals": int,
+                    "sell_signals": int,
+                    "total_patterns": int,
+                },
+            }
+        """
+
+        results: List[Dict[str, Any]] = []
+
+        for idx in range(len(df)):
+            current_row = df.iloc[idx]
+            candle = current_row.to_dict()
+
+            candle["timestamp"] = pd.to_datetime(candle.get("timestamp"))
+
+            close_value = candle.get("close", candle.get("price"))
+            try:
+                candle["price"] = float(close_value) if close_value is not None else None
+            except Exception:
+                candle["price"] = None
+
+            # History includes the current candle.
+            # Most patterns expect history.iloc[-1] to be current,
+            # and history.iloc[-2] to be previous.
+            history = df.iloc[: idx + 1]
+
+            context = MarketContext(
+                timeframe=str(timeframe),
+                ticker=str(candle.get("ticker", "")),
+                figi=str(candle.get("figi", "")),
+            )
+
+            triggered: List[Dict[str, Any]] = []
+
+            for pattern in self.patterns:
+                pattern_name = getattr(pattern, "name", pattern.__class__.__name__)
+
+                try:
+                    if hasattr(pattern, "evaluate"):
+                        signal = pattern.evaluate(current_row, history, context)
+                    elif hasattr(pattern, "check"):
+                        # Backward compatibility only.
+                        signal = pattern.check(candle, history, lookback_window)
+                    else:
+                        signal = None
+                except Exception as exc:
+                    logger.debug("Pattern %s failed: %s", pattern_name, exc)
+                    signal = None
+
+                if not signal:
+                    continue
+
+                signal = dict(signal)
+                signal.setdefault("name", pattern_name)
+                signal["direction"] = str(signal.get("direction", "")).upper()
+
+                if signal["direction"] not in {"BUY", "SELL"}:
+                    continue
+
+                triggered.append(signal)
+
+            summary = {
+                "buy_signals": sum(1 for s in triggered if s.get("direction") == "BUY"),
+                "sell_signals": sum(1 for s in triggered if s.get("direction") == "SELL"),
+                "total_patterns": len(triggered),
+            }
+
+            results.append(
+                {
+                    "candle": candle,
+                    "triggered_patterns": triggered,
+                    "summary": summary,
+                }
+            )
+
+        return results
+ENGINE_PY_EOF
+
+log "Rewriting backend/app/analytics/signal_generator.py"
+cat > backend/app/analytics/signal_generator.py <<'GENERATOR_PY_EOF'
 """
 Signal generator.
 
@@ -544,3 +893,195 @@ class SignalGenerator:
 
     def close(self) -> None:
         self.db.close_pool()
+GENERATOR_PY_EOF
+
+log "Rewriting backend/tests/test_signal_generator.py"
+cat > backend/tests/test_signal_generator.py <<'TEST_PY_EOF'
+import pandas as pd
+from unittest.mock import MagicMock, patch
+
+from app.analytics.signal_generator import SignalGenerator
+
+
+def _mock_exists_result(exists: bool = True):
+    result = MagicMock()
+    result.to_dataframe.return_value = pd.DataFrame([{"exists": exists}])
+    return result
+
+
+def test_signal_generator_initialization():
+    with patch("app.analytics.signal_generator.DBManager") as mock_db_cls, \
+         patch("app.analytics.signal_generator.IndicatorsManager"):
+        mock_db = MagicMock()
+        mock_db_cls.return_value = mock_db
+        mock_db.select.return_value = _mock_exists_result(True)
+
+        generator = SignalGenerator()
+
+        assert generator is not None
+        assert generator.engine is not None
+
+
+def test_get_top_tickers_empty():
+    with patch("app.analytics.signal_generator.DBManager") as mock_db_cls, \
+         patch("app.analytics.signal_generator.IndicatorsManager"):
+        mock_db = MagicMock()
+        mock_db_cls.return_value = mock_db
+
+        empty_result = MagicMock()
+        empty_result.to_dataframe.return_value = pd.DataFrame()
+
+        mock_db.select.side_effect = [
+            _mock_exists_result(True),
+            empty_result,
+        ]
+
+        generator = SignalGenerator()
+        tickers = generator.get_top_tickers()
+
+        assert tickers == []
+
+
+def test_ensure_signals_table_creates_unique_index():
+    with patch("app.analytics.signal_generator.DBManager") as mock_db_cls, \
+         patch("app.analytics.signal_generator.IndicatorsManager"):
+        mock_db = MagicMock()
+        mock_db_cls.return_value = mock_db
+        mock_db.select.return_value = _mock_exists_result(True)
+
+        generator = SignalGenerator()
+        generator._ensure_signals_table()
+
+        assert mock_db.execute.called
+TEST_PY_EOF
+
+log "Checking old imports"
+OLD_IMPORTS_COUNT=$(grep -R "from src.core.signal_patterns.base" backend/app/analytics/patterns backend/app/analytics/signal_engine.py backend/app/analytics/signal_generator.py 2>/dev/null | wc -l | tr -d ' ')
+log "OLD_IMPORTS_COUNT=${OLD_IMPORTS_COUNT}"
+
+log "Checking MR_RSI_Reversal fix"
+if grep -q "iloc\[-2\]" backend/app/analytics/patterns/mean_reversion.py 2>/dev/null; then
+  MR_FIX_STATUS="fixed"
+else
+  MR_FIX_STATUS="not_fixed"
+fi
+log "MR_FIX_STATUS=${MR_FIX_STATUS}"
+
+log "Checking BasePattern exists"
+if grep -q "class BasePattern" backend/app/analytics/patterns/base.py 2>/dev/null; then
+  BASE_STATUS="ok"
+else
+  BASE_STATUS="missing"
+fi
+log "BASE_STATUS=${BASE_STATUS}"
+
+log "Running py_compile"
+FILES_TO_COMPILE=(
+  backend/app/analytics/patterns/base.py
+  backend/app/analytics/patterns/__init__.py
+  backend/app/analytics/patterns/trend.py
+  backend/app/analytics/patterns/mean_reversion.py
+  backend/app/analytics/patterns/breakout.py
+  backend/app/analytics/patterns/volume.py
+  backend/app/analytics/patterns/price_action.py
+  backend/app/analytics/signal_engine.py
+  backend/app/analytics/signal_generator.py
+  backend/tests/test_signal_generator.py
+)
+
+PY_COMPILE_STATUS="success"
+if ! "${PY}" -m py_compile "${FILES_TO_COMPILE[@]}" >> "${LOG_TXT}" 2>&1; then
+  PY_COMPILE_STATUS="failed"
+fi
+log "PY_COMPILE_STATUS=${PY_COMPILE_STATUS}"
+
+STATUS="success"
+if [[ "${PY_COMPILE_STATUS}" != "success" ]]; then
+  STATUS="failed"
+fi
+
+if [[ "${OLD_IMPORTS_COUNT}" != "0" ]]; then
+  STATUS="failed"
+fi
+
+if [[ "${BASE_STATUS}" != "ok" ]]; then
+  STATUS="failed"
+fi
+
+if [[ "${MR_FIX_STATUS}" != "fixed" && "${STATUS}" == "success" ]]; then
+  STATUS="needs_human"
+fi
+
+FINISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+export TASK_ID
+export STATUS
+export STARTED_AT
+export FINISHED_AT
+export PY_COMPILE_STATUS
+export OLD_IMPORTS_COUNT
+export MR_FIX_STATUS
+export BASE_STATUS
+export REPORT_JSON
+
+"${PY}" - <<'REPORT_PY'
+import json
+import os
+
+report = {
+    "task_id": os.environ["TASK_ID"],
+    "status": os.environ["STATUS"],
+    "started_at": os.environ["STARTED_AT"],
+    "finished_at": os.environ["FINISHED_AT"],
+    "checks": {
+        "py_compile": os.environ["PY_COMPILE_STATUS"],
+        "old_imports_count": int(os.environ["OLD_IMPORTS_COUNT"]),
+        "mr_rsi_fix": os.environ["MR_FIX_STATUS"],
+        "base_pattern": os.environ["BASE_STATUS"],
+    },
+    "changed_files": [
+        "backend/app/analytics/patterns/base.py",
+        "backend/app/analytics/patterns/__init__.py",
+        "backend/app/analytics/patterns/trend.py",
+        "backend/app/analytics/patterns/mean_reversion.py",
+        "backend/app/analytics/patterns/breakout.py",
+        "backend/app/analytics/patterns/volume.py",
+        "backend/app/analytics/patterns/price_action.py",
+        "backend/app/analytics/signal_engine.py",
+        "backend/app/analytics/signal_generator.py",
+        "backend/tests/test_signal_generator.py",
+    ],
+    "next_action": "If success, run task-031e to regenerate signals and produce report.json",
+}
+
+with open(os.environ["REPORT_JSON"], "w", encoding="utf-8") as f:
+    json.dump(report, f, ensure_ascii=False, indent=2)
+REPORT_PY
+
+{
+  echo "# ${TASK_ID}"
+  echo
+  echo "Status: ${STATUS}"
+  echo "Started: ${STARTED_AT}"
+  echo "Finished: ${FINISHED_AT}"
+  echo
+  echo "## Checks"
+  echo
+  echo "- py_compile: ${PY_COMPILE_STATUS}"
+  echo "- old imports count: ${OLD_IMPORTS_COUNT}"
+  echo "- MR_RSI fix: ${MR_FIX_STATUS}"
+  echo "- BasePattern: ${BASE_STATUS}"
+  echo
+  echo "## Next action"
+  echo
+  echo "If success, run signal generation task next."
+} > "${REPORT_MD}"
+
+log "Report JSON: ${REPORT_JSON}"
+log "Status: ${STATUS}"
+
+if [[ "${STATUS}" == "failed" ]]; then
+  exit 1
+fi
+
+exit 0

@@ -1,7 +1,7 @@
 # src/core/signal_patterns/patterns/mean_reversion.py
 import pandas as pd
 from typing import Dict, Optional, Any
-from src.core.signal_patterns.base import BasePattern, MarketContext
+from app.analytics.patterns.base import BasePattern, MarketContext
 
 class MR_RSI_Reversal(BasePattern):
     """
@@ -41,7 +41,9 @@ class MR_RSI_Reversal(BasePattern):
             return None
             
         # Берем предыдущее значение RSI (последняя строка в history)
-        prev_rsi = history['rsi_14'].iloc[-1]
+        if len(history) < 2:
+            return None
+        prev_rsi = history['rsi_14'].iloc[-2]
         if pd.isna(prev_rsi) or prev_rsi is None:
             return None
             
