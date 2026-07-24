@@ -11,6 +11,12 @@ def create_app() -> FastAPI:
     )
 
     register_routes(application)
+    # task-043: async data refresh endpoints
+    from app.api.data_refresh import register_routes as register_refresh_routes
+    register_refresh_routes(application)
+    # task-041: async signal regeneration endpoints
+    from app.api.signals_jobs import register_routes as register_jobs_routes
+    register_jobs_routes(application)
 
     @application.get("/health")
     def health() -> dict:

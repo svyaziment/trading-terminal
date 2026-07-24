@@ -620,3 +620,38 @@ frontend build проверен: нет
 API enhancements проверены: нет
 1d сигналы: нет
 следующий приоритет: проверить frontend и совместимость API
+
+## 20. Асинхронный пайплайн данных и обновление (task-041..046)
+
+Новые эндпоинты бэкенда (проверены вживую в task-043a):
+
+| Метод | Путь | Назначение |
+| --- | --- | --- |
+| POST | /api/data/refresh?days=N | Фоновый пайплайн: загрузка 30min свечей (ТОП-30) -> агрегация -> индикаторы -> сигналы |
+| GET | /api/data/refresh/status | Статус задачи обновления (этап, tickers_done/total, raw_inserted, ошибки) |
+| GET | /api/jobs/status | Общий статус задач refresh + regenerate (общий лок) |
+| POST | /api/signals/regenerate | Фоновая перегенерация сигналов (переведена на общий лок jobs_state) |
+| GET | /api/signals/regenerate/status | Статус задачи регенерации |
+
+Общий лок:
+- backend/app/api/jobs_state.py: единый внутрипроцессный лок + хранилище состояний.
+- /api/data/refresh и /api/signals/regenerate делят лок: одновременно выполняется только одна тяжёлая задача (вторая получает 409).
+
+Фиксы агрегатора (task-045, task-046):
+- 4h bucket: экранирован литеральный % для позиционных параметров psycopg2 (% 4 -> %% 4).
+- Идемпотентный upsert: ON CONFLICT (ticker, timestamp, timeframe) DO UPDATE SET open/high/low/close/volume/figi = EXCLUDED.*.
+- figi убран из GROUP BY (PK = ticker,timestamp,timeframe); figi берётся как (array_agg(figi ORDER BY timestamp DESC))[1].
+- Эти фиксы закрыли дыру в 4h-агрегации, оставшуюся от упавшего прогона (delete прошёл, insert упал).
+
+Фронтенд:
+- frontend/src/components/PipelineWidget.tsx: плавающая панель двух операций (обновление + регенерация) с прогрессом по этапам, прогресс-баром, живым таймером, баннером общего лока, тостами.
+- Заменяет RegenerateWidget.tsx (task-041); RegenerateWidget больше не импортируется в App.tsx.
+
+Статус пайплайна данных:
+- candles_30min_raw: загрузка через DataLoader (T-Bank API), идемпотентно delete-range + insert.
+- candles_aggregated: идемпотентный upsert (ON CONFLICT).
+- 4h: восстановлен после фикса task-046.
+- indicators + signals: пересчитываются пайплайном обновления.
+
+Модуль аудита БД:
+- backend/app/db/audit_raw.py: read-only аудит (наличие токена, свежесть, ограничения). Использовался в task-042d.

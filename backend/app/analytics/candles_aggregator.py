@@ -69,7 +69,7 @@ class CandlesAggregator:
             )
             SELECT
                 ticker,
-                figi,
+                (array_agg(figi ORDER BY timestamp DESC))[1] AS figi,
                 {bucket_expr} AS bucket,
                 %s AS timeframe,
                 (array_agg(open ORDER BY timestamp))[1] AS open,
@@ -82,7 +82,8 @@ class CandlesAggregator:
             WHERE ticker = %s
               AND timestamp >= %s
               AND timestamp < %s
-            GROUP BY ticker, figi, {bucket_expr}
+            GROUP BY ticker, {bucket_expr}
+            ON CONFLICT (ticker, timestamp, timeframe) DO UPDATE SET open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, close = EXCLUDED.close, volume = EXCLUDED.volume, figi = EXCLUDED.figi
         """
         count = self.db.execute(insert_sql, (timeframe, ticker, from_date, to_date))
         logger.info(f"Aggregated {count} {timeframe} candles for {ticker}")
@@ -148,7 +149,7 @@ class CandlesAggregator:
         """Get SQL bucket expression for a timeframe."""
         buckets = {
             "1h": "date_trunc('hour', timestamp)",
-            "4h": "date_trunc('hour', timestamp) - (EXTRACT(hour FROM timestamp)::int % 4) * interval '1 hour'",
+            "4h": "date_trunc('hour', timestamp) - (EXTRACT(hour FROM timestamp)::int %% 4) * interval '1 hour'",
             "1d": "date_trunc('day', timestamp)",
             "1w": "date_trunc('week', timestamp)",
             "1M": "date_trunc('month', timestamp)",

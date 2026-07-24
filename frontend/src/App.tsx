@@ -3,6 +3,7 @@ import SignalsPanel from "./components/SignalsPanel";
 import PatternStatsPanel from "./components/PatternStatsPanel";
 import TopStocksPanel from "./components/TopStocksPanel";
 import InstrumentsPanel from "./components/InstrumentsPanel";
+import PipelineWidget from "./components/PipelineWidget";
 
 type Tab = "signals" | "stats" | "top" | "instruments";
 
@@ -48,6 +49,7 @@ export default function App() {
         {tab === "top" && <TopStocksPanel />}
         {tab === "instruments" && <InstrumentsPanel />}
       </main>
+      <PipelineWidget />
     </div>
   );
 }

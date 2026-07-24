@@ -63,6 +63,7 @@ Python metrics:
 ---
 
 ## 3. Technology Stack
+<!-- docs-anchor: section_id=tech-stack; title=3. Technology Stack; paths=backend/requirements.txt,backend/Dockerfile,docker-compose.yml,frontend/package.json,config/agents.yaml -->
 
 Backend:
 - Python 3.12
@@ -135,6 +136,7 @@ Main components:
 ---
 
 ## 5. Directory Map
+<!-- docs-anchor: section_id=directory-map; title=5. Directory Map; paths=backend/app,frontend/src -->
 
 Authoritative source:
 - reports/task-035a-project-db-scan-fix/current_tree.txt
@@ -203,6 +205,7 @@ Scripts:
 ---
 
 ## 6. Backend Notes
+<!-- docs-anchor: section_id=backend-notes; title=6. Backend Notes; paths=backend/app/main.py,backend/app/api/market_data.py,backend/app/api/signals.py,backend/app/db/db_manager.py,backend/app/core/config_manager.py -->
 
 Application entrypoint:
 - backend/app/main.py
@@ -242,6 +245,7 @@ Configuration:
 ---
 
 ## 7. Analytics Pipeline
+<!-- docs-anchor: section_id=analytics-pipeline; title=7. Analytics Pipeline; paths=backend/app/analytics,backend/app/broker/data_loader.py -->
 
 Logical data flow:
 
@@ -409,6 +413,7 @@ Top stocks:
 ---
 
 ## 12. API Baseline
+<!-- docs-anchor: section_id=api-baseline; title=12. API Baseline; paths=backend/app/api/market_data.py,backend/app/main.py; entities=/health,/api/instruments,/api/candles,/api/signals,/api/top-stocks-by-volume -->
 
 Confirmed baseline endpoints:
 
@@ -434,6 +439,7 @@ Important:
 ---
 
 ## 13. Frontend Baseline
+<!-- docs-anchor: section_id=frontend-baseline; title=13. Frontend Baseline; paths=frontend/src -->
 
 Frontend exists under:
 - frontend/
@@ -622,6 +628,47 @@ top_stocks_count: 30
 top_stocks_latest_report_date: 2026-07-22
 frontend_present: true
 frontend_build_verified: false
-api_enhancements_verified: false
+api_enhancements_verified: true
 daily_signals_present: false
-next_priority: verify frontend and API compatibility
+next_priority: Block B (data quality / feature store) or 1d signal diagnostics
+data_refresh_endpoint: true
+jobs_status_endpoint: true
+signal_regenerate_endpoint: true
+pipeline_widget: true
+aggregator_idempotent: true
+four_hour_hole_closed: true
+
+## 20. Async Data Pipeline & Refresh (task-041..046)
+
+New backend endpoints (verified live in task-043a):
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | /api/data/refresh?days=N | Background pipeline: load 30min candles (TOP-30) -> aggregate -> indicators -> signals |
+| GET | /api/data/refresh/status | Refresh job status (stage, tickers_done/total, raw_inserted, errors) |
+| GET | /api/jobs/status | Shared view of refresh + regenerate jobs (shared lock) |
+| POST | /api/signals/regenerate | Background signal regeneration (refactored onto shared jobs_state lock) |
+| GET | /api/signals/regenerate/status | Regenerate job status |
+
+Shared lock:
+- backend/app/api/jobs_state.py provides a single in-process lock + state store.
+- /api/data/refresh and /api/signals/regenerate share the lock: only one heavy job runs at a time (the second returns 409).
+
+Aggregator fixes (task-045, task-046):
+- 4h bucket expression: escaped literal % for psycopg2 positional params (% 4 -> %% 4).
+- Idempotent upsert: ON CONFLICT (ticker, timestamp, timeframe) DO UPDATE SET open/high/low/close/volume/figi = EXCLUDED.*.
+- figi removed from GROUP BY (PK is ticker,timestamp,timeframe); figi taken as (array_agg(figi ORDER BY timestamp DESC))[1].
+- These fixes closed the 4h aggregation hole left by the failed refresh run (delete had committed, insert had raised).
+
+Frontend:
+- frontend/src/components/PipelineWidget.tsx: floating two-operation panel (refresh + regenerate) with per-stage progress rail, progress bar, live timer, shared-lock banner, toasts.
+- Supersedes RegenerateWidget.tsx (task-041); RegenerateWidget is no longer imported in App.tsx.
+
+Data pipeline status:
+- candles_30min_raw: loaded via DataLoader (T-Bank API), idempotent delete-range + insert.
+- candles_aggregated: idempotent upsert (ON CONFLICT).
+- 4h timeframe: restored after task-046 fix.
+- indicators + signals: recomputed by the refresh pipeline.
+
+DB audit module:
+- backend/app/db/audit_raw.py: read-only audit (token presence, freshness, constraints). Used by task-042d.
