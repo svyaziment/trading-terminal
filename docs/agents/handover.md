@@ -79,3 +79,30 @@ Read this file, then project-context, then the documentation policy, then the ro
 ## 9. Keeping your own context fresh
 
 This handover is a starting point, not a permanent truth. Before acting on anything time-sensitive, refresh your understanding the deterministic way: run the targeted project scanner and the DB schema scanner in read-only mode, read the latest report.json, and confirm the facts against the live repository and database. The documentation policy explains how documentation itself stays fresh after commits to main; follow it when you change code so the next replacing session does not inherit a lie.
+
+## 10. Operational gotchas (Windows / Git Bash / Docker)
+
+Hard-won lessons from task-035..task-046. A replacing agent WILL hit these on day one. They are environment-specific (Windows + Git Bash + Docker Desktop) and not obvious from the code.
+
+1. MSYS path conversion breaks absolute posix paths.
+   Native Windows python and `docker compose cp` mangle paths like `/f/GIT/...` into `F:\f\GIT\...` (note the doubled `f`), causing FileNotFoundError.
+   Rule: write files using RELATIVE paths (`Path("reports") / task_id / ...`); never pass absolute posix paths to python via environment variables. Bash handles `/f/...` fine for its own redirections; the breakage is when a native (non-MSYS) program receives the path.
+
+2. `git add -A` must NOT use pathspec exclude for ignored files.
+   `git add -A -- . :(exclude)reports ...` fails with "The following paths are ignored by one of your .gitignore files", because the pathspec magic forces git to consider ignored files explicitly.
+   Rule: use plain `git add -A` (no pathspec). It respects `.gitignore` and does not try to add ignored files. Ensure `.gitignore` covers `.env`, `frontend/node_modules/`, `frontend/dist/`, `reports/`, `logs/`, `backend/certs/*.pem`, `*.log`, `__pycache__/`, `*.pyc`.
+
+3. Get code into the container via stdin, not `docker compose cp`.
+   `docker compose cp <host-path> <container>:/tmp/...` breaks on the host path (same MSYS issue).
+   Rule: pipe code through stdin: `printf '%s' "$CODE" | docker compose exec -T backend python -` (or `cat script.py | docker compose exec -T backend python -`). No path crosses the MSYS boundary.
+
+4. Rebuild the backend image after ANY backend code change.
+   The backend container runs from a built image (no source volume mount for `backend`). Editing `backend/app/**` on the host does NOT affect the running container until you rebuild.
+   Rule: after any backend change, run `docker compose up -d --build backend` and wait for `/health`. A task that edits backend code but skips the rebuild reports success while the container runs stale code (this happened in task-041: report said success, but `import app.api.signals_jobs` failed inside the container). Make the in-container import check a HARD gate, not best-effort.
+
+5. `docker exec -T` is invalid; only `docker compose exec -T` accepts `-T`.
+   Plain `docker exec` has no `-T` flag (it errors with "unknown shorthand flag: 'T'"). For stdin into a bare `docker exec`, use `-i` (`docker exec -i container python -`).
+   Rule: prefer `docker compose exec -T backend ...`; if you must use bare `docker exec`, use `-i`, not `-T`.
+
+Bonus — data idempotency (learned in task-045/046):
+- `candles_aggregator` aggregation must be an idempotent upsert: `ON CONFLICT (ticker, timestamp, timeframe) DO UPDATE`. A plain `delete-range + insert` is NOT idempotent here because (a) the 4h bucket expression contains a literal `%` that must be escaped as `%%` for psycopg2 positional params, and (b) `figi` must NOT be in `GROUP BY` (the PK is `(ticker, timestamp, timeframe)`), else duplicate rows are produced. Take `figi` as `(array_agg(figi ORDER BY timestamp DESC))[1]`.
