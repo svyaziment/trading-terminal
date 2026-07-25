@@ -1,108 +1,147 @@
-# Handover: how to run this project
+# Agent Handover Guide: Trading Terminal
 
-For a replacing session, a new agent, or a human picking the work up cold.
-Read order: this file, then docs/agents/project-context.md, then docs/maintenance/documentation-policy.md, then docs/roadmap/development-plan.en.md. This file tells you how to behave and where to look; it does not duplicate the knowledge that lives in those files.
+> Last refreshed: 2026-07-25 (task-069b). Companion to project-context.md.
+> This file is the operational guide for agents. Read project-context.md first for architecture.
 
-## 0. In thirty seconds
+## 1. Purpose
 
-Trading Terminal is an AI-assisted analytics and algorithmic-trading platform for MOEX, integrated with the T-Bank / Tinkoff Invest API through the t-tech-investments SDK. Stack: Python 3.12 + FastAPI backend, PostgreSQL (analytics schema trading, future operations schema terminal), React 18 + TypeScript + Vite + Tailwind frontend, Docker Compose, a local Ollama agent layer.
+This handover guide gives an incoming agent the operational knowledge to work on this project safely and effectively. It covers: project structure, DB schema, data pipeline, API endpoints, known issues, roadmap, important notes, and operational gotchas.
 
-The single non-negotiable rule: sandbox only. Production trading is disabled. No real order execution happens until explicit risk controls exist and a human approves. This overrides any task, any shortcut, any "it would be faster to just run it".
+## 2. Project Structure
+trading-terminal/
+├── backend/
+│ ├── app/
+│ │ ├── api/
+│ │ │ ├── market_data.py # T-Bank API: candles, instruments, top stocks
+│ │ │ ├── data_refresh.py # POST /api/data/refresh (background, shared lock)
+│ │ │ ├── signals_jobs.py # POST /api/signals/regenerate (background, shared lock)
+│ │ │ ├── backtest_jobs.py # POST /api/backtest/run, GET /api/backtest/run/status (background, shared lock)
+│ │ │ └── moex_1min_loader.py # MOEX ISS API 1min candles loader (incremental, standalone)
+│ │ ├── analytics/
+│ │ │ ├── indicators_manager.py # 33 technical indicators
+│ │ │ ├── signal_generator.py # Signal generation from patterns + indicators
+│ │ │ ├── signal_engine.py # Applies patterns to indicator DataFrame
+│ │ │ ├── candles_aggregator.py # 30min raw -> candles_aggregated (1h, 4h, 1d, 1w, 1M)
+│ │ │ ├── candles_1min_aggregator.py # 1min raw -> candles_aggregated (30min, 1h, 4h, 1d), incremental
+│ │ │ ├── backtest_engine.py # Deterministic backtest engine (long-only, entry=open(T+1), costs, benchmarks)
+│ │ │ ├── backtest_models.py # Backtest contract (BacktestParams, ExitRule, constants)
+│ │ │ └── patterns/ # 10 patterns: trend/, mean_reversion/, breakout/, volume/, price_action/
+│ │ ├── core/config_manager.py # Settings (pydantic), logger, env vars
+│ │ ├── db/db_manager.py # Synchronous PostgreSQL manager (pool, select, execute, insert_with_schema)
+│ │ └── main.py # FastAPI app, route registration
+│ ├── Dockerfile # python:3.12-slim, T-Bank SDK, psycopg2
+│ └── tests/
+├── frontend/src/ # React (Vite): App.tsx, SignalsPanel.tsx, PipelineWidget.tsx
+├── docs/
+│ ├── agents/ # project-context.md, handover.md, documentation-policy.md
+│ └── refresh/ # Refresh artifacts (file_scan_report.md, db_schema.md, current_tree.txt)
+├── scripts/ # Task scripts (gitignored)
+│ ├── refresh/refresh-project-docs.sh # Refresh scanner wrapper
+│ ├── targeted_project_scanner.py # File scanner
+│ └── db_schema_scanner.py # DB schema scanner
+└── docker-compose.yml # backend + frontend services
 
-## 1. How to work with the user
+## 3. Database Schema (PostgreSQL, schema: trading)
 
-This is the most important section, because it is the part that cannot be regenerated from code.
+| Table | Rows (approx) | Description |
+|---|---|---|
+| candles_30min_raw | ~28k | 30min candles from T-Bank API (30 tickers, ~1 month) |
+| candles_1min_raw | ~900k | 1min candles from MOEX ISS API (SBER/GAZP/VTBR, 2 years) |
+| candles_aggregated | ~100k | Aggregated candles (30min, 1h, 4h, 1d, 1w, 1M) |
+| indicators | ~60k | 33 technical indicators per candle |
+| signals | ~45k | BUY/SELL signals (10 patterns, confidence, total_signals) |
+| instruments | ~4.3k | Ticker metadata (figi, lot_size, min_price_increment) |
+| top_stocks_by_volume | 30 | Top 30 tickers by volume |
+| backtest_runs | ~100 | Backtest run metadata (params, status, total_trades) |
+| backtest_trades | ~200k | Individual trades (entry/exit, PnL, costs) |
+| backtest_equity | ~200k | Equity curve per run |
+| backtest_metrics | ~3k | Aggregated metrics per run/group (PF, expectancy, win_rate, benchmarks) |
 
-Be honest over being agreeable. The user values a weighed opinion and explicit pushback. If something is wrong, premature, or has a hidden trap, say so with the reason. Flattery reads as failure of trust.
+Key columns:
+- candles_1min_raw: ticker, figi, timestamp (PK: ticker, timestamp), open/high/low/close, volume
+- backtest_runs: id, strategy_name, params (jsonb), universe_snapshot (jsonb), selection_bias, status, total_trades
+- backtest_trades: run_id (FK), ticker, timeframe, signal_id, pattern_name, side (LONG), entry_ts/price, exit_ts/price, exit_reason, bars_held, gross/commission/slippage/net_return_pct, pnl_rub
+- backtest_metrics: run_id (FK), group_key (ALL or pattern=X|tf=Y), n_trades, profit_factor, expectancy, win_rate, sharpe, sortino, max_drawdown, reliable, benchmark_buyhold/random_return_pct
 
-Distinguish the mode of the request. When the user says "let's reason" or "what do you think", answer with thought, not with a wall of code. When the user says "do it" or "back to the protocol", produce the task script. Do not dump code into a discussion, and do not philosophise when an action was asked for.
+## 4. Data Pipeline
 
-Offer choices, not a single decree. The user likes two or three options with pros and cons, plus your recommendation, plus an explicit "say default and I'll take your defaults". That pattern respects their control and saves rounds.
+1. **Market data fetch**: T-Bank Invest API (gRPC, sandbox) -> candles_30min_raw (30 tickers, 30min candles).
+2. **1min candles fetch**: MOEX ISS API (REST) -> candles_1min_raw (SBER/GAZP/VTBR, 1min candles, 2 years). Incremental loader (backend/app/api/moex_1min_loader.py).
+3. **Aggregation**: candles_30min_raw -> candles_aggregated (1h, 4h, 1d, 1w, 1M) via candles_aggregator.py. candles_1min_raw -> candles_aggregated (30min, 1h, 4h, 1d) via candles_1min_aggregator.py (incremental).
+4. **Indicators**: candles_aggregated -> indicators (33 indicators per candle) via indicators_manager.py.
+5. **Signals**: indicators + patterns -> signals (BUY/SELL, confidence, total_signals, pattern_name) via signal_generator.py + signal_engine.py.
+6. **Backtest**: signals + candles_aggregated + indicators -> backtest_runs/trades/equity/metrics via backtest_engine.py + backtest_jobs.py.
 
-Language: Russian with the user in chat; English for agent-facing documents, with Russian parallels where the document is also a human surface (see the documentation policy).
+## 5. API Endpoints
 
-Do not bloat. A dense answer with specifics beats a long one. The user is tired of padding.
+| Method | Path | Description |
+|---|---|---|
+| GET | /health | Health check |
+| GET | /api/candles | Candles (ticker, timeframe, limit) |
+| GET | /api/instruments | Instruments list |
+| GET | /api/top-stocks | Top 30 by volume |
+| GET | /api/signals | Signals (ticker, timeframe, limit) |
+| POST | /api/data/refresh | Background: fetch candles + aggregate + indicators + signals (shared lock) |
+| POST | /api/signals/regenerate | Background: regenerate signals only (shared lock) |
+| GET | /api/jobs/status | All jobs status (refresh, regenerate, backtest) |
+| POST | /api/backtest/run | Background: run backtest matrix (shared lock). Params: quick, universe_limit, signal_exit, tickers |
+| GET | /api/backtest/run/status | Backtest job status (progress, combo_results) |
 
-Admit mistakes briefly and move on. "I was wrong about X because Y" is enough; no self-flagellation.
+Shared lock: jobs_state.py (in-process). Only one heavy job (refresh/regenerate/backtest) runs at a time. Others return 409.
 
-Do not add scope without being asked. Do not create a branch, a file, an abstraction, or an infrastructure piece the user did not request. If you think it is needed, propose it as an option first.
+## 6. Patterns (10 total)
 
-## 2. Development protocol
+| Category | Pattern | Description |
+|---|---|---|
+| Trend | Trend_SMA_Alignment | SMA alignment (20/50/200) |
+| Mean Reversion | MR_RSI_Reversal | RSI reversal from overbought/oversold |
+| Breakout | BO_BB_Squeeze | Bollinger Bands squeeze |
+| Volume | VOL_Spike | Volume spike (>2x average) |
+| Volume | VOL_Low_Pullback | Low-volume pullback |
+| Price Action | PA_Hammer | Hammer (bullish reversal) |
+| Price Action | PA_HangingMan | Hanging man (bearish reversal) |
+| Price Action | PA_Engulfing | Engulfing (bullish/bearish) |
+| Price Action | PA_ThreeWhiteSoldiers | Three white soldiers (bullish) |
+| Price Action | PA_ThreeBlackCrows | Three black crows (bearish) |
 
-Work is task-based. Each task is a bash script under scripts/task-NNN-*.sh that produces reports/<task_id>/ with report.json, report.md and log.txt. report.json is the primary feedback channel; its status is one of success, failed, needs_human. Always read the latest report.json before proposing the next step.
+## 7. Known Issues & Status
 
-The user creates pull requests and merges by hand. Do not create feature branches, do not commit, do not push, do not open PRs unless the user explicitly asks for it in that task. Several earlier tasks that tried to automate git add or push failed or created friction; the working arrangement is that the script produces files and a report, and the user handles git.
+- **1d signals**: Now present (213-215 per ticker on 2-year history). Previously 0 due to insufficient 1d indicators (274 rows). Fixed by loading 2-year 1min history and aggregating to 1d.
+- **Backtest results (2-year history, SBER/GAZP/VTBR)**: Rule-based strategies are NOT profitable after commission (0.06% round-trip). All 30 matrix combinations have PF < 1, expectancy < 0. Best: filter_ts2_c0.9_sigOn (PF 0.800, exp -0.066%). Strategy underperforms buy&hold and random on strong signals. Per-ticker: GAZP best PF (0.870), SBER worst (0.581), VTBR buy&hold strongly positive (+0.17%) but strategy loses (-0.08%). Exit by any signal (sigOn) better than exit by strong signal (sigOn_ts3) or no signal exit (sigOff).
+- **Session timezone**: candles_aggregated timestamp timezone unverified (likely UTC). session_only exit forced False in backtest v1.
+- **Universe bias**: Backtest uses fixed top-30 (selection_bias=true). Rolling universe not implemented.
+- **Commission**: 0.06% round-trip (0.03% per side). Exchange fee not included separately.
 
-Manual edits are allowed. The user sometimes edits frontend files by hand and checks them in the browser. The context for such edits is tracked from the git state of the files, not from task reports; a manual edit does not require a report to be "real".
+## 8. Roadmap Status
 
-## 3. Where to look, and the recurring traps
+| Block | Description | Status |
+|---|---|---|
+| A | Core infrastructure (FastAPI, DB, T-Bank API) | Done |
+| B | Indicators (33) | Done |
+| C | Patterns (10) + signals | Done |
+| D | Frontend (SignalsPanel, PipelineWidget) | Done |
+| E | Background jobs (refresh, regenerate, shared lock) | Done |
+| F | Documentation (project-context, handover, policy) | Done (this refresh) |
+| G | Backtest engine + matrix | Done (task-049..065) |
+| H | 1min candles (MOEX ISS API) + aggregation | Done (task-054..063) |
+| I | ML (CatBoost/LightGBM) | Not started |
+| J | Frontend backtest visualization | Not started |
 
-For the full file map, the data model, the API baseline and the current numbers, read docs/agents/project-context.md. Do not trust the numbers in this handover; verify them against project-context and the latest reports/task-*/db_schema.md. The traps below are listed inline because a replacing agent hits them on day one and should not have to chase them through links:
+## 9. Important Notes
 
-- backend/app/api/signals.py is a legacy router and is not registered by backend/app/main.py. The live routes come from backend/app/api/market_data.py. Do not enable or "fix" signals.py without an explicit task; verify first.
-- The real signal engine and pattern base live at backend/app/analytics/signal_engine.py and backend/app/analytics/patterns/base.py. The project scanner reports backend/app/analytics/signal_patterns/engine.py and signal_patterns/base.py as missing important files; those are false positives from an old layout. Do not create them unless you are intentionally refactoring the module layout.
-- Imports use app.*, never src.*. The src.* form is leftover from the old AlgoTerminal project and is a bug if it appears.
-- The database password comes only from environment variables (PSTGRS_PWD / POSTGRES_PASSWORD). Never read, print, log or commit it.
-- There are no 1d signals because 1d indicators are sparse (only a few hundred rows), insufficient for long moving averages. This is a known open diagnostic item, not a regression.
-- The frontend production build has not been verified at the time this handover was written. Treat "frontend works" as "dev server was observed", not "build passes".
+- **Sandbox mode**: No real trading. T-Bank API sandbox tokens.
+- **Secrets**: .env (TINVEST_TOKEN, PSTGRS_PWD). Never log secrets.
+- **Docker**: Backend image must be rebuilt after code changes (docker compose up -d --build backend).
+- **Backtest conclusion**: Rule-based strategies (patterns -> signals -> stop/take/holding) do NOT have edge after commission on MOEX top-3 (SBER/GAZP/VTBR) over 2 years. Signals carry weak directional info (buy&hold positive on strong signals), but rules of exit and commission kill it. Next steps: ML on indicators (not patterns), or revise hypothesis, or accept result.
+- **Data history**: 1min candles loaded for SBER/GAZP/VTBR (2 years). Other 27 tickers still have ~1 month (from T-Bank API 30min raw). Expand via moex_1min_loader.py for full universe.
 
-## 4. Decision principles
+## 10. Operational Gotchas
 
-Honesty first, as in section 1.
-
-Keep the git axis and the agent-context axis separate. Whether a file is stored in git and whether its body is fed to an agent are two independent decisions; do not collapse them. (See the documentation policy, section 9.)
-
-Documentation describes results and decisions, not process. If you are tempted to write "we tried X then Y then Z", stop and write the decision that survived instead.
-
-Context is incremental. Update the affected slice, never rebuild the whole snapshot. Pull file bodies on demand.
-
-Do not automate prematurely. A deterministic script you run by hand beats a fragile background daemon you cannot see.
-
-Sandbox, idempotency, secrets-in-env. Every data operation should be safe to re-run; every secret stays in the environment.
-
-## 5. What is already done (Block A)
-
-Stabilisation and visualisation are in place: the analytics pipeline (instruments, 30-minute candles, aggregation, indicators, signal generation) runs; signals are generated and enriched with pattern_name and figi; the React frontend shows a signals table with per-column filter funnels, server-side sorting, pagination, a date filter, a pattern filter over a fixed set, a sticky header, and a signal detail modal with a candle chart. Documentation baselines (project context, roadmap) and the project/DB scanners exist. For exact counts and timestamps, read project-context and the latest db_schema report, not this paragraph.
-
-## 6. What comes next
-
-The roadmap in docs/roadmap/development-plan.en.md is the source of truth for sequencing (Blocks A through I: stabilisation, data quality and feature store, backtesting, ML features and labels, CatBoost/LightGBM training, prediction service, retraining and monitoring, terminal schema and risk, observability). The next concrete step after this handover is verifying the frontend production build and the compatibility of /api/signals with what the frontend expects (pagination, sorting, date filters, pattern_name, figi, statistics). The task ID for that step is assigned when the script is issued; do not hard-code it.
-
-## 7. Red lines
-
-Never enable or propose production trading. Never commit .env, frontend/node_modules, frontend/dist, reports/, logs/ or backend/certs/*.pem. Never drop or truncate database tables without a backup. Never create branches or PRs without an explicit request. Never write code when a discussion was asked for, and never discuss when an action was asked for. Never print secrets, tokens or passwords anywhere. Never "fix" the legacy signals.py or create the signal_patterns/ layout without an explicit task.
-
-## 8. First-day checklist
-
-Read this file, then project-context, then the documentation policy, then the roadmap. Run git status and git log to see the real current state; this handover does not claim a specific branch or clean tree. Read the most recent reports/task-*/report.json to learn the last task and its status. Start the backend (docker compose up -d --build backend, then curl the /health endpoint) and the frontend (cd frontend, npm install if needed, npm run dev, open the local Vite URL). Then ask the user what to do next; if they have no preference, default to the frontend build verification from section 6.
-
-## 9. Keeping your own context fresh
-
-This handover is a starting point, not a permanent truth. Before acting on anything time-sensitive, refresh your understanding the deterministic way: run the targeted project scanner and the DB schema scanner in read-only mode, read the latest report.json, and confirm the facts against the live repository and database. The documentation policy explains how documentation itself stays fresh after commits to main; follow it when you change code so the next replacing session does not inherit a lie.
-
-## 10. Operational gotchas (Windows / Git Bash / Docker)
-
-Hard-won lessons from task-035..task-046. A replacing agent WILL hit these on day one. They are environment-specific (Windows + Git Bash + Docker Desktop) and not obvious from the code.
-
-1. MSYS path conversion breaks absolute posix paths.
-   Native Windows python and `docker compose cp` mangle paths like `/f/GIT/...` into `F:\f\GIT\...` (note the doubled `f`), causing FileNotFoundError.
-   Rule: write files using RELATIVE paths (`Path("reports") / task_id / ...`); never pass absolute posix paths to python via environment variables. Bash handles `/f/...` fine for its own redirections; the breakage is when a native (non-MSYS) program receives the path.
-
-2. `git add -A` must NOT use pathspec exclude for ignored files.
-   `git add -A -- . :(exclude)reports ...` fails with "The following paths are ignored by one of your .gitignore files", because the pathspec magic forces git to consider ignored files explicitly.
-   Rule: use plain `git add -A` (no pathspec). It respects `.gitignore` and does not try to add ignored files. Ensure `.gitignore` covers `.env`, `frontend/node_modules/`, `frontend/dist/`, `reports/`, `logs/`, `backend/certs/*.pem`, `*.log`, `__pycache__/`, `*.pyc`.
-
-3. Get code into the container via stdin, not `docker compose cp`.
-   `docker compose cp <host-path> <container>:/tmp/...` breaks on the host path (same MSYS issue).
-   Rule: pipe code through stdin: `printf '%s' "$CODE" | docker compose exec -T backend python -` (or `cat script.py | docker compose exec -T backend python -`). No path crosses the MSYS boundary.
-
-4. Rebuild the backend image after ANY backend code change.
-   The backend container runs from a built image (no source volume mount for `backend`). Editing `backend/app/**` on the host does NOT affect the running container until you rebuild.
-   Rule: after any backend change, run `docker compose up -d --build backend` and wait for `/health`. A task that edits backend code but skips the rebuild reports success while the container runs stale code (this happened in task-041: report said success, but `import app.api.signals_jobs` failed inside the container). Make the in-container import check a HARD gate, not best-effort.
-
-5. `docker exec -T` is invalid; only `docker compose exec -T` accepts `-T`.
-   Plain `docker exec` has no `-T` flag (it errors with "unknown shorthand flag: 'T'"). For stdin into a bare `docker exec`, use `-i` (`docker exec -i container python -`).
-   Rule: prefer `docker compose exec -T backend ...`; if you must use bare `docker exec`, use `-i`, not `-T`.
-
-Bonus — data idempotency (learned in task-045/046):
-- `candles_aggregator` aggregation must be an idempotent upsert: `ON CONFLICT (ticker, timestamp, timeframe) DO UPDATE`. A plain `delete-range + insert` is NOT idempotent here because (a) the 4h bucket expression contains a literal `%` that must be escaped as `%%` for psycopg2 positional params, and (b) `figi` must NOT be in `GROUP BY` (the PK is `(ticker, timestamp, timeframe)`), else duplicate rows are produced. Take `figi` as `(array_agg(figi ORDER BY timestamp DESC))[1]`.
+- **MSYS path conversion**: Use MSYS_NO_PATHCONV=1 for docker commands with absolute paths in Git Bash. Without it, /app/... becomes C:/Program Files/Git/app/... and fails.
+- **stdout pollution**: DBManager logs to stdout by default. In scripts that parse JSON from stdout, reroute logging to stderr BEFORE importing app (class _StderrHandler(logging.StreamHandler): def __init__(self, stream=None): super().__init__(sys.stderr); logging.StreamHandler = _StderrHandler). Otherwise "Extra data: line 1 column 5 (char 4)" from "PostgreSQL connection pool created".
+- **%% escaping in SQL**: psycopg2 interprets % as placeholder start. In SQL with modulo operator (e.g., extract(hour) % 4), escape as %% 4. Otherwise "tuple index out of range".
+- **Incremental loading**: moex_1min_loader.py and candles_1min_aggregator.py are incremental (start from max timestamp). If data is partial (e.g., loaded only last day), they won't backfill. Use full load (--days 730) or check has_data_two_years_ago logic.
+- **close_pool()**: Never call db.close_pool() in FastAPI request handlers or background jobs (process-wide pool). Only in standalone scripts that exit after.
+- **Heredoc loss**: Large bash scripts with heredocs can lose blocks when copied in Git Bash. Always verify file size after creation (wc -c). If bytes < expected, heredoc was lost; re-copy carefully.
+- **Docker rebuild**: After changing backend code, MUST rebuild image (docker compose up -d --build backend). Otherwise container runs old code. COPY app layer is not cached if app/ changed.
+- **Backtest matrix runtime**: Full matrix (30 combos x 30 tickers) takes ~10-15 minutes. Use quick=true for liveness check (4 combos x 3 tickers, ~30 seconds).

@@ -11,6 +11,9 @@ def create_app() -> FastAPI:
     )
 
     register_routes(application)
+    # task-052: background backtest endpoints (shared lock)
+    from app.api.backtest_jobs import register_routes as register_backtest_routes
+    register_backtest_routes(application)
     # task-043: async data refresh endpoints
     from app.api.data_refresh import register_routes as register_refresh_routes
     register_refresh_routes(application)
