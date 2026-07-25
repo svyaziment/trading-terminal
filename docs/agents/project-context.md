@@ -85,7 +85,7 @@ trading-terminal/
 | Table | Rows (approx) | Description |
 |---|---|---|
 | candles_30min_raw | ~28k | 30min candles from T-Bank API (30 tickers, ~1 month) |
-| candles_1min_raw | ~900k | 1min candles from MOEX ISS API (SBER/GAZP/VTBR, 2 years) |
+| candles_1min_raw | ~900k | 1min candles from MOEX ISS API (top-30, 2 years) |
 | candles_aggregated | ~100k | Aggregated candles (30min, 1h, 4h, 1d, 1w, 1M) |
 | indicators | ~60k | 33 technical indicators per candle |
 | signals | ~45k | BUY/SELL signals (10 patterns, confidence, total_signals) |
@@ -175,5 +175,5 @@ Shared lock: jobs_state.py (in-process). Only one heavy job (refresh/regenerate/
 - **MSYS path conversion**: Use MSYS_NO_PATHCONV=1 for docker commands with absolute paths in Git Bash.
 - **Logging**: DBManager logs to stdout by default. Reroute to stderr in scripts to keep stdout clean for JSON.
 - **Backtest conclusion**: Rule-based strategies (patterns -> signals -> stop/take/holding) do NOT have edge after commission on MOEX top-3 (SBER/GAZP/VTBR) over 2 years. Signals carry weak directional info (buy&hold positive on strong signals), but rules of exit and commission kill it. Next steps: ML on indicators (not patterns), or revise hypothesis, or accept result.
-- **Data history**: 1min candles loaded for SBER/GAZP/VTBR (2 years). Other 27 tickers still have ~1 month (from T-Bank API 30min raw). Expand via moex_1min_loader.py for full universe.
+- **Data history**: 1min candles loaded for top-30 (2 years). Other 27 tickers still have ~1 month (from T-Bank API 30min raw). Expand via moex_1min_loader.py for full universe.
 - **Legacy files**: broker/, aggregate_candles.py, pipeline.py, run_generate_signals.py, config.py, signals.py are from early tasks (task-000..031) and may be unused in current pipeline. Keep for reference; do not delete without verification.

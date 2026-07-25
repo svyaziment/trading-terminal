@@ -85,7 +85,7 @@ trading-terminal/
 | Таблица | Строк (прибл.) | Описание |
 |---|---|---|
 | candles_30min_raw | ~28k | 30min свечи из T-Bank API (30 тикеров, ~1 месяц) |
-| candles_1min_raw | ~900k | 1min свечи из MOEX ISS API (SBER/GAZP/VTBR, 2 года) |
+| candles_1min_raw | ~900k | 1min свечи из MOEX ISS API (top-30, 2 года) |
 | candles_aggregated | ~100k | Агрегированные свечи (30min, 1h, 4h, 1d, 1w, 1M) |
 | indicators | ~60k | 33 технических индикатора на свечу |
 | signals | ~45k | Сигналы BUY/SELL (10 паттернов, confidence, total_signals) |
@@ -175,5 +175,5 @@ trading-terminal/
 - **MSYS конвертация путей**: Используйте MSYS_NO_PATHCONV=1 для docker команд с абсолютными путями в Git Bash.
 - **Логирование**: DBManager логирует в stdout по умолчанию. Перенаправляйте в stderr в скриптах, чтобы stdout был чистым для JSON.
 - **Вывод бэктеста**: Rule-based стратегии (паттерны -> сигналы -> стоп/тейк/holding) НЕ имеют edge после комиссии на MOEX топ-3 (SBER/GAZP/VTBR) за 2 года. Сигналы несут слабую directional информацию (buy&hold положителен на сильных сигналах), но правила выхода и комиссия убивают её. Следующие шаги: ML на индикаторах (не паттернах), или пересмотр гипотезы, или принять результат.
-- **История данных**: 1min свечи загружены для SBER/GAZP/VTBR (2 года). Остальные 27 тикеров всё ещё имеют ~1 месяц (из T-Bank API 30min raw). Расширяйте через moex_1min_loader.py для полной вселенной.
+- **История данных**: 1min свечи загружены для top-30 (2 года). Остальные 27 тикеров всё ещё имеют ~1 месяц (из T-Bank API 30min raw). Расширяйте через moex_1min_loader.py для полной вселенной.
 - **Legacy файлы**: broker/, aggregate_candles.py, pipeline.py, run_generate_signals.py, config.py, signals.py из ранних задач (task-000..031) и могут не использоваться в текущем пайплайне. Оставьте для справки; не удаляйте без верификации.
