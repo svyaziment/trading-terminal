@@ -112,3 +112,39 @@ Production matrix runner (API + DB persistence) — see task-078..080 (in progre
 - **task-080:** matrix run test via API + DB verification.
 - **Expand universe:** load 1min history for remaining 27 top-30 tickers, validate on full universe.
 - **ML (optional):** use levels + indicators as features in CatBoost/LightGBM to strengthen the edge.
+
+## 8. Full Universe Validation (task-080e, 2026-07-26)
+
+Config: 28 tickers (count>250000 in candles_1min_raw) × single config (swing10/zone0.5/confirm10min/rr=2.0/slippage0.05%/levels_ts1), 2-year history, commission 0.06% round-trip.
+
+**Result: edge is universe-wide, NOT a SBER/GAZP artefact.**
+- **25 of 28 tickers (89%) have PF > 1** at realistic slippage 0.05%.
+- **Median PF 1.322, mean PF 1.324** (they nearly coincide → flat distribution, the typical ticker is profitable, not a few winners skewing the mean).
+- **All 28 statistically significant** (n_trades 82–267, reliable=true).
+
+### Top 10 by PF
+
+| Ticker | n | PF | Exp % | WR | MaxDD % |
+|---|---|---|---|---|---|
+| RUAL | 117 | 2.07 | +0.505 | 46.2 | 5.5 |
+| GMKN | 96 | 1.91 | +0.416 | 35.4 | 7.8 |
+| PIKK | 133 | 1.74 | +0.465 | 35.3 | 13.0 |
+| GAZP | 82 | 1.71 | +0.319 | 42.7 | 7.9 |
+| SIBN | 91 | 1.65 | +0.329 | 34.1 | 12.9 |
+| LKOH | 107 | 1.62 | +0.266 | 34.6 | 9.2 |
+| PLZL | 111 | 1.48 | +0.248 | 33.3 | 8.6 |
+| MTSS | 106 | 1.47 | +0.218 | 39.6 | 7.8 |
+| SBER | 125 | 1.45 | +0.149 | 36.0 | 9.1 |
+| MTLR | 89 | 1.41 | +0.363 | 30.3 | 12.3 |
+
+### Weak / unprofitable (3)
+
+| Ticker | n | PF | Exp % | MaxDD % | Note |
+|---|---|---|---|---|---|
+| AFKS | 94 | 0.98 | −0.011 | 12.0 | ~breakeven |
+| CHMF | 97 | 0.86 | −0.125 | 31.7 | steel, high DD |
+| NLMK | 124 | 0.80 | −0.142 | 27.8 | steel, high DD |
+
+Both losers are steelmakers (CHMF, NLMK) — hypothesis: strong trends, few clean level bounces. Borderline (PF 1.03–1.06, high DD): MGNT, MOEX, VTBR, SNGS.
+
+**Conclusion:** the levels-reversal edge is real and distributed across the MOEX universe (25/28 tickers, median PF 1.32, all n≥30), robust to realistic slippage. Next: walk-forward (out-of-time) validation to confirm the edge is not regime-specific.

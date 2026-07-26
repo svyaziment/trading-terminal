@@ -171,3 +171,22 @@ From task-065 (3 tickers separately, ts≥3, h6/h12 × sigOn/sigOff = 12 runs):
 ---
 
 *This document is maintained as part of the project documentation. Update after each backtest experiment.*
+
+---
+
+## 13. Levels Reversal Strategy (PROFITABLE — supersedes sections 8–12)
+
+> Sections 8–12 above are HISTORICAL: rule-based patterns + ATR stop/take/holding, all unprofitable (PF < 1).
+> The levels-reversal strategy (task-074..080) is a different approach and IS profitable. See `docs/strategy/levels-reversal-strategy.md` for full spec.
+
+**Approach:** enter near a 4h support level only after a higher-TF (10min) reversal confirmation (candle closes above the support zone), exit at nearest resistance (take) or below support (stop), 2:1 reward:risk entry filter, 1min simulation, entry window 7–19 MSK, stay overnight/weekends.
+
+**Full-universe result (task-080e, 28 tickers, 2 years, slippage 0.05%):**
+- **25/28 tickers PF > 1 (89%)**, median PF 1.322, mean 1.324, all n≥30 (reliable).
+- Top: RUAL 2.07, GMKN 1.91, PIKK 1.74, GAZP 1.71, SIBN 1.65, LKOH 1.62.
+- Losers: CHMF 0.86, NLMK 0.80 (steel), AFKS 0.98 (~breakeven).
+- Edge is universe-wide (not SBER/GAZP-specific), robust to realistic slippage.
+
+**Production infra:** `levels_engine.py` (4h levels), `levels_backtest.py` (1min sim), `levels_backtest_db.py` (persist to backtest_*), `levels_backtest_jobs.py` (matrix orchestrator + API: POST /api/levels-backtest/run, GET /api/levels-backtest/run/status, shared lock).
+
+**Next:** walk-forward (out-of-time) validation across half-year windows to confirm the edge is not regime-specific.

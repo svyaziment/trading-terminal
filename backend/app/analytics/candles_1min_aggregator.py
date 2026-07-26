@@ -18,6 +18,7 @@ Usage (from container):
 """
 from __future__ import annotations
 import time
+import pandas as pd
 from typing import Any, Dict, List, Optional, Tuple
 from app.db.db_manager import DBManager
 
@@ -66,7 +67,7 @@ def get_last_aggregated_timestamp(db: DBManager, ticker: str, timeframe: str) ->
         "SELECT max(timestamp) as max_ts FROM trading.candles_aggregated WHERE ticker=%s AND timeframe=%s",
         (ticker, timeframe)
     ).to_dataframe()
-    if df.empty or df.iloc[0]['max_ts'] is None:
+    if df.empty or pd.isna(df.iloc[0]['max_ts']):
         return None
     return str(df.iloc[0]['max_ts'])
 
