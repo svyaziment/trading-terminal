@@ -32,6 +32,7 @@ TICKERS_DEFAULT = ('SBER', 'GAZP', 'VTBR', 'LKOH', 'GMKN', 'ROSN', 'MGNT', 'NVTK
                    'MTSS', 'PLZL', 'ALRS', 'CHMF', 'NLMK', 'MOEX', 'YNDX', 'POLY', 'RUAL', 'PHOR',
                    'IRAO', 'PIKK', 'FEES', 'RTKM', 'TRNFP', 'AFKS', 'MTLR', 'CBOM', 'SIBN', 'FLOT')
 DAYS_DEFAULT = 2 * 365  # 2 года
+MAX_CONSECUTIVE_NO_CANDLES = 30  # skip ticker if more than this consecutive no-candles days
 
 def log(msg):
     print(f"[{datetime.now().isoformat()}] {msg}", file=sys.stderr)
@@ -184,6 +185,8 @@ def load_ticker_incremental(conn, ticker, days_back):
     total_days = 0
     errors = []
     ticker_start_time = time.time()
+    consecutive_no_candles = 0
+    early_stop = False
 
     while current_date >= start_date:
         date_str = current_date.isoformat()
@@ -193,8 +196,14 @@ def load_ticker_incremental(conn, ticker, days_back):
                 inserted = insert_candles_into_db(conn, ticker, candles)
                 total_candles += inserted
                 log(f"{ticker} {date_str}: {inserted} candles inserted")
+                consecutive_no_candles = 0
             else:
                 log(f"{ticker} {date_str}: no candles (weekend/holiday?)")
+                consecutive_no_candles += 1
+                if consecutive_no_candles > MAX_CONSECUTIVE_NO_CANDLES:
+                    log(f"{ticker}: {consecutive_no_candles} consecutive no-candles days, skipping to next ticker")
+                    early_stop = True
+                    break
         except Exception as e:
             log(f"{ticker} {date_str}: ERROR {e}")
             errors.append({'date': date_str, 'error': str(e)})
@@ -207,6 +216,7 @@ def load_ticker_incremental(conn, ticker, days_back):
                         inserted = insert_candles_into_db(conn, ticker, candles)
                         total_candles += inserted
                         log(f"{ticker} {date_str}: {inserted} candles inserted (retry {attempt+1})")
+                        consecutive_no_candles = 0
                         break
                 except Exception as e2:
                     log(f"{ticker} {date_str}: ERROR (retry {attempt+1}) {e2}")
@@ -230,6 +240,7 @@ def load_ticker_incremental(conn, ticker, days_back):
         'has_data_two_years_ago': has_old_data,
         'start_date': str(start_date),
         'mode': 'incremental' if (last_date is not None and has_old_data) else 'full',
+        'early_stop': early_stop,
     }
 
 def main():
