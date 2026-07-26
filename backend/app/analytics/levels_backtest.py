@@ -237,4 +237,5 @@ def run_levels_backtest(db, ticker: str, entry_mode: str = 'levels_ts1',
             'swing_window': swing_window, 'zone_atr': zone_atr,
             'confirm_tf': confirm_tf, 'risk_reward': risk_reward,
             'bars_1min': len(df_1m), 'levels_total': int(len(levels)),
-            'metrics': m, 'open_position': open_position, 'trades_sample': trades[:5]}
+            'metrics': m, 'open_position': open_position, 'trades': trades,
+ 'trades_sample': trades[:5]}
