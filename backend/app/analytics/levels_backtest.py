@@ -89,7 +89,8 @@ def run_levels_backtest(db, ticker: str, entry_mode: str = 'levels_ts1',
                         swing_window: int = 10, zone_atr: float = 0.5,
                         confirm_tf: str = None, risk_reward: float = 2.0,
                         entry_window_start: int = 7, entry_window_end: int = 19,
-                        slippage_per_side: float = 0.0):
+                        slippage_per_side: float = 0.0,
+                        date_from=None, date_to=None):
     """confirm_tf: None/'5min'/'10min'/'30min'. risk_reward: 0 disables filter."""
     # 1. 4h candles + ATR
     df_4h = db.select("""
@@ -117,11 +118,17 @@ def run_levels_backtest(db, ticker: str, entry_mode: str = 'levels_ts1',
         df_sig = df_sig[df_sig['total_signals'].fillna(0) >= min_ts]
         signal_ts = sorted(df_sig['timestamp'].tolist())
 
-    # 4. 1min candles
-    df_1m = db.select("""
-        SELECT timestamp, open, high, low, close FROM trading.candles_1min_raw
-        WHERE ticker=%s ORDER BY timestamp
-    """, (ticker,)).to_dataframe()
+    # 4. 1min candles (optionally filtered by date window for walk-forward)
+    query_1m = "SELECT timestamp, open, high, low, close FROM trading.candles_1min_raw WHERE ticker=%s"
+    params_1m = [ticker]
+    if date_from is not None:
+        query_1m += " AND timestamp >= %s"
+        params_1m.append(date_from)
+    if date_to is not None:
+        query_1m += " AND timestamp < %s"
+        params_1m.append(date_to)
+    query_1m += " ORDER BY timestamp"
+    df_1m = db.select(query_1m, tuple(params_1m)).to_dataframe()
     if df_1m.empty:
         return {'status': 'failed', 'error': 'no 1min candles'}
     for c in ['open', 'high', 'low', 'close']:
