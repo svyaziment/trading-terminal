@@ -91,30 +91,40 @@ def has_data_two_years_ago(conn, ticker, days_back=730):
         return row[0] > 0 if row else False
 
 def fetch_candles_from_moex(ticker, date_str, interval=1):
-    """Fetch 1min candles for ticker on date_str from MOEX ISS API."""
-    url = f"https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/securities/{ticker}/candles.json?from={date_str}&till={date_str}&interval={interval}"
-    try:
-        with urllib.request.urlopen(url, timeout=10) as response:
-            data = json.loads(response.read().decode('utf-8'))
-            candles_data = data.get('candles', {})
-            columns = candles_data.get('columns', [])
-            rows = candles_data.get('data', [])
-            if not columns or not rows:
-                return []
-            candles = []
-            for row in rows:
-                candle = dict(zip(columns, row))
-                candles.append(candle)
-            return candles
-    except urllib.error.HTTPError as e:
-        if e.code == 429:
-            raise Exception("Rate limit exceeded (429)")
-        elif e.code == 500:
-            raise Exception("Server error (500)")
-        else:
-            raise Exception(f"HTTP error {e.code}")
-    except Exception as e:
-        raise Exception(f"Network error: {e}")
+    """Fetch 1min candles for ticker on date_str from MOEX ISS API.
+    MOEX ISS returns at most ~500 rows per request, so paginate via the
+    'start' offset until an empty page is returned (full trading day ~1010 candles)."""
+    all_candles = []
+    start = 0
+    max_pages = 20  # safety guard against infinite loop
+    for _ in range(max_pages):
+        url = (f"https://iss.moex.com/iss/engines/stock/markets/shares/boards/TQBR/"
+               f"securities/{ticker}/candles.json?from={date_str}&till={date_str}"
+               f"&interval={interval}&start={start}")
+        try:
+            with urllib.request.urlopen(url, timeout=10) as response:
+                data = json.loads(response.read().decode('utf-8'))
+                candles_data = data.get('candles', {})
+                columns = candles_data.get('columns', [])
+                rows = candles_data.get('data', [])
+        except urllib.error.HTTPError as e:
+            if e.code == 429:
+                raise Exception("Rate limit exceeded (429)")
+            elif e.code == 500:
+                raise Exception("Server error (500)")
+            else:
+                raise Exception(f"HTTP error {e.code}")
+        except Exception as e:
+            raise Exception(f"Network error: {e}")
+        if not columns or not rows:
+            break
+        for row in rows:
+            all_candles.append(dict(zip(columns, row)))
+        start += len(rows)
+        if len(rows) < 100:  # short page -> no more data
+            break
+        time.sleep(0.3)  # be gentle with rate limit between pages
+    return all_candles
 
 def insert_candles_into_db(conn, ticker, candles):
     """Insert candles into candles_1min_raw idempotently (DELETE+INSERT by day)."""
