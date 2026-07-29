@@ -31,9 +31,19 @@ positions by signal_id and by (ticker, source, window, rr, entry).
 
 ## Catch-up on startup
 
-`app/analytics/position_catchup.py` retroactively checks open positions against
-historical 1min candles (MOEX) for stop/take fills that occurred while the trader was
-not running, pulling any missing days first.
+`app/analytics/position_catchup.py` retroactively processes **pending and open**
+positions against historical 1min candles (MOEX), pulling any missing days first.
+It mirrors the live paper_trader logic (monitor_pending + monitor_open):
+
+1. **Resolve pending** (scan candles from `limit_ts`):
+   - price ran above take before fill -> CANCELLED ('price above take before fill');
+   - a candle touches the limit (`low <= limit_price <= high`) -> OPEN (entry at limit price);
+   - TTL (20 min) expired without fill -> CANCELLED ('expired').
+2. **Check open** (including just-filled; scan candles from `entry_ts`, skip entry candle):
+   - `low <= stop` -> closed_stop (market);
+   - `high >= take` -> closed_take (limit).
+
+Positions stay consistent whether the trader was running or not.
 
 ## Tables
 

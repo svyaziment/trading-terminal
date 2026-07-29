@@ -25,7 +25,7 @@ if not killed:
 "
 sleep 3
 
-echo "=== Step 1: Catch-up open positions (retroactive stop/take check) ==="
+echo "=== Step 1: Catch-up pending+open positions (fill/cancel pending, then stop/take) ==="
 docker compose exec -T backend python -c "
 import logging, sys
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(asctime)s %(levelname)s %(message)s')
