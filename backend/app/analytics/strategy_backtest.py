@@ -38,7 +38,7 @@ DEPTH_PRESETS = {
     'very_serious': {'months': 24, 'n_tickers': None,          'n_runs': 100, 'walkforward': True},
 }
 
-ALL_PATTERNS = ['levels_reversal', 'rsi_oversold', 'macd_bullish', 'bb_lower']
+ALL_PATTERNS = ['levels_reversal', 'signal_4h_buy', 'rsi_oversold', 'macd_bullish', 'bb_lower']
 CONFIRM_WINDOWS = [1, 5, 10, 15, 20, 25, 30, 60, 90, 120]
 
 
@@ -105,6 +105,30 @@ def _bootstrap_metrics(trades: List[Dict], n_runs: int, seed: int = 42) -> Dict:
             'pf_min': round(float(np.min(pfs)), 2), 'pf_p25': round(float(np.percentile(pfs, 25)), 2)}
 
 
+def _load_4h_buy_ts(db, ticker: str, min_signals: int = 1):
+    """Sorted timestamps of 4h BUY signals (total_signals >= min_signals) from trading.signals."""
+    df = db.select(
+        "SELECT timestamp FROM trading.signals "
+        "WHERE ticker=%s AND timeframe='4h' AND signal='BUY' AND coalesce(total_signals,0) >= %s "
+        "ORDER BY timestamp", (ticker, min_signals)).to_dataframe()
+    if df.empty:
+        return []
+    return sorted(pd.to_datetime(df['timestamp']).tolist())
+
+
+def _4h_buy_active(buy_ts, ts_4h, ts) -> bool:
+    """True if a 4h BUY signal is active at ts (signal ts <= ts and within the same 4h bar)."""
+    if not buy_ts:
+        return False
+    i = bisect.bisect_right(buy_ts, ts) - 1
+    if i < 0:
+        return False
+    sig_ts = buy_ts[i]
+    j = bisect.bisect_right(ts_4h, ts) - 1
+    a4 = ts_4h[j] if j >= 0 else None
+    return a4 is not None and sig_ts <= ts and sig_ts >= a4
+
+
 def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to=None) -> Dict:
     """Run backtest for one ticker under config. Returns metrics + trades."""
     patterns = config.get('patterns', ['levels_reversal'])
@@ -121,6 +145,7 @@ def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to
     use_rsi = 'rsi_oversold' in patterns
     use_macd = 'macd_bullish' in patterns
     use_bb = 'bb_lower' in patterns
+    use_4h_buy = 'signal_4h_buy' in patterns
 
     if not use_levels:
         return {'status': 'failed', 'ticker': ticker,
@@ -137,6 +162,7 @@ def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to
     levels = build_levels(df_4h, swing_windows=(10,), body_ratio=0.7, impulse_atr_mult=1.5, zone_atr_mult=0.5)
     ts_4h = df_4h['timestamp'].tolist()
     atr_by_ts = dict(zip(df_4h['timestamp'], df_4h['atr']))
+    buy_ts = _load_4h_buy_ts(db, ticker) if use_4h_buy else []
 
     # 1min candles (date-filtered)
     q = "SELECT timestamp, open, high, low, close FROM trading.candles_1min_raw WHERE ticker=%s"
@@ -215,6 +241,8 @@ def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to
                     break
             if not ok:
                 continue
+            if use_4h_buy and not _4h_buy_active(buy_ts, ts_4h, ts):
+                continue
             stop = float(sup['level_price'])
             if stop >= price:
                 continue
@@ -242,6 +270,44 @@ def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to
     m = _bootstrap_metrics(trades, n_runs)
     return {'status': 'success', 'ticker': ticker, 'config': config,
             'bars_1min': len(df_1m), 'metrics': m, 'trades': trades}
+
+
+WALKFORWARD_PERIODS = [
+    ('2024-H2', '2024-07-01', '2025-01-01'),
+    ('2025-H1', '2025-01-01', '2025-07-01'),
+    ('2025-H2', '2025-07-01', '2026-01-01'),
+    ('2026-H1', '2026-01-01', '2026-07-01'),
+]
+
+
+def run_walkforward(db, ticker: str, config: Dict, periods=None) -> Dict:
+    """Walk-forward: backtest per half-year window. Returns PF per period + summary
+    (pf_gt1 count, min_pf, avg_pf) - matches the reference walk-forward report."""
+    if periods is None:
+        periods = WALKFORWARD_PERIODS
+    results = {}
+    pfs = []
+    for name, date_from, date_to in periods:
+        try:
+            r = run_strategy_backtest(db, ticker, config, date_from=date_from, date_to=date_to)
+        except Exception as e:
+            results[name] = {'n': 0, 'pf': None, 'wr': None, 'error': str(e)}
+            continue
+        if r.get('status') == 'success':
+            m = r['metrics']
+            results[name] = {'n': m['n'], 'pf': m['pf'], 'wr': m['wr'], 'exp_pct': m['exp_pct']}
+            if m['pf'] is not None:
+                pfs.append(m['pf'])
+        else:
+            results[name] = {'n': 0, 'pf': None, 'wr': None, 'error': r.get('error')}
+    pf_gt1 = sum(1 for pf in pfs if pf > 1)
+    return {
+        'ticker': ticker,
+        'periods': results,
+        'pf_gt1': f'{pf_gt1}/{len(pfs)}' if pfs else '0/0',
+        'min_pf': round(min(pfs), 2) if pfs else None,
+        'avg_pf': round(sum(pfs) / len(pfs), 2) if pfs else None,
+    }
 
 
 def run_depth_backtest(db, config: Dict, depth: str = 'express', tickers: Optional[List[str]] = None) -> Dict:

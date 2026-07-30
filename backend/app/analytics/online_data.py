@@ -25,6 +25,7 @@ from app.db.db_manager import DBManager
 from app.core.config_manager import load_settings
 
 logger = logging.getLogger(__name__)
+from app.analytics.trading_config import get_trading_universe
 
 TOP5_TICKERS = ['RUAL', 'GMKN', 'PIKK', 'GAZP', 'SIBN']
 ORDERBOOK_DEPTH = 10
@@ -125,7 +126,7 @@ def run_online_data(tickers: List[str] = None, duration_minutes: int = 60):
     if not IS_SDK_AVAILABLE:
         raise RuntimeError("T-Bank API SDK not available")
     if tickers is None:
-        tickers = TOP5_TICKERS
+        tickers = get_trading_universe(DBManager())
     settings = load_settings()
     token = settings.api.token
     if not token:

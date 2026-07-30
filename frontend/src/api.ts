@@ -25,7 +25,13 @@ async function getJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
 
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    let msg = `HTTP ${response.status}: ${response.statusText}`;
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === "string") msg = body.detail;
+      else if (body?.detail?.message) msg = body.detail.message;
+    } catch { /* ignore */ }
+    throw new Error(msg);
   }
 
   return (await response.json()) as T;
@@ -72,5 +78,63 @@ export function getTopStocks(limit = 30) {
 export function getInstruments(limit = 100) {
   return getJson<ListResponse<Instrument>>(
     `/api/instruments${toQuery({ limit })}`
+  );
+}
+
+// ---- Strategy Lab (task-106) ----
+import type {
+  Strategy,
+  StrategyConfig,
+  BacktestResultRow,
+  StrategyJobSnapshot,
+} from "./types";
+
+async function postJson<T>(url: string, payload: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    let msg = `HTTP ${response.status}: ${response.statusText}`;
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === "string") msg = body.detail;
+      else if (body?.detail?.message) msg = body.detail.message;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return (await response.json()) as T;
+}
+
+export function saveStrategy(payload: { name: string; config: StrategyConfig }) {
+  return postJson<{ id: number; name: string; config: StrategyConfig }>(
+    "/api/strategies",
+    payload
+  );
+}
+export function listStrategies() {
+  return getJson<{ strategies: Strategy[] }>("/api/strategies");
+}
+export function runStrategy(
+  id: number,
+  payload: { tickers: string[]; test_types: string[]; depth: string }
+) {
+  return postJson<{ accepted: boolean; job: StrategyJobSnapshot }>(
+    `/api/strategies/${id}/run`,
+    payload
+  );
+}
+export function strategyResults(id: number) {
+  return getJson<{ strategy_id: number; results: BacktestResultRow[] }>(
+    `/api/strategies/${id}/results`
+  );
+}
+export function strategyRunStatus() {
+  return getJson<StrategyJobSnapshot>("/api/strategies/run/status");
+}
+export function getBigTickers(minCandles = 250000) {
+  return getJson<{ min_candles: number; tickers: string[] }>(
+    `/api/tickers/big${toQuery({ min_candles: minCandles })}`
   );
 }

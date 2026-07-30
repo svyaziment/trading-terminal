@@ -100,3 +100,60 @@ export interface SignalStats {
   by_pattern: PatternCount[];
   by_pattern_combined: PatternCount[];
 }
+
+// ---- Strategy Lab (task-106) ----
+export interface StrategyConfig {
+  patterns: string[];
+  confirm_windows: number[];
+  commission_pct: number;
+  slippage_pct: number;
+  risk_reward: { risk: number; reward: number } | null;
+  n_runs: number;
+}
+export interface Strategy {
+  id: number;
+  name: string;
+  config: StrategyConfig;
+  created_at: string | null;
+  in_paper_test?: boolean;
+  locked?: boolean;
+  description?: string | null;
+}
+export interface FullSampleMetrics {
+  n: number;
+  pf: number | null;
+  exp_pct: number | null;
+  wr: number | null;
+  maxdd_pct: number | null;
+}
+export interface WfPeriod {
+  n: number;
+  pf: number | null;
+  wr: number | null;
+  exp_pct: number | null;
+}
+export interface WalkforwardMetrics {
+  ticker: string;
+  periods: Record<string, WfPeriod>;
+  pf_gt1: string;
+  min_pf: number | null;
+  avg_pf: number | null;
+}
+export interface BacktestResultRow {
+  id: number;
+  ticker: string;
+  test_type: "full_sample" | "walkforward";
+  depth: string | null;
+  metrics: FullSampleMetrics | WalkforwardMetrics | null;
+  created_at: string | null;
+}
+export interface StrategyJobSnapshot {
+  status?: string;
+  stage?: string;
+  started_at?: string | null;
+  error?: string | null;
+  tickers_total?: number;
+  tickers_done?: number;
+  current_ticker?: string | null;
+  strategy_id?: number;
+}

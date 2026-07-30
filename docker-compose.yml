@@ -16,6 +16,8 @@ services:
     tty: true
 
   backend:
+    volumes:
+      - ./reports:/app/reports
     build:
       context: ./backend
       dockerfile: Dockerfile

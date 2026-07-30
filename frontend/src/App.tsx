@@ -4,14 +4,16 @@ import PatternStatsPanel from "./components/PatternStatsPanel";
 import TopStocksPanel from "./components/TopStocksPanel";
 import InstrumentsPanel from "./components/InstrumentsPanel";
 import PipelineWidget from "./components/PipelineWidget";
+import StrategyLab from "./components/StrategyLab";
 
-type Tab = "signals" | "stats" | "top" | "instruments";
+type Tab = "signals" | "stats" | "top" | "instruments" | "lab";
 
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: "signals", label: "Сигналы" },
   { id: "stats", label: "Статистика" },
   { id: "top", label: "ТОП-30" },
   { id: "instruments", label: "Инструменты" },
+  { id: "lab", label: "Лаборатория" },
 ];
 
 export default function App() {
@@ -48,6 +50,7 @@ export default function App() {
         {tab === "stats" && <PatternStatsPanel />}
         {tab === "top" && <TopStocksPanel />}
         {tab === "instruments" && <InstrumentsPanel />}
+        {tab === "lab" && <StrategyLab />}
       </main>
       <PipelineWidget />
     </div>

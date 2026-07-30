@@ -27,6 +27,7 @@ import pandas as pd
 from app.db.db_manager import DBManager
 
 logger = logging.getLogger(__name__)
+from app.analytics.trading_config import get_trading_universe
 
 COMMISSION_PER_SIDE = 0.0003
 ROUND_TRIP = 2 * COMMISSION_PER_SIDE  # 0.06%
@@ -179,7 +180,7 @@ def process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, 
             logger.info(f"SKIP signal #{sig_id}: details parse error ({e})")
             continue
         src = details.get('signal_source')
-        if src not in ('base', 'imbalance'):
+        if src not in ('base', 'imbalance', 'base_4hbuy'):
             continue
         tk = details.get('ticker')
         if tk not in tickers:
@@ -327,7 +328,7 @@ def run_paper_trader(tickers=None, duration_minutes=60, check_interval_sec=30,
                      capital=100000.0, per_trade_rub=1000.0,
                      max_positions=80, max_entries_per_day=400):
     if tickers is None:
-        tickers = ['RUAL', 'GMKN', 'PIKK', 'GAZP', 'SIBN']
+        tickers = get_trading_universe(DBManager())
     db = DBManager()
     lot_sizes = get_lot_sizes(db, tickers)
     logger.info(f"Paper trader (market+limit A/B) started: capital {capital:.0f}, per_trade {per_trade_rub:.0f}, max_pos {max_positions}, lots {lot_sizes}")

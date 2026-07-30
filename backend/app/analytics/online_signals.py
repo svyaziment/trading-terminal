@@ -26,6 +26,7 @@ from app.analytics.levels_engine import build_levels, nearest_level_at
 from app.analytics.levels_backtest import compute_atr, aggregate_1min_to, build_confirm_series
 
 logger = logging.getLogger(__name__)
+from app.analytics.trading_config import get_trading_universe
 
 TOP5_TICKERS = ['RUAL', 'GMKN', 'PIKK', 'GAZP', 'SIBN']
 CONFIRM_TF_MINUTES = 10
@@ -101,6 +102,29 @@ def _atr_estimate(db: DBManager, ticker: str) -> float:
     return float(df_atr['close'].std()) if len(df_atr) > 1 else 0.0
 
 
+def get_4h_buy_timestamps(db, ticker, min_signals=1):
+    """Sorted timestamps of 4h BUY signals (total_signals >= min_signals) from trading.signals."""
+    df = db.select(
+        "SELECT timestamp FROM trading.signals "
+        "WHERE ticker=%s AND timeframe='4h' AND signal='BUY' AND coalesce(total_signals,0) >= %s "
+        "ORDER BY timestamp", (ticker, min_signals)).to_dataframe()
+    if df.empty:
+        return []
+    return sorted(pd.to_datetime(df['timestamp']).tolist())
+
+
+def _4h_buy_active(buy_ts, a4, now_naive):
+    """True if the latest 4h BUY signal falls inside the current 4h bar (parity with levels_ts1)."""
+    import bisect
+    if not buy_ts:
+        return False
+    i = bisect.bisect_right(buy_ts, now_naive) - 1
+    if i < 0:
+        return False
+    sig_ts = buy_ts[i]
+    return a4 is not None and sig_ts <= now_naive and sig_ts >= a4
+
+
 def check_signal(db: DBManager, ticker: str, levels, mode: str = 'base') -> Optional[Dict]:
     """BUY signal: price in support zone + last CLOSED 10min candle above zone (+ optional imbalance).
     Generated 24/7. Returns base signal dict; window_mode and rr_mode applied by caller."""
@@ -133,6 +157,10 @@ def check_signal(db: DBManager, ticker: str, levels, mode: str = 'base') -> Opti
     confirm_close_time, last_confirm_close = closed[-1][0], closed[-1][1]
     if last_confirm_close <= zu:
         return None
+    # A/B arm base_4hbuy: require an active 4h BUY signal (parity with backtest levels_ts1)
+    if mode == 'base_4hbuy':
+        if not _4h_buy_active(get_4h_buy_timestamps(db, ticker), a4, now_naive):
+            return None
     imbalance = None
     if mode == 'imbalance':
         ob = get_recent_orderbook(db, ticker, minutes=5)
@@ -212,7 +240,7 @@ def run_signal_engine(tickers: List[str] = None, duration_minutes: int = 60,
     """Main loop. Emits signals for all A/B factor combinations:
     signal_source x window_mode x rr_mode. Dedup per (ticker, source, window, rr, confirm candle)."""
     if tickers is None:
-        tickers = TOP5_TICKERS
+        tickers = get_trading_universe(DBManager())
     db = DBManager()
     logger.info(f"Signal engine started for {len(tickers)} tickers, duration {duration_minutes} min")
     levels_cache = {}
@@ -222,7 +250,7 @@ def run_signal_engine(tickers: List[str] = None, duration_minutes: int = 60,
     start_time = time.time()
     last_check = 0
     last_levels_refresh = time.time()
-    signals_generated = {'base': 0, 'imbalance': 0, 'sell': 0}
+    signals_generated = {'base': 0, 'imbalance': 0, 'sell': 0, 'base_4hbuy': 0}
     last_signal_confirm_time = {}  # (ticker, mode, window_mode, rr_mode) -> confirm_close_time
     while (time.time() - start_time) < (duration_minutes * 60):
         now = time.time()
@@ -237,7 +265,7 @@ def run_signal_engine(tickers: List[str] = None, duration_minutes: int = 60,
                 levels = levels_cache.get(tk, [])
                 if _is_empty_levels(levels):
                     continue
-                for mode in ('base', 'imbalance'):
+                for mode in ('base', 'imbalance', 'base_4hbuy'):
                     sig = check_signal(db, tk, levels, mode=mode)
                     if not sig:
                         continue

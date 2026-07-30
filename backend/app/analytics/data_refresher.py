@@ -1,22 +1,31 @@
 """
-Data refresher: periodically updates candles_1min_raw (MOEX ISS API) and candles_aggregated,
-including FIGI sourced from trading.instruments (NOT top_stocks_by_volume).
+Data refresher: periodically updates candles_1min_raw (MOEX ISS API), candles_aggregated,
+trading.indicators and trading.signals (so 4h BUY signals stay fresh for the base_4hbuy arm).
+Universe: trading_config.get_trading_universe() (top-15 by PF, single source of truth).
 Sequential in one process:
   1) MOEX 1min incremental load -> candles_1min_raw
   2) update figi from trading.instruments (candles_1min_raw)
   3) aggregate 1min -> 30min/1h/4h/1d (candles_aggregated, incremental, idempotent)
-  4) update figi from trading.instruments (candles_aggregated, for freshly aggregated rows)
-Reuses moex_1min_loader (incremental load) and candles_1min_aggregator (aggregation).
+  4) update figi from trading.instruments (candles_aggregated)
+  5) recompute indicators for 30min/1h/4h/1d (trading.indicators)
+  6) regenerate signals for 30min/1h/4h/1d (trading.signals)
+Reuses moex_1min_loader, candles_1min_aggregator, IndicatorsManager, SignalGenerator.
+NOTE: IndicatorsManager/SignalGenerator created once in run_data_refresher (process-wide
+DBManager pool); refresh_once does NOT close the pool (kept alive across cycles).
 """
 from __future__ import annotations
 import time
 import logging
 from typing import List, Optional
 
+from app.analytics.trading_config import get_trading_universe
+from app.db.db_manager import DBManager
+
 logger = logging.getLogger(__name__)
 
-TOP5_TICKERS = ['RUAL', 'GMKN', 'PIKK', 'GAZP', 'SIBN']
 TIMEFRAMES = ['30min', '1h', '4h', '1d']
+SIGNAL_TIMEFRAMES = ['30min', '1h', '4h', '1d']
+SIGNAL_LOOKBACK = 2000
 
 
 def update_figi_from_instruments(db, tickers: List[str]) -> dict:
@@ -36,11 +45,10 @@ def update_figi_from_instruments(db, tickers: List[str]) -> dict:
     return {'raw_updated': raw_updated, 'agg_updated': agg_updated}
 
 
-def refresh_once(tickers: List[str], days_back: int = 730) -> dict:
-    """One refresh cycle: MOEX 1min load -> figi -> aggregate -> figi (post-agg)."""
+def refresh_once(tickers: List[str], days_back: int = 730, im=None, gen=None) -> dict:
+    """One refresh cycle: MOEX 1min -> figi -> aggregate -> figi -> indicators -> signals."""
     from app.api.moex_1min_loader import get_db_connection, load_ticker_incremental
     from app.analytics.candles_1min_aggregator import aggregate_all
-    from app.db.db_manager import DBManager
 
     # 1) Incremental 1min load from MOEX ISS API
     conn = get_db_connection()
@@ -61,22 +69,43 @@ def refresh_once(tickers: List[str], days_back: int = 730) -> dict:
     figi1 = update_figi_from_instruments(db, tickers)
     logger.info(f"FIGI (pre-agg): raw={figi1['raw_updated']}, agg={figi1['agg_updated']}")
 
-    # 3) aggregate 1min -> all timeframes (incremental, idempotent; figi already set above)
+    # 3) aggregate 1min -> all timeframes (incremental, idempotent)
     agg_result = aggregate_all(db, tickers=tuple(tickers), timeframes=TIMEFRAMES, update_figi_first=False)
     logger.info(f"Aggregated: {agg_result.get('total_rows_aggregated', 0)} rows, errors={agg_result.get('total_errors', 0)}")
 
-    # 4) figi from trading.instruments (candles_aggregated, for freshly aggregated rows)
+    # 4) figi from trading.instruments (candles_aggregated)
     figi2 = update_figi_from_instruments(db, tickers)
     logger.info(f"FIGI (post-agg): raw={figi2['raw_updated']}, agg={figi2['agg_updated']}")
 
-    try:
-        db.close_pool()
-    except Exception:
-        pass
+    # 5) indicators (SIGNAL_TIMEFRAMES)
+    indicators_updated = 0
+    if im is not None:
+        for tk in tickers:
+            for tf in SIGNAL_TIMEFRAMES:
+                try:
+                    n = im.update_indicators_for_ticker(tk, tf)
+                    indicators_updated += n
+                except Exception as e:
+                    logger.error(f"Indicators {tk} {tf} error: {e}")
+        logger.info(f"Indicators updated: {indicators_updated} rows")
+
+    # 6) signals (SIGNAL_TIMEFRAMES)
+    signals_saved = 0
+    if gen is not None:
+        try:
+            sig_report = gen.scan_and_save_signals(tickers=list(tickers), timeframes=SIGNAL_TIMEFRAMES, lookback=SIGNAL_LOOKBACK)
+            signals_saved = int(sig_report.get('total_signals_saved', 0) or 0)
+            logger.info(f"Signals saved: {signals_saved}")
+        except Exception as e:
+            logger.error(f"Signals error: {e}")
+
+    # NOTE: no db.close_pool() here - process-wide pool stays alive across cycles
     return {
         'total_candles_loaded': total_candles,
         'total_aggregated': agg_result.get('total_rows_aggregated', 0),
         'figi_updated': figi2,
+        'indicators_updated': indicators_updated,
+        'signals_saved': signals_saved,
         'load_errors': load_errors,
         'agg_errors': agg_result.get('total_errors', 0),
     }
@@ -85,17 +114,25 @@ def refresh_once(tickers: List[str], days_back: int = 730) -> dict:
 def run_data_refresher(tickers: Optional[List[str]] = None, duration_minutes: int = 120,
                        refresh_interval_min: int = 15):
     """Run refresh cycles every refresh_interval_min for duration_minutes."""
+    from app.analytics.indicators_manager import IndicatorsManager
+    from app.analytics.signal_generator import SignalGenerator
+
     if tickers is None:
-        tickers = TOP5_TICKERS
-    logger.info(f"Data refresher started: {len(tickers)} tickers, every {refresh_interval_min} min, duration {duration_minutes} min")
+        tickers = get_trading_universe(DBManager())
+    logger.info(f"Data refresher started: {len(tickers)} tickers, every {refresh_interval_min} min, duration {duration_minutes} min (with indicators+signals)")
+
+    # Create once (process-wide DBManager pool); reused across cycles
+    im = IndicatorsManager()
+    gen = SignalGenerator()
+
     start_time = time.time()
     cycles = 0
     while (time.time() - start_time) < (duration_minutes * 60):
         cycles += 1
         logger.info(f"=== Refresh cycle {cycles} ===")
         try:
-            res = refresh_once(tickers)
-            logger.info(f"Cycle {cycles} done: {res['total_candles_loaded']} candles, {res['total_aggregated']} agg rows")
+            res = refresh_once(tickers, im=im, gen=gen)
+            logger.info(f"Cycle {cycles} done: {res['total_candles_loaded']} candles, {res['total_aggregated']} agg rows, {res['indicators_updated']} indicators, {res['signals_saved']} signals")
         except Exception as e:
             logger.error(f"Cycle {cycles} error: {e}")
         next_cycle = start_time + cycles * refresh_interval_min * 60
@@ -104,6 +141,10 @@ def run_data_refresher(tickers: Optional[List[str]] = None, duration_minutes: in
         if sleep_sec > 0 and time.time() < end_time:
             time.sleep(sleep_sec)
     logger.info(f"Data refresher finished: {cycles} cycles")
+    try:
+        DBManager().close_pool()
+    except Exception:
+        pass
 
 
 if __name__ == '__main__':
