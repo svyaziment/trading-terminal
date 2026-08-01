@@ -192,3 +192,7 @@ export function getPaperPositions(
 export function getPaperDynamics(params: FactorFilters & { timeframe: string }) {
   return getJson<PaperDynamics>(`/api/paper-trading/dynamics${toQuery(params)}`);
 }
+
+export function getPatterns(): Promise<{ patterns: import("./types").PatternDef[] }> {
+  return getJson<{ patterns: import("./types").PatternDef[] }>("/api/patterns");
+}
