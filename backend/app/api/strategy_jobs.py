@@ -211,7 +211,7 @@ def register_routes(app: FastAPI) -> None:
             raise HTTPException(status_code=409, detail=f"Стратегия '{payload.name}' заблокирована (тестируется в paper trading). Выберите другое имя.")
         else:
             pass
-        db.execute('INSERT INTO trading.strategies (name, config) VALUES (%s,%s) ON CONFLICT (name) DO UPDATE SET config=EXCLUDED.config=0', (payload.name, _json_dumps(payload.config)))
+        db.execute('INSERT INTO trading.strategies (name, config) VALUES (%s,%s) ON CONFLICT (name) DO UPDATE SET config=EXCLUDED.config', (payload.name, _json_dumps(payload.config)))
         df = db.select('SELECT id FROM trading.strategies WHERE name=%s', (payload.name,)).to_dataframe()
         sid = int(df.iloc[0]['id'])
         return {'id': sid, 'name': payload.name, 'config': payload.config}
@@ -219,7 +219,7 @@ def register_routes(app: FastAPI) -> None:
     @app.get('/api/strategies')
     def list_strategies():
         db = _get_db()
-        df = db.select('SELECT id, name, config, in_paper_test, locked, description, created_at::text AS created_at FROM trading.strategies WHERE coalesce(0) = 0 ORDER BY id').to_dataframe()
+        df = db.select('SELECT id, name, config, in_paper_test, locked, description, created_at::text AS created_at FROM trading.strategies ORDER BY id').to_dataframe()
         rows = df.to_dict('records')
         for r in rows:
             r['config'] = _to_dict(r.get('config'))
