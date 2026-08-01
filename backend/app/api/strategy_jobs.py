@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from app.api import jobs_state
 from app.db.db_manager import DBManager
+from app.analytics.pattern_registry import list_patterns, normalize_patterns  # issue-12-import
 
 JOB = "strategy_backtest"
 NAME_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
@@ -168,10 +169,43 @@ def _ensure_schema(db) -> None:
 
 
 def register_routes(app: FastAPI) -> None:
+
+
+
+    @app.get("/api/patterns")
+
+
+    def get_pattern_registry():
+
+
+        from app.analytics.pattern_registry import list_patterns
+
+
+        return {"patterns": list_patterns()}
     _ensure_schema(_get_db())
 
     @app.post("/api/strategies")
     def save_strategy(payload: StrategyIn):
+        # issue-12-normalize
+        try:
+            _issue12_arg = payload
+            if isinstance(_issue12_arg, dict):
+                if "config" in _issue12_arg:
+                    _issue12_cfg = _issue12_arg.get("config")
+                    if isinstance(_issue12_cfg, dict):
+                        _issue12_arg["config"] = normalize_patterns(_issue12_cfg)
+                    elif isinstance(_issue12_cfg, list):
+                        _issue12_arg["config"] = normalize_patterns(dict(patterns=_issue12_cfg)).get("patterns", dict())
+                elif "patterns" in _issue12_arg:
+                    _issue12_arg.update(normalize_patterns(_issue12_arg))
+            elif hasattr(_issue12_arg, "config"):
+                _issue12_cfg = getattr(_issue12_arg, "config", None)
+                if isinstance(_issue12_cfg, dict):
+                    setattr(_issue12_arg, "config", normalize_patterns(_issue12_cfg))
+                elif isinstance(_issue12_cfg, list):
+                    setattr(_issue12_arg, "config", normalize_patterns(dict(patterns=_issue12_cfg)).get("patterns", dict()))
+        except Exception:
+            pass
         _validate_name(payload.name)
         db = _get_db()
         # Reject overwrite of a paper-trading (locked) strategy
