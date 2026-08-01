@@ -1,16 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getInstruments } from "../api";
 import type { Instrument } from "../types";
+import DataTable, { type ColumnDef, type FilterState } from "./ui/DataTable";
+import FilterChips from "./ui/FilterChips";
+
+/* task-006: миграция на единый DataTable — сортировка всех полей + фильтры */
 
 export default function InstrumentsPanel() {
   const [items, setItems] = useState<Instrument[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<FilterState>({});
 
   async function load() {
     setLoading(true);
     setError(null);
-
     try {
       const response = await getInstruments(100);
       setItems(response.items);
@@ -24,6 +28,22 @@ export default function InstrumentsPanel() {
   useEffect(() => {
     void load();
   }, []);
+
+  const columns = useMemo<ColumnDef<Instrument>[]>(() => [
+    {
+      key: "ticker", label: "Ticker",
+      accessor: (i) => i.ticker,
+      render: (i) => <span className="font-medium">{i.ticker}</span>,
+      filter: { kind: "text", placeholder: "например RUAL" },
+    },
+    { key: "name", label: "Name", accessor: (i) => i.name ?? "", render: (i) => <span>{i.name ?? "—"}</span>, filter: { kind: "text" } },
+    { key: "figi", label: "FIGI", accessor: (i) => i.figi, render: (i) => <span className="text-slate-400">{i.figi}</span> },
+    { key: "instrument_type", label: "Type", accessor: (i) => i.instrument_type ?? "", render: (i) => <span>{i.instrument_type ?? "—"}</span>, filter: { kind: "select" } },
+    { key: "currency", label: "Currency", accessor: (i) => i.currency ?? "", render: (i) => <span>{i.currency ?? "—"}</span>, filter: { kind: "select" } },
+    { key: "lot_size", label: "Lot", numeric: true, accessor: (i) => i.lot_size, render: (i) => <span>{i.lot_size ?? "—"}</span> },
+    { key: "is_tradable", label: "Tradable", accessor: (i) => String(i.is_tradable ?? "—"), render: (i) => <span>{String(i.is_tradable ?? "—")}</span> },
+    { key: "exchange", label: "Exchange", accessor: (i) => i.exchange ?? "", render: (i) => <span>{i.exchange ?? "—"}</span>, filter: { kind: "select" } },
+  ], []);
 
   return (
     <div className="space-y-4">
@@ -44,39 +64,16 @@ export default function InstrumentsPanel() {
         </div>
       )}
 
-      <div className="overflow-x-auto rounded border border-slate-800">
-        <table className="min-w-full text-sm">
-          <thead className="bg-slate-900 text-slate-400">
-            <tr>
-              <th className="px-2 py-2 text-left">Ticker</th>
-              <th className="px-2 py-2 text-left">Name</th>
-              <th className="px-2 py-2 text-left">FIGI</th>
-              <th className="px-2 py-2 text-left">Type</th>
-              <th className="px-2 py-2 text-left">Currency</th>
-              <th className="px-2 py-2 text-right">Lot</th>
-              <th className="px-2 py-2 text-left">Tradable</th>
-              <th className="px-2 py-2 text-left">Exchange</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((item) => (
-              <tr
-                key={item.figi}
-                className="border-t border-slate-800 hover:bg-slate-900/60"
-              >
-                <td className="px-2 py-1 font-medium">{item.ticker}</td>
-                <td className="px-2 py-1">{item.name ?? "—"}</td>
-                <td className="px-2 py-1 text-slate-400">{item.figi}</td>
-                <td className="px-2 py-1">{item.instrument_type ?? "—"}</td>
-                <td className="px-2 py-1">{item.currency ?? "—"}</td>
-                <td className="px-2 py-1 text-right">{item.lot_size ?? "—"}</td>
-                <td className="px-2 py-1">{String(item.is_tradable ?? "—")}</td>
-                <td className="px-2 py-1">{item.exchange ?? "—"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <FilterChips filters={filters} onChange={setFilters} />
+
+      <DataTable
+        columns={columns}
+        rows={items}
+        rowKey={(i) => i.figi}
+        filters={filters}
+        onFiltersChange={setFilters}
+        emptyText={loading ? "загрузка…" : "нет данных"}
+      />
     </div>
   );
 }

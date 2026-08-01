@@ -768,6 +768,51 @@ const progressPct =
     if (key === "exit_reason" && v.kind === "select") return v.value === "take" ? "тейк" : "стоп";
     return formatFilterValue(v);
   }, []);
+  const wfColumns = useMemo<ColumnDef<BacktestResultRow>[]>(() => [
+    {
+      key: "ticker",
+      label: "Тикер",
+      accessor: (r) => r.ticker,
+      render: (r) => <span className="font-mono font-medium text-slate-200">{r.ticker}</span>,
+      filter: { kind: "select" },
+    },
+    ...WF_PERIODS.map((p): ColumnDef<BacktestResultRow> => ({
+      key: "wf_" + p,
+      label: p,
+      numeric: true,
+      accessor: (r) => ((r.metrics as WalkforwardMetrics | null)?.periods?.[p]?.pf ?? null),
+      render: (r) => {
+        const pf = (r.metrics as WalkforwardMetrics | null)?.periods?.[p]?.pf ?? null;
+        return (
+          <span className={"inline-block min-w-[3.2rem] rounded px-1.5 py-0.5 text-center font-mono text-[11px] tabular-nums " + pfHeat(pf)}>
+            {fmt(pf)}
+          </span>
+        );
+      },
+    })),
+    {
+      key: "pf_gt1",
+      label: "PF>1",
+      numeric: true,
+      accessor: (r) => ((r.metrics as WalkforwardMetrics | null)?.pf_gt1 ?? null),
+      render: (r) => <span className="text-slate-300">{(r.metrics as WalkforwardMetrics).pf_gt1 ?? "—"}</span>,
+    },
+    {
+      key: "min_pf",
+      label: "min",
+      numeric: true,
+      accessor: (r) => ((r.metrics as WalkforwardMetrics | null)?.min_pf ?? null),
+      render: (r) => <span className={pfTone((r.metrics as WalkforwardMetrics).min_pf)}>{fmt((r.metrics as WalkforwardMetrics).min_pf)}</span>,
+    },
+    {
+      key: "avg_pf",
+      label: "avg",
+      numeric: true,
+      accessor: (r) => ((r.metrics as WalkforwardMetrics | null)?.avg_pf ?? null),
+      render: (r) => <span className={pfTone((r.metrics as WalkforwardMetrics).avg_pf)}>{fmt((r.metrics as WalkforwardMetrics).avg_pf)}</span>,
+    },
+  ], []);
+
   const numInput =
     "w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-200 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed";
 
@@ -1215,60 +1260,16 @@ const progressPct =
                  }
                />
              )}
-        {/* Walk-forward table */}
-        <div className="overflow-hidden rounded-lg border border-slate-800">
-          <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900 px-3 py-2">
-            <span className="font-display text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">
-              Walk-forward · по полугодиям
-            </span>
-            <span className="font-mono text-[10px] text-slate-600">{walkforward.length} тикеров</span>
-          </div>
-          {walkforward.length === 0 ? (
-            <div className="px-3 py-6 text-center text-xs text-slate-600">
-              нет результатов walk-forward
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-900/80 text-[10px] uppercase tracking-wider text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2 text-left">Тикер</th>
-                    {WF_PERIODS.map((p) => (
-                      <th key={p} className="px-2 py-2 text-right">{p}</th>
-                    ))}
-                    <th className="px-2 py-2 text-right">PF&gt;1</th>
-                    <th className="px-2 py-2 text-right">min</th>
-                    <th className="px-2 py-2 text-right">avg</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {walkforward.map((r) => {
-                    const m = (r.metrics ?? {}) as WalkforwardMetrics;
-                    const periods = m.periods ?? {};
-                    return (
-                      <tr key={r.id} className="border-t border-slate-800/70 transition-colors hover:bg-slate-900/70">
-                        <td className="px-3 py-1.5 font-mono font-medium text-slate-200">{r.ticker}</td>
-                        {WF_PERIODS.map((p) => {
-                          const pf = periods[p]?.pf ?? null;
-                          return (
-                            <td key={p} className="px-1.5 py-1.5 text-right">
-                              <span className={"inline-block min-w-[3.2rem] rounded px-1.5 py-0.5 text-center font-mono text-[11px] tabular-nums " + pfHeat(pf)}>
-                                {fmt(pf)}
-                              </span>
-                            </td>
-                          );
-                        })}
-                        <td className="px-2 py-1.5 text-right font-mono text-[11px] tabular-nums text-slate-300">{m.pf_gt1 ?? "—"}</td>
-                        <td className={"px-2 py-1.5 text-right font-mono text-[11px] tabular-nums " + pfTone(m.min_pf)}>{fmt(m.min_pf)}</td>
-                        <td className={"px-2 py-1.5 text-right font-mono text-[11px] tabular-nums " + pfTone(m.avg_pf)}>{fmt(m.avg_pf)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+     {/* Walk-forward table */}
+     <DataTable
+       columns={wfColumns}
+       rows={walkforward}
+       rowKey={(r) => r.id}
+       filters={labFilters}
+       onFiltersChange={setLabFilters}
+       title="Walk-forward · по полугодиям"
+       emptyText="нет результатов walk-forward"
+     />
       </main>
       {deleteTarget && createPortal(
         <div

@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getSignalStats } from "../api";
-import type { SignalStats } from "../types";
+import type { SignalStats, DirectionCount, TimeframeCount, PatternCount } from "../types";
+import DataTable, { type ColumnDef } from "./ui/DataTable";
+
+/* task-006: 4 таблицы статистики на едином DataTable (сортировка бесплатно) */
 
 export default function PatternStatsPanel() {
   const [stats, setStats] = useState<SignalStats | null>(null);
@@ -12,7 +15,6 @@ export default function PatternStatsPanel() {
   async function load() {
     setLoading(true);
     setError(null);
-
     try {
       const response = await getSignalStats();
       setStats(response);
@@ -28,22 +30,30 @@ export default function PatternStatsPanel() {
   }, [reloadToken]);
 
   useEffect(() => {
-    if (!autoRefresh) {
-      return;
-    }
-
-    const id = window.setInterval(() => {
-      setReloadToken((token) => token + 1);
-    }, 30000);
-
+    if (!autoRefresh) return;
+    const id = window.setInterval(() => setReloadToken((token) => token + 1), 30000);
     return () => window.clearInterval(id);
   }, [autoRefresh]);
+
+  const dirColumns = useMemo<ColumnDef<DirectionCount>[]>(() => [
+    { key: "signal", label: "Сигнал", accessor: (d) => d.signal },
+    { key: "cnt", label: "Кол-во", numeric: true, accessor: (d) => d.cnt },
+  ], []);
+
+  const tfColumns = useMemo<ColumnDef<TimeframeCount>[]>(() => [
+    { key: "timeframe", label: "Таймфрейм", accessor: (d) => d.timeframe },
+    { key: "cnt", label: "Кол-во", numeric: true, accessor: (d) => d.cnt },
+  ], []);
+
+  const patColumns = useMemo<ColumnDef<PatternCount>[]>(() => [
+    { key: "pattern_name", label: "Паттерн", accessor: (p) => p.pattern_name },
+    { key: "cnt", label: "Кол-во", numeric: true, accessor: (p) => p.cnt },
+  ], []);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <h2 className="text-lg font-semibold">Статистика по сигналам</h2>
-
         <button
           onClick={() => void load()}
           disabled={loading}
@@ -51,7 +61,6 @@ export default function PatternStatsPanel() {
         >
           {loading ? "Загрузка..." : "Обновить"}
         </button>
-
         <label className="flex items-center gap-2 text-sm text-slate-400">
           <input
             type="checkbox"
@@ -75,7 +84,6 @@ export default function PatternStatsPanel() {
               <div className="text-sm text-slate-400">Всего сигналов</div>
               <div className="text-2xl font-semibold">{stats.total}</div>
             </div>
-
             <div className="rounded border border-slate-800 bg-slate-900/60 px-4 py-3">
               <div className="text-sm text-slate-400">Последний сигнал</div>
               <div className="text-lg font-semibold">
@@ -84,84 +92,43 @@ export default function PatternStatsPanel() {
                   : "—"}
               </div>
             </div>
-
             <div className="rounded border border-slate-800 bg-slate-900/60 px-4 py-3">
               <div className="text-sm text-slate-400">Уникальных паттернов</div>
-              <div className="text-2xl font-semibold">
-                {stats.by_pattern.length}
-              </div>
+              <div className="text-2xl font-semibold">{stats.by_pattern.length}</div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="rounded border border-slate-800">
-              <div className="border-b border-slate-800 bg-slate-900 px-3 py-2 text-sm font-semibold">
-                По направлению
-              </div>
-              <table className="min-w-full text-sm">
-                <tbody>
-                  {stats.by_direction.map((item) => (
-                    <tr key={item.signal} className="border-t border-slate-800">
-                      <td className="px-3 py-1">{item.signal}</td>
-                      <td className="px-3 py-1 text-right">{item.cnt}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="rounded border border-slate-800">
-              <div className="border-b border-slate-800 bg-slate-900 px-3 py-2 text-sm font-semibold">
-                По таймфреймам
-              </div>
-              <table className="min-w-full text-sm">
-                <tbody>
-                  {stats.by_timeframe.map((item) => (
-                    <tr key={item.timeframe} className="border-t border-slate-800">
-                      <td className="px-3 py-1">{item.timeframe}</td>
-                      <td className="px-3 py-1 text-right">{item.cnt}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="rounded border border-slate-800">
-              <div className="border-b border-slate-800 bg-slate-900 px-3 py-2 text-sm font-semibold">
-                Паттерны
-              </div>
-              <div className="max-h-96 overflow-y-auto">
-                <table className="min-w-full text-sm">
-                  <tbody>
-                    {stats.by_pattern.map((item) => (
-                      <tr key={item.pattern_name} className="border-t border-slate-800">
-                        <td className="px-3 py-1">{item.pattern_name}</td>
-                        <td className="px-3 py-1 text-right">{item.cnt}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            <DataTable
+              columns={dirColumns}
+              rows={stats.by_direction}
+              rowKey={(d) => d.signal}
+              title="По направлению"
+            />
+            <DataTable
+              columns={tfColumns}
+              rows={stats.by_timeframe}
+              rowKey={(d) => d.timeframe}
+              title="По таймфреймам"
+            />
+            <DataTable
+              columns={patColumns}
+              rows={stats.by_pattern}
+              rowKey={(p) => p.pattern_name}
+              title="Паттерны"
+              defaultSort={{ key: "cnt", dir: "desc" }}
+              scrollClass="max-h-96 overflow-y-auto"
+            />
           </div>
 
-          <div className="rounded border border-slate-800">
-            <div className="border-b border-slate-800 bg-slate-900 px-3 py-2 text-sm font-semibold">
-              Комбинации паттернов
-            </div>
-            <div className="max-h-96 overflow-y-auto">
-              <table className="min-w-full text-sm">
-                <tbody>
-                  {stats.by_pattern_combined.map((item) => (
-                    <tr key={item.pattern_name} className="border-t border-slate-800">
-                      <td className="px-3 py-1">{item.pattern_name}</td>
-                      <td className="px-3 py-1 text-right">{item.cnt}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <DataTable
+            columns={patColumns}
+            rows={stats.by_pattern_combined}
+            rowKey={(p) => p.pattern_name}
+            title="Комбинации паттернов"
+            defaultSort={{ key: "cnt", dir: "desc" }}
+            scrollClass="max-h-96 overflow-y-auto"
+          />
         </div>
       )}
     </div>
