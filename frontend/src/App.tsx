@@ -5,8 +5,9 @@ import TopStocksPanel from "./components/TopStocksPanel";
 import InstrumentsPanel from "./components/InstrumentsPanel";
 import PipelineWidget from "./components/PipelineWidget";
 import StrategyLab from "./components/StrategyLab";
+import PaperTradingPanel from "./components/PaperTradingPanel";
 
-type Tab = "signals" | "stats" | "top" | "instruments" | "lab";
+type Tab = "signals" | "stats" | "top" | "instruments" | "lab" | "paper";
 
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: "signals", label: "Сигналы" },
@@ -14,6 +15,7 @@ const tabs: Array<{ id: Tab; label: string }> = [
   { id: "top", label: "ТОП-30" },
   { id: "instruments", label: "Инструменты" },
   { id: "lab", label: "Лаборатория" },
+{ id: "paper", label: "Paper Trading" },
 ];
 
 export default function App() {
@@ -51,8 +53,9 @@ export default function App() {
         {tab === "top" && <TopStocksPanel />}
         {tab === "instruments" && <InstrumentsPanel />}
         {tab === "lab" && <StrategyLab />}
+{tab === "paper" && <PaperTradingPanel />}
       </main>
-      <PipelineWidget />
+      {tab !== "paper" && <PipelineWidget />}
     </div>
   );
 }

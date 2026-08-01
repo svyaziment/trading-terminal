@@ -8,7 +8,7 @@ import type {
   TopStock,
 } from "./types";
 
-function toQuery(params: Record<string, string | number | undefined>): string {
+function toQuery(params: object): string {
   const search = new URLSearchParams();
 
   for (const [key, value] of Object.entries(params)) {
@@ -107,6 +107,24 @@ async function postJson<T>(url: string, payload: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function deleteJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { method: "DELETE" });
+  if (!response.ok) {
+    let msg = `HTTP ${response.status}: ${response.statusText}`;
+    try {
+      const body = await response.json();
+      if (typeof body?.detail === "string") msg = body.detail;
+      else if (body?.detail?.message) msg = body.detail.message;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  return (await response.json()) as T;
+}
+
+export function deleteStrategy(id: number) {
+  return deleteJson<{ deleted: boolean; id: number }>(`/api/strategies/${id}`);
+}
+
 export function saveStrategy(payload: { name: string; config: StrategyConfig }) {
   return postJson<{ id: number; name: string; config: StrategyConfig }>(
     "/api/strategies",
@@ -118,7 +136,7 @@ export function listStrategies() {
 }
 export function runStrategy(
   id: number,
-  payload: { tickers: string[]; test_types: string[]; depth: string }
+  payload: { tickers: string[]; test_types: string[]; depth: string; date_from?: string; date_to?: string }
 ) {
   return postJson<{ accepted: boolean; job: StrategyJobSnapshot }>(
     `/api/strategies/${id}/run`,
@@ -137,4 +155,40 @@ export function getBigTickers(minCandles = 250000) {
   return getJson<{ min_candles: number; tickers: string[] }>(
     `/api/tickers/big${toQuery({ min_candles: minCandles })}`
   );
+}
+export function getStrategyDataRange() {
+  return getJson<{ min_date: string | null; max_date: string | null }>(
+    "/api/strategies/data-range"
+  );
+}
+
+// ---- Paper Trading (task-126) ----
+import type { PaperOverview, PaperPosition, PaperDynamics } from "./types";
+
+export interface FactorFilters {
+  signal_source?: string;
+  window_mode?: string;
+  rr_mode?: string;
+  entry_mode?: string;
+}
+
+export function getPaperOverview(filters: FactorFilters = {}) {
+  return getJson<PaperOverview>(`/api/paper-trading/overview${toQuery(filters)}`);
+}
+export function getPaperPositions(
+  params: FactorFilters & {
+    status?: string;
+    ticker?: string;
+    limit?: number;
+    offset?: number;
+    sort_by?: string;
+    sort_dir?: string;
+  }
+) {
+  return getJson<{ items: PaperPosition[]; total: number; limit: number; offset: number }>(
+    `/api/paper-trading/positions${toQuery(params)}`
+  );
+}
+export function getPaperDynamics(params: FactorFilters & { timeframe: string }) {
+  return getJson<PaperDynamics>(`/api/paper-trading/dynamics${toQuery(params)}`);
 }

@@ -157,3 +157,61 @@ export interface StrategyJobSnapshot {
   current_ticker?: string | null;
   strategy_id?: number;
 }
+
+// ---- Paper Trading (task-126) ----
+export interface PaperSummary {
+  total: number;
+  open: number;
+  pending: number;
+  closed: number;
+  realized_pnl_rub: number;
+  win_rate: number | null;
+  wins: number;
+  losses: number;
+}
+export interface PaperFactors {
+  signal_source: string[];
+  window_mode: string[];
+  rr_mode: string[];
+  entry_mode: string[];
+}
+export interface PaperOverview {
+  strategy_name: string;
+  strategy_description: string | null;
+  factors: PaperFactors;
+  summary: PaperSummary;
+}
+export interface PaperPosition {
+  id: number;
+  ticker: string;
+  entry_ts: string | null;
+  entry_price: number | null;
+  exit_ts: string | null;
+  exit_price: number | null;
+  stop_price: number | null;
+  take_price: number | null;
+  status: string;
+  exit_reason: string | null;
+  signal_source: string | null;
+  window_mode: string | null;
+  rr_mode: string | null;
+  entry_mode: string | null;
+  pnl_rub: number | null;
+  pnl_pct: number | null;
+  size_lots: number | null;
+  lot_size: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+export interface DynamicsPoint {
+  ts: string;
+  pnl_rub: number;
+  cum_pnl_rub: number;
+  closed: number;
+  wins: number;
+}
+export interface PaperDynamics {
+  timeframe: string;
+  points: DynamicsPoint[];
+  cum_pnl_rub: number;
+}

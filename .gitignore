@@ -31,4 +31,4 @@ logs_internal/
 *.log
 backend/certs/*.pem
 
-scripts/
+

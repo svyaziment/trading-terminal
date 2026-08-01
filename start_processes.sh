@@ -5,7 +5,7 @@ DURATION=${DURATION_MINUTES:-1200}
 echo "=== Step 0: Stop all existing processes ==="
 docker compose exec -T backend python -c "
 import os, signal
-targets = ['run_data_refresher', 'run_online_data', 'run_signal_engine', 'run_paper_trader', 'run_levels_refresher']
+targets = ['run_data_refresher', 'run_online_data', 'run_signal_engine', 'run_live_engine', 'run_paper_trader', 'run_levels_refresher']
 killed = []
 for pid_dir in os.listdir('/proc'):
     if not pid_dir.isdigit(): continue
@@ -44,9 +44,9 @@ mkdir -p reports/streaming
 nohup docker compose exec -T backend python -c "from app.analytics.online_data import run_online_data; run_online_data(duration_minutes=${DURATION})" > reports/streaming/streaming.log 2>&1 &
 sleep 1
 
-echo "=== Step 4: Start signal engine ==="
-mkdir -p reports/signal-engine
-nohup docker compose exec -T backend python -c "from app.analytics.online_signals import run_signal_engine; run_signal_engine(duration_minutes=${DURATION})" > reports/signal-engine/signals.log 2>&1 &
+echo "=== Step 4: Start live strategy engine (unified brain) ==="
+mkdir -p reports/live-engine
+nohup docker compose exec -T backend python -c "from app.analytics.live_engine import run_live_engine; run_live_engine(duration_minutes=${DURATION})" > reports/live-engine/live.log 2>&1 &
 sleep 1
 
 echo "=== Step 5: Start paper trader ==="
@@ -57,7 +57,7 @@ sleep 3
 echo "=== Step 6: Verify (should be 1 each) ==="
 docker compose exec -T backend python -c "
 import os
-targets = {'run_data_refresher': 0, 'run_online_data': 0, 'run_signal_engine': 0, 'run_paper_trader': 0}
+targets = {'run_data_refresher': 0, 'run_online_data': 0, 'run_live_engine': 0, 'run_paper_trader': 0}
 for pid_dir in os.listdir('/proc'):
     if not pid_dir.isdigit(): continue
     pid = int(pid_dir)

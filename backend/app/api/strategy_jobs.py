@@ -14,7 +14,7 @@ import json
 import traceback
 import threading
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from app.api import jobs_state
@@ -36,6 +36,8 @@ class RunIn(BaseModel):
     tickers: List[str]
     test_types: List[str] = ["full_sample", "walkforward"]
     depth: str = "express"
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
 
 
 def _validate_name(name: str) -> None:
@@ -107,7 +109,7 @@ def _write_report(data: Dict[str, Any]) -> None:
         pass
 
 
-def _run_job(strategy_id: int, tickers: List[str], test_types: List[str], depth: str) -> None:
+def _run_job(strategy_id: int, tickers: List[str], test_types: List[str], depth: str, date_from=None, date_to=None) -> None:
     try:
         from app.analytics.strategy_backtest import run_strategy_backtest, run_walkforward, DEPTH_PRESETS
         import pandas as pd
@@ -118,21 +120,32 @@ def _run_job(strategy_id: int, tickers: List[str], test_types: List[str], depth:
         name = srow.iloc[0]['name']
         config = _to_dict(srow.iloc[0]['config'])
         _write_report({"strategy_name": name, "config": config})
-        preset = DEPTH_PRESETS.get(depth, DEPTH_PRESETS['express'])
-        months = preset['months']
-        date_from = (pd.Timestamp.now() - pd.DateOffset(months=months)).strftime('%Y-%m-%d')
+        custom_period = bool(date_from and date_to)
+        if custom_period:
+            df_from = date_from
+            # engine uses 'timestamp < date_to'; +1 day includes the whole end date
+            df_to = (pd.Timestamp(date_to) + pd.Timedelta(days=1)).strftime('%Y-%m-%d')
+        else:
+            preset = DEPTH_PRESETS.get(depth, DEPTH_PRESETS['express'])
+            months = preset['months']
+            df_from = (pd.Timestamp.now() - pd.DateOffset(months=months)).strftime('%Y-%m-%d')
+            df_to = None
         jobs_state.update(JOB, stage="running", tickers_total=len(tickers), tickers_done=0)
         db.execute("DELETE FROM trading.backtest_results WHERE strategy_id=%s", (strategy_id,))
         done = 0
         for i, tk in enumerate(tickers, 1):
             jobs_state.update(JOB, current_ticker=tk)
             if "full_sample" in test_types:
-                r = run_strategy_backtest(db, tk, config, date_from=date_from)
-                m = r.get('metrics') if r.get('status') == 'success' else {'error': r.get('error')}
+                r = run_strategy_backtest(db, tk, config, date_from=df_from, date_to=df_to)
+                if r.get('status') == 'success':
+                    m = dict(r.get('metrics') or {})
+                    m['trades'] = r.get('trades', [])
+                else:
+                    m = {'error': r.get('error')}
                 db.execute(
                     "INSERT INTO trading.backtest_results (strategy_id, ticker, test_type, depth, metrics) VALUES (%s,%s,%s,%s,%s)",
                     (strategy_id, tk, 'full_sample', depth, _json_dumps(m)))
-            if "walkforward" in test_types:
+            if "walkforward" in test_types and not custom_period:
                 wf = run_walkforward(db, tk, config)
                 db.execute(
                     "INSERT INTO trading.backtest_results (strategy_id, ticker, test_type, depth, metrics) VALUES (%s,%s,%s,%s,%s)",
@@ -149,7 +162,14 @@ def _run_job(strategy_id: int, tickers: List[str], test_types: List[str], depth:
         traceback.print_exc()
 
 
+def _ensure_schema(db) -> None:
+    """Idempotent schema guard: soft-delete flag on strategies."""
+    db.execute("ALTER TABLE trading.strategies ADD COLUMN IF NOT EXISTS is_deleted INTEGER NOT NULL DEFAULT 0")
+
+
 def register_routes(app: FastAPI) -> None:
+    _ensure_schema(_get_db())
+
     @app.post("/api/strategies")
     def save_strategy(payload: StrategyIn):
         _validate_name(payload.name)
@@ -162,7 +182,7 @@ def register_routes(app: FastAPI) -> None:
                 detail=f"Стратегия '{payload.name}' заблокирована (тестируется в paper trading). Выберите другое имя.")
         db.execute(
             "INSERT INTO trading.strategies (name, config) VALUES (%s,%s) "
-            "ON CONFLICT (name) DO UPDATE SET config=EXCLUDED.config",
+            "ON CONFLICT (name) DO UPDATE SET config=EXCLUDED.config, is_deleted=0",
             (payload.name, _json_dumps(payload.config)))
         df = db.select("SELECT id FROM trading.strategies WHERE name=%s", (payload.name,)).to_dataframe()
         sid = int(df.iloc[0]['id'])
@@ -173,7 +193,7 @@ def register_routes(app: FastAPI) -> None:
         db = _get_db()
         df = db.select(
             "SELECT id, name, config, in_paper_test, locked, description, created_at::text AS created_at "
-            "FROM trading.strategies ORDER BY id").to_dataframe()
+            "FROM trading.strategies WHERE coalesce(is_deleted,0) = 0 ORDER BY id").to_dataframe()
         rows = df.to_dict('records')
         for r in rows:
             r['config'] = _to_dict(r.get('config'))
@@ -185,6 +205,16 @@ def register_routes(app: FastAPI) -> None:
     @app.get("/api/strategies/run/status")
     def run_status():
         return jobs_state.snapshot(JOB)
+
+    @app.get("/api/strategies/data-range")
+    def data_range():
+        import pandas as pd
+        db = _get_db()
+        df = db.select("SELECT min(timestamp) mn, max(timestamp) mx FROM trading.candles_1min_raw").to_dataframe()
+        if df.empty or df.iloc[0]['mn'] is None:
+            return {"min_date": None, "max_date": None}
+        return {"min_date": pd.Timestamp(df.iloc[0]['mn']).strftime('%Y-%m-%d'),
+                "max_date": pd.Timestamp(df.iloc[0]['mx']).strftime('%Y-%m-%d')}
 
     @app.post("/api/strategies/{strategy_id}/run")
     def run_strategy(strategy_id: int, payload: RunIn):
@@ -206,7 +236,14 @@ def register_routes(app: FastAPI) -> None:
             "status": "starting",
             "error": None,
         })
-        threading.Thread(target=_run_job, args=(strategy_id, payload.tickers, payload.test_types, payload.depth),
+        # Persist run params so the UI can restore filters when the strategy is selected
+        run_params = {"tickers": payload.tickers, "test_types": payload.test_types,
+                      "depth": payload.depth, "date_from": payload.date_from, "date_to": payload.date_to}
+        db = _get_db()
+        db.execute(
+            "UPDATE trading.strategies SET config = coalesce(config, '{}'::jsonb) || CAST(%s AS jsonb) WHERE id=%s",
+            (_json_dumps({"run_params": run_params}), strategy_id))
+        threading.Thread(target=_run_job, args=(strategy_id, payload.tickers, payload.test_types, payload.depth, payload.date_from, payload.date_to),
                          name="strategy-backtest", daemon=True).start()
         return {"accepted": True, "job": jobs_state.snapshot(JOB)}
 
@@ -220,6 +257,19 @@ def register_routes(app: FastAPI) -> None:
         for r in rows:
             r['metrics'] = _to_dict(r.get('metrics'))
         return {"strategy_id": strategy_id, "results": [_json_safe(r) for r in rows]}
+
+    @app.delete("/api/strategies/{strategy_id}")
+    def delete_strategy(strategy_id: int):
+        db = _get_db()
+        existing = db.select(
+            "SELECT id, locked, name FROM trading.strategies WHERE id=%s AND coalesce(is_deleted,0) = 0",
+            (strategy_id,)).to_dataframe()
+        if existing.empty:
+            raise HTTPException(status_code=404, detail="Стратегия не найдена или уже удалена")
+        if bool(existing.iloc[0]['locked']):
+            raise HTTPException(status_code=409, detail="Стратегия заблокирована (тестируется в paper trading) — удаление запрещено")
+        db.execute("UPDATE trading.strategies SET is_deleted = 1 WHERE id=%s", (strategy_id,))
+        return {"deleted": True, "id": strategy_id}
 
     @app.get("/api/tickers/big")
     def big_tickers(min_candles: int = Query(250000, ge=1)):

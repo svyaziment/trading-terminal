@@ -1,11 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import DataTable, { type ColumnDef, type FilterState, type FilterValue, formatFilterValue } from "./ui/DataTable";
+import FilterChips from "./ui/FilterChips";
 import {
   saveStrategy,
   listStrategies,
+  deleteStrategy,
   runStrategy,
   strategyResults,
   strategyRunStatus,
   getBigTickers,
+  getStrategyDataRange,
 } from "../api";
 import type {
   Strategy,
@@ -96,6 +101,192 @@ function Chip(props: {
   );
 }
 
+const MONTHS_RU = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+const DOW_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
+
+function localTodayIso(): string {
+  const d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+function DatePicker(props: {
+  value: string;
+  onChange: (v: string) => void;
+  minDate?: string;
+  maxDate?: string;
+}) {
+  const { value, onChange, minDate, maxDate } = props;
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState(value);
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const base = value || localTodayIso();
+  const [viewY, setViewY] = useState(Number(base.slice(0, 4)));
+  const [viewM, setViewM] = useState(Number(base.slice(5, 7)) - 1);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const calRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { setText(value); }, [value]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const tgt = e.target as Node;
+      if (wrapRef.current?.contains(tgt)) return;
+      if (calRef.current?.contains(tgt)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  function openCal() {
+    const el = wrapRef.current;
+    if (el) setAnchor(el.getBoundingClientRect());
+    setOpen(true);
+  }
+
+  function commitText(raw: string) {
+    const src = raw.trim();
+    let iso = "";
+    let m = src.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (m) {
+      iso = m[1] + "-" + m[2].padStart(2, "0") + "-" + m[3].padStart(2, "0");
+    } else {
+      m = src.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+      if (m) iso = m[3] + "-" + m[2].padStart(2, "0") + "-" + m[1].padStart(2, "0");
+    }
+    const inRange = !((minDate && iso < minDate) || (maxDate && iso > maxDate));
+    if (iso && !isNaN(new Date(iso + "T00:00:00").getTime()) && inRange) {
+      onChange(iso);
+      setText(iso);
+      setViewY(Number(iso.slice(0, 4)));
+      setViewM(Number(iso.slice(5, 7)) - 1);
+    } else {
+      setText(value);
+    }
+  }
+
+  function prevMonth() {
+    if (viewM === 0) { setViewM(11); setViewY(viewY - 1); } else { setViewM(viewM - 1); }
+  }
+  function nextMonth() {
+    if (viewM === 11) { setViewM(0); setViewY(viewY + 1); } else { setViewM(viewM + 1); }
+  }
+  function selectDate(iso: string) {
+    onChange(iso);
+    setText(iso);
+    setOpen(false);
+  }
+
+  const first = new Date(viewY, viewM, 1);
+  const startDow = (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(viewY, viewM + 1, 0).getDate();
+  const todayIso = localTodayIso();
+  const cells: Array<string | null> = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) {
+    cells.push(viewY + "-" + String(viewM + 1).padStart(2, "0") + "-" + String(d).padStart(2, "0"));
+  }
+  const off = (iso: string) => (minDate ? iso < minDate : false) || (maxDate ? iso > maxDate : false);
+  const dpInput = "w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 pr-7 font-mono text-xs text-slate-200 outline-none transition focus:border-amber-500";
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <input
+        value={text}
+        placeholder="ДД.ММ.ГГГГ"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => commitText(text)}
+        onKeyDown={(e) => { if (e.key === "Enter") commitText(text); }}
+        onFocus={openCal}
+        className={dpInput}
+      />
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={() => (open ? setOpen(false) : openCal())}
+        aria-label="Календарь"
+        className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-amber-300"
+      >
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+          <line x1="16" y1="2" x2="16" y2="6" />
+          <line x1="8" y1="2" x2="8" y2="6" />
+          <line x1="3" y1="10" x2="21" y2="10" />
+        </svg>
+      </button>
+      {open && anchor && createPortal(
+        <div
+          ref={calRef}
+          className="w-[240px] rounded-lg border border-slate-700 bg-slate-900 p-2 shadow-2xl"
+          style={{ position: "fixed", top: anchor.bottom + 4, left: Math.min(Math.max(anchor.left, 8), window.innerWidth - 248), zIndex: 50, animation: "sl-fade .18s ease-out" }}
+        >
+          <div className="mb-1.5 flex items-center justify-between">
+            <button type="button" onClick={prevMonth} aria-label="Предыдущий месяц" className="rounded p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-100">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+            </button>
+            <div className="font-display text-[11px] font-semibold text-slate-200">
+              {MONTHS_RU[viewM]} <span className="font-mono text-slate-400">{viewY}</span>
+            </div>
+            <button type="button" onClick={nextMonth} aria-label="Следующий месяц" className="rounded p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-100">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+            </button>
+          </div>
+          <div className="grid grid-cols-7 gap-0.5">
+            {DOW_RU.map((dw) => (
+              <div key={dw} className="py-0.5 text-center font-mono text-[9px] uppercase text-slate-500">{dw}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-0.5">
+            {cells.map((iso, i) =>
+              iso === null ? (
+                <div key={"e" + i} />
+              ) : (
+                <button
+                  key={iso}
+                  type="button"
+                  disabled={off(iso)}
+                  onClick={() => selectDate(iso)}
+                  className={
+                    "rounded py-1 font-mono text-[10px] tabular-nums transition-all duration-100 " +
+                    (iso === value
+                      ? "bg-amber-500/25 font-semibold text-amber-200 shadow-[0_0_8px_rgba(245,158,11,0.25)]"
+                      : iso === todayIso
+                        ? "text-sky-300 ring-1 ring-inset ring-sky-600/50"
+                        : "text-slate-300") +
+                    (off(iso) ? " cursor-not-allowed opacity-25" : " hover:bg-slate-800 hover:text-slate-100 active:scale-90")
+                  }
+                >
+                  {Number(iso.slice(8, 10))}
+                </button>
+              )
+            )}
+          </div>
+          <div className="mt-1.5 flex items-center justify-between border-t border-slate-800 pt-1.5">
+            <button
+              type="button"
+              onClick={() => selectDate(todayIso)}
+              disabled={off(todayIso)}
+              className="rounded px-1.5 py-0.5 font-mono text-[9px] text-sky-300 transition hover:bg-sky-500/10 disabled:opacity-30"
+            >
+              сегодня
+            </button>
+            {(minDate || maxDate) && (
+              <span className="font-mono text-[8px] text-slate-600">{(minDate ?? "") + "…" + (maxDate ?? "")}</span>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
 export default function StrategyLab() {
   const [name, setName] = useState("");
   const [patterns, setPatterns] = useState<string[]>(["levels_reversal", "signal_4h_buy"]);
@@ -107,16 +298,27 @@ export default function StrategyLab() {
   const [rrReward, setRrReward] = useState("2");
   const [methods, setMethods] = useState<string[]>(["full_sample", "walkforward"]);
   const [depth, setDepth] = useState("express");
+const [dateFrom, setDateFrom] = useState("");
+const [dateTo, setDateTo] = useState("");
+const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: string | null } | null>(null);
   const [tickers, setTickers] = useState<string[]>(["RUAL", "GMKN", "PIKK"]);
   const [bigTickers, setBigTickers] = useState<string[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [results, setResults] = useState<BacktestResultRow[]>([]);
-  const [job, setJob] = useState<{ status?: string; tickers_total?: number; tickers_done?: number; current_ticker?: string | null; error?: string | null }>({});
+  const [job, setJob] = useState<{ status?: string; tickers_total?: number; tickers_done?: number; current_ticker?: string | null; error?: string | null; started_at?: string | null; finished_at?: string | null; stage?: string }>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
   const prevStatus = useRef<string | undefined>(undefined);
+  const [logLines, setLogLines] = useState<string[]>([]);
+  const [justFinished, setJustFinished] = useState<"done" | "failed" | null>(null);
+  const [prefillFlash, setPrefillFlash] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Strategy | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [nowTs, setNowTs] = useState(Date.now());
+  const pendingRun = useRef<number | null>(null);
+  const lastTickerRef = useRef<string | null>(null);
 
   const config: StrategyConfig = useMemo(
     () => ({
@@ -154,6 +356,10 @@ export default function StrategyLab() {
         const bt = await getBigTickers();
         setBigTickers(bt.tickers);
       } catch { /* transient */ }
+    try {
+      const dr = await getStrategyDataRange();
+      setDataRange(dr);
+    } catch { /* transient */ }
       await reloadStrategies();
     })();
   }, []);
@@ -172,12 +378,47 @@ export default function StrategyLab() {
     return () => { alive = false; window.clearInterval(id); };
   }, [running]);
 
+  // live log of per-ticker progress
   useEffect(() => {
-    if (prevStatus.current === "running" && job.status === "done" && selectedId !== null) {
-      void loadResults(selectedId);
+    if (job.status === "running") {
+      const tk = job.current_ticker ?? null;
+      if (tk && tk !== lastTickerRef.current) {
+        lastTickerRef.current = tk;
+        const line = "→ " + tk + " (" + (job.tickers_done ?? 0) + "/" + (job.tickers_total ?? "…") + ")";
+        setLogLines((p) => [...p.slice(-7), line]);
+      }
+    } else {
+      lastTickerRef.current = null;
     }
-    prevStatus.current = job.status;
-  }, [job.status, selectedId]);
+  }, [job.status, job.current_ticker, job.tickers_done, job.tickers_total]);
+  
+  // elapsed timer while running
+  useEffect(() => {
+    if (job.status !== "running") return;
+    const id = window.setInterval(() => setNowTs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [job.status]);
+  
+  // completion: load results + flash (robust even if "running" was never observed)
+  useEffect(() => {
+    const st = job.status;
+    if (st === "done" || st === "failed") {
+      const pid = pendingRun.current;
+      if (pid !== null) {
+        pendingRun.current = null;
+        void loadResults(pid);
+        setJustFinished(st);
+        setLogLines((p) => [...p.slice(-7), st === "done" ? "✓ расчёт завершён" : "✗ ошибка: " + (job.error ?? "?")]);
+        window.setTimeout(() => setJustFinished(null), 3000);
+      } else if (prevStatus.current === "running" && st === "done" && selectedId !== null) {
+        void loadResults(selectedId);
+      }
+    }
+    prevStatus.current = st;
+  }, [job.status, selectedId, job.error]);
+  
+  const elapsedSec = running && job.started_at ? Math.max(0, Math.floor((nowTs - new Date(job.started_at).getTime()) / 1000)) : null;
+  const elapsedFmt = elapsedSec === null ? "" : Math.floor(elapsedSec / 60) + ":" + String(elapsedSec % 60).padStart(2, "0");
 
   function togglePattern(id: string) {
     setPatterns((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
@@ -188,7 +429,18 @@ export default function StrategyLab() {
   function toggleMethod(id: string) {
     setMethods((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
   }
-  function toggleTicker(t: string) {
+  function toggleCustomPeriod() {
+  if (depth === "custom") {
+    setDepth("express");
+  } else {
+    setDepth("custom");
+    setMethods(["full_sample"]);
+    const today = localTodayIso();
+    setDateFrom((d) => d || today);
+    setDateTo((d) => d || today);
+  }
+}
+function toggleTicker(t: string) {
     setTickers((p) => (p.includes(t) ? p.filter((x) => x !== t) : [...p, t]));
   }
 
@@ -203,6 +455,20 @@ export default function StrategyLab() {
     setRrOn(c.risk_reward !== null && c.risk_reward !== undefined);
     setRrRisk(String(c.risk_reward?.risk ?? 1));
     setRrReward(String(c.risk_reward?.reward ?? 2));
+    const rp = (c as StrategyConfig & { run_params?: { tickers?: string[]; test_types?: string[]; depth?: string; date_from?: string | null; date_to?: string | null } }).run_params;
+    if (rp) {
+      setPrefillFlash(true);
+      window.setTimeout(() => setPrefillFlash(false), 1800);
+      if (Array.isArray(rp.test_types) && rp.test_types.length > 0) setMethods(rp.test_types);
+      if (Array.isArray(rp.tickers) && rp.tickers.length > 0) setTickers(rp.tickers);
+      if (rp.date_from && rp.date_to) {
+        setDepth("custom");
+        setDateFrom(rp.date_from);
+        setDateTo(rp.date_to);
+      } else if (rp.depth) {
+        setDepth(rp.depth);
+      }
+    }
     setError(null);
     void loadResults(s.id);
   }
@@ -214,6 +480,26 @@ export default function StrategyLab() {
     setError(null);
   }
 
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteStrategy(deleteTarget.id);
+      if (selectedId === deleteTarget.id) {
+        setSelectedId(null);
+        setResults([]);
+      }
+      setDeleteTarget(null);
+      await reloadStrategies();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function handleSaveRun() {
     const nm = name.trim();
     if (!nm) { setError("Укажите имя стратегии"); return; }
@@ -222,13 +508,26 @@ export default function StrategyLab() {
     if (windows.length === 0) { setError("Выберите хотя бы одно окно подтверждения"); return; }
     if (tickers.length === 0) { setError("Выберите хотя бы один тикер"); return; }
     if (methods.length === 0) { setError("Выберите хотя бы один метод теста"); return; }
+if (depth === "custom") {
+  if (!dateFrom || !dateTo) { setError("Укажите период «с» и «до»"); return; }
+  if (dateFrom > dateTo) { setError("Дата «с» не может быть позже даты «до»"); return; }
+}
     setBusy(true); setError(null);
     try {
       const saved = await saveStrategy({ name: nm, config });
       setSelectedId(saved.id);
       setFlash(true);
       window.setTimeout(() => setFlash(false), 1400);
-      await runStrategy(saved.id, { tickers, test_types: methods, depth });
+      const run = await runStrategy(
+  saved.id,
+  depth === "custom"
+    ? { tickers, test_types: ["full_sample"], depth: "express", date_from: dateFrom, date_to: dateTo }
+    : { tickers, test_types: methods, depth }
+);
+      pendingRun.current = saved.id;
+      setLogLines(["→ запуск расчёта…"]);
+      setJustFinished(null);
+      if (run.job) setJob(run.job);
       await reloadStrategies();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -260,11 +559,215 @@ export default function StrategyLab() {
     };
   }, [fullSample]);
 
-  const progressPct =
+  const periodHint = useMemo(() => {
+  if (!dateFrom || !dateTo) {
+    return "доступный диапазон: " + (dataRange?.min_date ?? "…") + " — " + (dataRange?.max_date ?? "…");
+  }
+  if (dateFrom > dateTo) return "⚠ дата «с» позже даты «до»";
+  const fmtDay = (d: string) => d.split("-").reverse().join(".");
+  if (dateFrom === dateTo) {
+    return "1 день: " + fmtDay(dateFrom) + " 00:00:00 — " + fmtDay(dateTo) + " 23:59:59";
+  }
+  const days = Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86400000) + 1;
+  return fmtDay(dateFrom) + " — " + fmtDay(dateTo) + " (" + days + " дн.)";
+}, [dateFrom, dateTo, dataRange]);
+const progressPct =
     (job.tickers_total ?? 0) > 0
       ? Math.round(((job.tickers_done ?? 0) / (job.tickers_total as number)) * 100)
       : 0;
 
+    type Trade = {
+      ticker: string;
+      created_at: string | null;
+      entry_ts: string;
+      exit_ts: string;
+      entry_price: number;
+      exit_price: number;
+      exit_reason: string;
+      bars_held: number;
+      net_return_pct: number;
+    };
+    const fmtTs = (s: string) => {
+      const p = String(s).replace("T", " ").split(" ");
+      const d = (p[0] || "").split("-");
+      return (d.length === 3 ? d[2] + "." + d[1] : p[0]) + " " + (p[1] || "").slice(0, 5);
+    };
+    const tradesData = useMemo(() => {
+      const rows: Array<{ ticker: string; trades: Trade[] }> = [];
+      for (const r of fullSample) {
+        const m = r.metrics as (FullSampleMetrics & { trades?: Array<Omit<Trade, "ticker" | "created_at">> }) | null;
+        if (m && Array.isArray(m.trades) && m.trades.length > 0) {
+          rows.push({ ticker: r.ticker, trades: m.trades.map((t) => ({ ...t, ticker: r.ticker, created_at: r.created_at })) });
+        }
+      }
+      return rows;
+    }, [fullSample]);
+    const allTrades = useMemo(() => tradesData.flatMap((td) => td.trades), [tradesData]);
+    const tickerOptions = useMemo(() => {
+      const seen = new Set<string>();
+      const out: string[] = [];
+      for (const t of [...bigTickers, ...tickers]) {
+        if (!seen.has(t)) { seen.add(t); out.push(t); }
+      }
+      return out;
+    }, [bigTickers, tickers]);
+  const [labFilters, setLabFilters] = useState<FilterState>({});
+  const [tradeStats, setTradeStats] = useState({ wins: 0, losses: 0, totalNet: 0 });
+
+  const btColumns = useMemo<ColumnDef<BacktestResultRow>[]>(() => [
+    {
+      key: "ticker",
+      label: "Тикер",
+      accessor: (r) => r.ticker,
+      render: (r) => <span className="font-mono font-medium text-slate-200">{r.ticker}</span>,
+      filter: { kind: "select" },
+    },
+    {
+      key: "n",
+      label: "n",
+      numeric: true,
+      accessor: (r) => ((r.metrics as FullSampleMetrics | null)?.n ?? null),
+      render: (r) => <span className="text-slate-400">{(r.metrics as FullSampleMetrics).n ?? "—"}</span>,
+      filter: { kind: "range" },
+    },
+    {
+      key: "pf",
+      label: "PF",
+      numeric: true,
+      accessor: (r) => ((r.metrics as FullSampleMetrics | null)?.pf ?? null),
+      render: (r) => <span className={pfTone((r.metrics as FullSampleMetrics).pf)}>{fmt((r.metrics as FullSampleMetrics).pf)}</span>,
+      filter: { kind: "range", presets: [{ label: "PF ≥ 1", min: 1 }, { label: "PF ≥ 2", min: 2 }] },
+    },
+    {
+      key: "exp_pct",
+      label: "Exp %",
+      numeric: true,
+      accessor: (r) => ((r.metrics as FullSampleMetrics | null)?.exp_pct ?? null),
+      render: (r) => {
+        const v = (r.metrics as FullSampleMetrics).exp_pct ?? 0;
+        return <span className={v >= 0 ? "text-emerald-300" : "text-rose-400"}>{(v >= 0 ? "+" : "") + fmt(v, 3)}</span>;
+      },
+      filter: { kind: "range", presets: [{ label: "Exp ≥ 0", min: 0 }, { label: "Exp < 0", max: -0.000001 }] },
+    },
+    {
+      key: "wr",
+      label: "WR",
+      numeric: true,
+      accessor: (r) => ((r.metrics as FullSampleMetrics | null)?.wr ?? null),
+      render: (r) => <span className="text-slate-300">{fmt((r.metrics as FullSampleMetrics).wr, 1)}</span>,
+      filter: { kind: "range", presets: [{ label: "WR ≥ 50", min: 50 }] },
+    },
+    {
+      key: "maxdd_pct",
+      label: "MaxDD %",
+      numeric: true,
+      accessor: (r) => ((r.metrics as FullSampleMetrics | null)?.maxdd_pct ?? null),
+      render: (r) => <span className="text-amber-300/90">{fmt((r.metrics as FullSampleMetrics).maxdd_pct, 1)}</span>,
+      filter: { kind: "range", presets: [{ label: "DD ≤ 10%", max: 10 }] },
+    },
+  ], []);
+
+  const tradeColumns = useMemo<ColumnDef<Trade>[]>(() => [
+    {
+      key: "ticker",
+      label: "Тикер",
+      accessor: (t) => t.ticker,
+      render: (t) => <span className="font-mono font-medium text-slate-200">{t.ticker}</span>,
+      filter: { kind: "select" },
+    },
+    {
+      key: "created_at",
+      label: "Создана",
+      accessor: (t) => t.created_at ?? "",
+      render: (t) => <span className="font-mono text-[11px] text-slate-500">{t.created_at ? fmtTs(t.created_at) : "—"}</span>,
+    },
+    {
+      key: "entry_ts",
+      label: "Вход",
+      accessor: (t) => t.entry_ts,
+      render: (t) => <span className="font-mono text-[11px] text-slate-400">{fmtTs(t.entry_ts)}</span>,
+    },
+    {
+      key: "entry_price",
+      label: "Цена вх.",
+      numeric: true,
+      accessor: (t) => t.entry_price,
+      render: (t) => <span className="text-slate-300">{Number(t.entry_price).toFixed(2)}</span>,
+    },
+    {
+      key: "exit_ts",
+      label: "Выход",
+      accessor: (t) => t.exit_ts,
+      render: (t) => <span className="font-mono text-[11px] text-slate-400">{fmtTs(t.exit_ts)}</span>,
+    },
+    {
+      key: "exit_price",
+      label: "Цена вых.",
+      numeric: true,
+      accessor: (t) => t.exit_price,
+      render: (t) => <span className="text-slate-300">{Number(t.exit_price).toFixed(2)}</span>,
+    },
+    {
+      key: "exit_reason",
+      label: "Причина",
+      accessor: (t) => t.exit_reason,
+      render: (t) => (
+        <span className={"inline-block rounded px-1.5 py-0.5 font-mono text-[10px] " + (t.exit_reason === "take" ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300")}>
+          {t.exit_reason === "take" ? "тейк" : "стоп"}
+        </span>
+      ),
+      filter: { kind: "select", options: ["take", "stop"], optionLabel: (v) => (v === "take" ? "тейк" : "стоп") },
+    },
+    {
+      key: "bars_held",
+      label: "Баров",
+      numeric: true,
+      accessor: (t) => t.bars_held,
+      render: (t) => <span className="text-slate-400">{t.bars_held}</span>,
+    },
+    {
+      key: "net_return_pct",
+      label: "Net %",
+      numeric: true,
+      accessor: (t) => t.net_return_pct,
+      render: (t) => (
+        <span className={"font-semibold " + (t.net_return_pct > 0 ? "text-emerald-300" : "text-rose-300")}>
+          {(t.net_return_pct > 0 ? "+" : "") + Number(t.net_return_pct).toFixed(3)}
+        </span>
+      ),
+      filter: { kind: "range", presets: [{ label: "Прибыль > 0", min: 0.000001 }, { label: "Убыток < 0", max: -0.000001 }] },
+    },
+  ], []);
+
+  const handleTradesVisible = useCallback((rows: Trade[]) => {
+    const wins = rows.filter((t) => t.net_return_pct > 0).length;
+    setTradeStats({
+      wins,
+      losses: rows.length - wins,
+      totalNet: rows.reduce((a, t) => a + t.net_return_pct, 0),
+    });
+  }, []);
+
+  const tradesCsvName = useMemo(() => {
+    const f = labFilters["ticker"];
+    return "trades_" + (f && f.kind === "select" ? f.value : "all") + ".csv";
+  }, [labFilters]);
+
+  const filterChipLabels = useMemo<Record<string, string>>(() => ({
+    ticker: "ticker",
+    n: "n",
+    pf: "PF",
+    exp_pct: "Exp%",
+    wr: "WR",
+    maxdd_pct: "MaxDD%",
+    exit_reason: "причина",
+    net_return_pct: "Net%",
+  }), []);
+
+  const filterChipValue = useCallback((key: string, v: FilterValue): string => {
+    if (key === "exit_reason" && v.kind === "select") return v.value === "take" ? "тейк" : "стоп";
+    return formatFilterValue(v);
+  }, []);
   const numInput =
     "w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-200 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed";
 
@@ -414,10 +917,11 @@ export default function StrategyLab() {
             )}
           </Section>
 
-          <Section title="Тест">
+          <Section title="Тест" badge={prefillFlash ? "параметры восстановлены ✓" : undefined}>
+            <div className={prefillFlash ? "-m-1.5 mb-0.5 rounded-md ring-2 ring-sky-500/60 transition-shadow duration-700" : "hidden"} style={{ animation: "sl-fade .2s ease-out" }} />
             <div className="mb-2 flex flex-wrap gap-1.5">
               {METHODS.map((m) => (
-                <Chip key={m.id} on={methods.includes(m.id)} disabled={isLocked} onClick={() => toggleMethod(m.id)}>
+                <Chip key={m.id} on={methods.includes(m.id)} disabled={isLocked || (depth === "custom" && m.id === "walkforward")} onClick={() => toggleMethod(m.id)}>
                   {m.label}
                 </Chip>
               ))}
@@ -441,8 +945,37 @@ export default function StrategyLab() {
                 </button>
               ))}
             </div>
-            <div className="flex flex-wrap gap-1">
-              {bigTickers.map((t) => (
+            <button
+  type="button"
+  disabled={isLocked}
+  onClick={() => toggleCustomPeriod()}
+  className={
+    "mb-2 flex w-full items-center justify-center gap-1.5 rounded border px-1.5 py-1.5 text-[10px] font-medium transition-all duration-150 disabled:cursor-not-allowed " +
+    (depth === "custom"
+      ? "border-amber-500/70 bg-amber-500/15 text-amber-200 shadow-[0_0_10px_rgba(245,158,11,0.15)]"
+      : "border-slate-700 text-slate-400 hover:border-amber-600/50 hover:text-amber-300")
+  }
+>
+  <span aria-hidden="true">📅</span> За период
+</button>
+{depth === "custom" && (
+  <div className="mb-2 rounded border border-amber-700/40 bg-amber-500/5 p-2" style={{ animation: "sl-fade .2s ease-out" }}>
+    <div className="grid grid-cols-2 gap-2">
+      <label className="block">
+        <span className="mb-1 block text-[9px] uppercase tracking-wider text-slate-500">с</span>
+        <DatePicker value={dateFrom} onChange={setDateFrom} minDate={dataRange?.min_date ?? undefined} maxDate={dataRange?.max_date ?? undefined} />
+      </label>
+      <label className="block">
+        <span className="mb-1 block text-[9px] uppercase tracking-wider text-slate-500">до</span>
+        <DatePicker value={dateTo} onChange={setDateTo} minDate={dataRange?.min_date ?? undefined} maxDate={dataRange?.max_date ?? undefined} />
+      </label>
+    </div>
+    <p className="mt-1.5 font-mono text-[9px] leading-relaxed text-slate-400">{periodHint}</p>
+    <p className="mt-1 text-[9px] text-amber-300/80">для произвольного периода доступен только full-sample</p>
+  </div>
+)}
+<div className="flex flex-wrap gap-1">
+              {tickerOptions.map((t) => (
                 <Chip key={t} on={tickers.includes(t)} disabled={isLocked} onClick={() => toggleTicker(t)}>
                   {t}
                 </Chip>
@@ -454,9 +987,9 @@ export default function StrategyLab() {
                 type="button"
                 disabled={isLocked}
                 className="text-sky-400 transition hover:text-sky-300 disabled:cursor-not-allowed"
-                onClick={() => setTickers(tickers.length === bigTickers.length ? [] : [...bigTickers])}
+                onClick={() => setTickers(tickers.length === tickerOptions.length ? [] : [...tickerOptions])}
               >
-                {tickers.length === bigTickers.length ? "сбросить" : "все"}
+                {tickers.length === tickerOptions.length ? "сбросить" : "все"}
               </button>
             </div>
           </Section>
@@ -495,12 +1028,14 @@ export default function StrategyLab() {
           <Section title="Сохранённые" badge={String(strategies.length)}>
             <div className="space-y-1">
               {strategies.map((s) => (
-                <button
+                <div
                   key={s.id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => loadStrategy(s)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") loadStrategy(s); }}
                   className={
-                    "flex w-full items-center justify-between gap-2 rounded border px-2 py-1.5 text-left transition " +
+                    "group flex w-full cursor-pointer items-center justify-between gap-2 rounded border px-2 py-1.5 text-left transition " +
                     (selectedId === s.id
                       ? "border-sky-500/70 bg-sky-500/15"
                       : "border-slate-800 bg-slate-950/60 hover:border-slate-600")
@@ -528,8 +1063,21 @@ export default function StrategyLab() {
                       </span>
                     )}
                     <span className="font-mono text-[9px] text-slate-600">#{s.id}</span>
+                    {!s.locked && (
+                      <button
+                        type="button"
+                        title="Удалить стратегию"
+                        onClick={(e) => { e.stopPropagation(); setDeleteTarget(s); }}
+                        className="rounded p-0.5 text-slate-600 opacity-0 transition hover:bg-rose-500/15 hover:text-rose-300 group-hover:opacity-100"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        </svg>
+                      </button>
+                    )}
                   </span>
-                </button>
+                </div>
               ))}
             </div>
           </Section>
@@ -561,7 +1109,7 @@ export default function StrategyLab() {
                 )}
               </div>
               <span className="font-mono text-[11px] tabular-nums text-sky-300">
-                {job.tickers_done ?? 0}/{job.tickers_total ?? "—"}
+                {job.tickers_done ?? 0}/{job.tickers_total ?? "—"}{elapsedFmt ? " · " + elapsedFmt : ""}
               </span>
             </div>
             <div className="relative mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800">
@@ -574,6 +1122,19 @@ export default function StrategyLab() {
                 style={{ animation: "sl-shimmer 1.2s linear infinite" }}
               />
             </div>
+
+            {logLines.length > 0 && (
+              <div className="mt-2 max-h-24 space-y-0.5 overflow-y-auto rounded border border-sky-900/40 bg-slate-950/60 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-sky-200/80">
+                {logLines.map((ln, i) => (
+                  <div key={i} className={i === logLines.length - 1 ? "text-sky-100" : "opacity-60"}>{ln}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+                {justFinished === "done" && !running && (
+          <div className="rounded-lg border border-emerald-600/60 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300" style={{ animation: "sl-fade .2s ease-out" }}>
+            ✓ Расчёт завершён — результаты обновлены
           </div>
         )}
         {job.status === "failed" && (
@@ -609,51 +1170,51 @@ export default function StrategyLab() {
           </div>
         )}
 
-        {/* Full-sample table */}
-        <div className="overflow-hidden rounded-lg border border-slate-800">
-          <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900 px-3 py-2">
-            <span className="font-display text-xs font-semibold uppercase tracking-[0.14em] text-slate-300">
-              Бэктест · full-sample
-            </span>
-            <span className="font-mono text-[10px] text-slate-600">{fullSample.length} тикеров</span>
-          </div>
-          {fullSample.length === 0 ? (
-            <div className="px-3 py-6 text-center text-xs text-slate-600">
-              нет результатов — сохраните и запустите стратегию
-            </div>
-          ) : (
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-900/80 text-[10px] uppercase tracking-wider text-slate-500">
-                <tr>
-                  <th className="px-3 py-2 text-left">Тикер</th>
-                  <th className="px-3 py-2 text-right">n</th>
-                  <th className="px-3 py-2 text-right">PF</th>
-                  <th className="px-3 py-2 text-right">Exp %</th>
-                  <th className="px-3 py-2 text-right">WR</th>
-                  <th className="px-3 py-2 text-right">MaxDD %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fullSample.map((r) => {
-                  const m = (r.metrics ?? {}) as FullSampleMetrics;
-                  return (
-                    <tr key={r.id} className="border-t border-slate-800/70 transition-colors hover:bg-slate-900/70">
-                      <td className="px-3 py-1.5 font-mono font-medium text-slate-200">{r.ticker}</td>
-                      <td className="px-3 py-1.5 text-right font-mono tabular-nums text-slate-400">{m.n ?? "—"}</td>
-                      <td className={"px-3 py-1.5 text-right font-mono tabular-nums " + pfTone(m.pf)}>{fmt(m.pf)}</td>
-                      <td className={"px-3 py-1.5 text-right font-mono tabular-nums " + ((m.exp_pct ?? 0) >= 0 ? "text-emerald-300" : "text-rose-400")}>
-                        {(m.exp_pct ?? 0) >= 0 ? "+" : ""}{fmt(m.exp_pct, 3)}
-                      </td>
-                      <td className="px-3 py-1.5 text-right font-mono tabular-nums text-slate-300">{fmt(m.wr, 1)}</td>
-                      <td className="px-3 py-1.5 text-right font-mono tabular-nums text-amber-300/90">{fmt(m.maxdd_pct, 1)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-
+     {/* Unified filter panel (общая для обеих таблиц) */}
+     <FilterChips
+       filters={labFilters}
+       onChange={setLabFilters}
+       labels={filterChipLabels}
+       valueLabel={filterChipValue}
+     />
+     {/* Backtest · full-sample */}
+     <DataTable
+       columns={btColumns}
+       rows={fullSample}
+       rowKey={(r) => r.id}
+       filters={labFilters}
+       onFiltersChange={setLabFilters}
+       title="Бэктест · full-sample"
+       emptyText="нет результатов — сохраните и запустите стратегию"
+     />
+             {/* Trades · full-sample */}
+             {tradesData.length > 0 && (
+               <DataTable
+                 columns={tradeColumns}
+                 rows={allTrades}
+                 rowKey={(t, i) => i + "_" + t.ticker + "_" + t.entry_ts}
+                 filters={labFilters}
+                 onFiltersChange={setLabFilters}
+                 onVisibleRowsChange={handleTradesVisible}
+                 defaultSort={{ key: "entry_ts", dir: "desc" }}
+                 title="Сделки · full-sample"
+                 csv={{ filename: tradesCsvName }}
+                 scrollClass="max-h-96 overflow-y-auto"
+                 rowClass={(t) => (t.net_return_pct > 0 ? "bg-emerald-500/[0.04]" : "bg-rose-500/[0.04]")}
+                 emptyText="нет сделок для выбранного фильтра"
+                 headerRight={
+                   <span className="font-mono text-[10px] tabular-nums text-slate-400">
+                     <span className="text-emerald-300">+{tradeStats.wins}</span>
+                     {" / "}
+                     <span className="text-rose-300">−{tradeStats.losses}</span>
+                     {" · Σ "}
+                     <span className={tradeStats.totalNet >= 0 ? "text-emerald-300" : "text-rose-300"}>
+                       {(tradeStats.totalNet >= 0 ? "+" : "") + tradeStats.totalNet.toFixed(2)}%
+                     </span>
+                   </span>
+                 }
+               />
+             )}
         {/* Walk-forward table */}
         <div className="overflow-hidden rounded-lg border border-slate-800">
           <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900 px-3 py-2">
@@ -709,6 +1270,32 @@ export default function StrategyLab() {
           )}
         </div>
       </main>
+      {deleteTarget && createPortal(
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"
+          style={{ animation: "sl-fade .18s ease-out" }}
+          onClick={() => { if (!deleting) setDeleteTarget(null); }}
+        >
+          <div className="w-full max-w-sm rounded-lg border border-slate-700 bg-slate-900 p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="mb-3 flex items-center gap-2.5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-rose-600/60 bg-rose-500/15 text-rose-300">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+              </span>
+              <h3 className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-slate-100">Удалить стратегию?</h3>
+            </div>
+            <p className="mb-1 text-[12px] leading-relaxed text-slate-300">
+              Стратегия <span className="font-mono font-semibold text-sky-300">{deleteTarget.name}</span>{' '}
+              <span className="font-mono text-slate-500">#{deleteTarget.id}</span> будет удалена из списка.
+            </p>
+            <p className="mb-4 text-[10px] leading-relaxed text-slate-500">Результаты бэктестов останутся в базе; стратегия перестанет отображаться в «Сохранённых».</p>
+            <div className="flex gap-2">
+              <button type="button" disabled={deleting} onClick={() => setDeleteTarget(null)} className="flex-1 rounded border border-slate-600 py-2 text-[12px] font-medium text-slate-300 transition hover:bg-slate-800 disabled:opacity-40">Отмена</button>
+              <button type="button" disabled={deleting} onClick={() => void handleDelete()} className="flex-1 rounded border border-rose-600 bg-rose-600/80 py-2 text-[12px] font-semibold text-white transition hover:bg-rose-500 disabled:opacity-40">{deleting ? "удаление…" : "Удалить"}</button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }

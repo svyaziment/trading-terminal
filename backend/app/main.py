@@ -23,6 +23,9 @@ def create_app() -> FastAPI:
     # task-105: strategy storage + backtest API
     from app.api.strategy_jobs import register_routes as register_strategy_routes
     register_strategy_routes(application)
+    # task-125: paper trading monitoring API
+    from app.api.paper_trading_jobs import register_routes as register_paper_trading_routes
+    register_paper_trading_routes(application)
     # task-041: async signal regeneration endpoints
     from app.api.signals_jobs import register_routes as register_jobs_routes
     register_jobs_routes(application)

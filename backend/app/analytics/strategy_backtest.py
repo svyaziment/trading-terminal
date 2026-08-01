@@ -29,6 +29,7 @@ from typing import Dict, List, Optional
 from app.db.db_manager import DBManager
 from app.analytics.levels_engine import build_levels, nearest_level_at
 from app.analytics.levels_backtest import compute_atr, aggregate_1min_to, build_confirm_series
+from app.analytics.strategy_engine import StrategyEvaluator
 
 EXPRESS_TICKERS = ['SBER', 'LKOH', 'PIKK']
 
@@ -116,30 +117,18 @@ def _load_4h_buy_ts(db, ticker: str, min_signals: int = 1):
     return sorted(pd.to_datetime(df['timestamp']).tolist())
 
 
-def _4h_buy_active(buy_ts, ts_4h, ts) -> bool:
-    """True if a 4h BUY signal is active at ts (signal ts <= ts and within the same 4h bar)."""
-    if not buy_ts:
-        return False
-    i = bisect.bisect_right(buy_ts, ts) - 1
-    if i < 0:
-        return False
-    sig_ts = buy_ts[i]
-    j = bisect.bisect_right(ts_4h, ts) - 1
-    a4 = ts_4h[j] if j >= 0 else None
-    return a4 is not None and sig_ts <= ts and sig_ts >= a4
 
 
 def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to=None) -> Dict:
-    """Run backtest for one ticker under config. Returns metrics + trades."""
+    """Run backtest for one ticker under config. Returns metrics + trades.
+
+    Entry/exit logic is delegated to the unified StrategyEvaluator (single brain
+    shared with paper/live trading). This function only prepares the data context
+    (4h levels, 1min candles, indicators, multi-window confirmation) and loops the
+    evaluator over historical bars."""
     patterns = config.get('patterns', ['levels_reversal'])
     confirm_windows = config.get('confirm_windows', [10])
-    commission_pct = float(config.get('commission_pct', 0.06))
-    slippage_pct = float(config.get('slippage_pct', 0.0))
-    risk_reward = config.get('risk_reward')  # {'risk':..,'reward':..} or None
-    entry_start, entry_end = config.get('entry_window', (7, 19))
     n_runs = int(config.get('n_runs', 1))
-    round_trip = commission_pct / 100.0
-    slip = slippage_pct / 100.0
 
     use_levels = 'levels_reversal' in patterns
     use_rsi = 'rsi_oversold' in patterns
@@ -153,7 +142,7 @@ def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to
 
     # 4h levels
     df_4h = db.select("SELECT timestamp, open, high, low, close FROM trading.candles_aggregated "
-                      "WHERE ticker=%s AND timeframe='4h' ORDER BY timestamp", (ticker,)).to_dataframe()
+                       "WHERE ticker=%s AND timeframe='4h' ORDER BY timestamp", (ticker,)).to_dataframe()
     if df_4h.empty:
         return {'status': 'failed', 'ticker': ticker, 'error': 'no 4h candles'}
     for c in ['open', 'high', 'low', 'close']:
@@ -187,90 +176,19 @@ def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to
         cs = build_confirm_series(aggregate_1min_to(df_1m, w))
         confirm_series.append(([c[0] for c in cs], [c[1] for c in cs]))
 
-    def active_4h_ts(ts):
-        i = bisect.bisect_right(ts_4h, ts) - 1
-        return ts_4h[i] if i >= 0 else None
-
-    def last_closed(times, closes, ts):
-        i = bisect.bisect_right(times, ts) - 1
-        return closes[i] if i >= 0 else None
+    # Unified engine (single brain shared with paper/live trading)
+    ev = StrategyEvaluator(config)
+    ev.load_context(levels=levels, ts_4h=ts_4h, atr_by_ts=atr_by_ts, buy_ts=buy_ts, confirm_series=confirm_series)
 
     trades = []
-    position = None
     for i in range(len(df_1m)):
-        row = df_1m.iloc[i]
-        ts = pd.Timestamp(row['timestamp'])
-        price = float(row['close'])
-
-        # --- exit ---
-        if position is not None:
-            exited = None
-            if row['low'] <= position['stop']:
-                exited = (position['stop'], 'stop')
-            elif row['high'] >= position['take']:
-                exited = (position['take'], 'take')
-            if exited:
-                exit_price, reason = exited
-                gross = (exit_price * (1 - slip) / position['entry_exec'] - 1.0) * 100.0
-                net = gross - round_trip * 100.0
-                trades.append({'entry_ts': str(position['entry_ts']), 'exit_ts': str(ts),
-                               'entry_price': float(position['entry_price']), 'exit_price': float(exit_price),
-                               'exit_reason': reason, 'bars_held': i - position['idx'],
-                               'net_return_pct': round(net, 5)})
-                position = None
-                continue
-
-        # --- entry ---
-        if position is None and entry_start <= ts.hour < entry_end:
-            a4 = active_4h_ts(ts)
-            if a4 is None:
-                continue
-            sup = nearest_level_at(levels, a4, price, 'support')
-            if sup is None:
-                continue
-            zl, zu = sup['zone_lower'], sup['zone_upper']
-            atr_val = float(atr_by_ts.get(a4, 0.0) or 0.0)
-            if not ((zl <= price <= zu) or (zu < price <= zu + 0.5 * atr_val)):
-                continue
-            # multi-window confirmation (AND)
-            ok = True
-            for times, closes in confirm_series:
-                hc = last_closed(times, closes, ts)
-                if hc is None or hc <= zu:
-                    ok = False
-                    break
-            if not ok:
-                continue
-            if use_4h_buy and not _4h_buy_active(buy_ts, ts_4h, ts):
-                continue
-            stop = float(sup['level_price'])
-            if stop >= price:
-                continue
-            res = nearest_level_at(levels, a4, price, 'resistance')
-            if res is None:
-                continue
-            take = float(res['level_price'])
-            # indicator AND-filters
-            if use_rsi and not (pd.notna(row.get('rsi_14')) and row['rsi_14'] < 30):
-                continue
-            if use_macd and not (pd.notna(row.get('macd_hist')) and row['macd_hist'] > 0):
-                continue
-            if use_bb and not (pd.notna(row.get('bb_lower')) and price < row['bb_lower']):
-                continue
-            # risk/reward filter
-            if risk_reward:
-                risk = price - stop
-                reward = take - price
-                ratio = float(risk_reward.get('reward', 2.0)) / float(risk_reward.get('risk', 1.0))
-                if risk <= 0 or reward < ratio * risk + round_trip * price:
-                    continue
-            position = {'entry_ts': ts, 'entry_price': price, 'entry_exec': price * (1 + slip),
-                        'stop': stop, 'take': take, 'idx': i}
+        decision = ev.on_bar(df_1m.iloc[i], idx=i)
+        if decision['action'] == 'exit':
+            trades.append(decision['trade'])
 
     m = _bootstrap_metrics(trades, n_runs)
     return {'status': 'success', 'ticker': ticker, 'config': config,
             'bars_1min': len(df_1m), 'metrics': m, 'trades': trades}
-
 
 WALKFORWARD_PERIODS = [
     ('2024-H2', '2024-07-01', '2025-01-01'),
