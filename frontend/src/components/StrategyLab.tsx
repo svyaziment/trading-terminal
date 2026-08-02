@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import DataTable, { type ColumnDef, type FilterState, type FilterValue, formatFilterValue } from "./ui/DataTable";
 import FilterChips from "./ui/FilterChips";
+import PatternSettingsModal from "./PatternSettingsModal";
 import {
   saveStrategy,
   listStrategies,
@@ -11,6 +12,7 @@ import {
   strategyRunStatus,
   getBigTickers,
   getStrategyDataRange,
+  getPatterns,
 } from "../api";
 import type {
   Strategy,
@@ -18,6 +20,8 @@ import type {
   BacktestResultRow,
   FullSampleMetrics,
   WalkforwardMetrics,
+  PatternDef,
+  PatternParam,
 } from "../types";
 
 // issue-12 temporary compatibility helpers (UI modal is #15)
@@ -312,8 +316,12 @@ function DatePicker(props: {
 
 export default function StrategyLab() {
   const [name, setName] = useState("");
-  const [patterns, setPatterns] = useState<string[]>(["levels_reversal", "signal_4h_buy"]);
-  const [windows, setWindows] = useState<number[]>([10]);
+  const [registry, setRegistry] = useState<PatternDef[]>([]);
+  const [patternConfigs, setPatternConfigs] = useState<Record<string, Record<string, unknown>>>({
+    levels_reversal: {},
+    signal_4h_buy: {},
+  });
+  const [settingsTarget, setSettingsTarget] = useState<string | null>(null);
   const [commission, setCommission] = useState("0.06");
   const [slippage, setSlippage] = useState("0");
   const [rrOn, setRrOn] = useState(true);
@@ -343,9 +351,48 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
   const pendingRun = useRef<number | null>(null);
   const lastTickerRef = useRef<string | null>(null);
 
-  const config: StrategyConfig = useMemo(
-    () => ({
-      patterns: patternsFromArray(patterns),
+  const enabledIds = useMemo(() => Object.keys(patternConfigs), [patternConfigs]);
+  const levelsOn = "levels_reversal" in patternConfigs;
+
+  function registryDefaults(id: string): Record<string, unknown> {
+    const def = registry.find((d) => d.id === id);
+    const out: Record<string, unknown> = {};
+    if (def) {
+      for (const p of def.params) if (p.default !== undefined) out[p.key] = p.default;
+    }
+    return out;
+  }
+
+  function effectiveParams(id: string): Record<string, unknown> {
+    return { ...registryDefaults(id), ...(patternConfigs[id] ?? {}) };
+  }
+
+  function isTuned(id: string): boolean {
+    const saved = patternConfigs[id] ?? {};
+    const defs = registryDefaults(id);
+    return Object.keys(saved).some((k) => JSON.stringify(saved[k] ?? null) !== JSON.stringify(defs[k] ?? null));
+  }
+
+  const windows = useMemo(() => {
+    if (!levelsOn) return [] as number[];
+    const w = effectiveParams("levels_reversal").confirm_windows;
+    return Array.isArray(w) ? (w as number[]) : ([] as number[]);
+  }, [patternConfigs, registry, levelsOn]);
+
+  const patternDefs = useMemo(() => {
+    if (registry.length > 0) {
+      return registry.map((d) => ({ id: d.id, label: d.label, hint: d.hint ?? "", params: d.params }));
+    }
+    return PATTERNS.map((p) => ({ id: p.id, label: p.label, hint: p.hint, params: [] as PatternParam[] }));
+  }, [registry]);
+
+  const settingsDef = settingsTarget ? registry.find((d) => d.id === settingsTarget) ?? null : null;
+
+  const config: StrategyConfig = useMemo(() => {
+    const full: Record<string, Record<string, unknown>> = {};
+    for (const id of Object.keys(patternConfigs)) full[id] = effectiveParams(id);
+    return {
+      patterns: full,
       confirm_windows: windows,
       commission_pct: parseFloat(commission) || 0,
       slippage_pct: parseFloat(slippage) || 0,
@@ -353,9 +400,8 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
         ? { risk: parseFloat(rrRisk) || 1, reward: parseFloat(rrReward) || 2 }
         : null,
       n_runs: 1,
-    }),
-    [patterns, windows, commission, slippage, rrOn, rrRisk, rrReward]
-  );
+    };
+  }, [patternConfigs, registry, windows, commission, slippage, rrOn, rrRisk, rrReward]);
 
   const selectedStrategy = strategies.find((s) => s.id === selectedId) ?? null;
   const isLocked = selectedStrategy?.locked === true;
@@ -375,6 +421,10 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
 
   useEffect(() => {
     void (async () => {
+      try {
+        const pt = await getPatterns();
+        setRegistry(pt.patterns);
+      } catch { /* transient */ }
       try {
         const bt = await getBigTickers();
         setBigTickers(bt.tickers);
@@ -444,10 +494,33 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
   const elapsedFmt = elapsedSec === null ? "" : Math.floor(elapsedSec / 60) + ":" + String(elapsedSec % 60).padStart(2, "0");
 
   function togglePattern(id: string) {
-    setPatterns((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
+    setPatternConfigs((pc) => {
+      if (id in pc) {
+        const next = { ...pc };
+        delete next[id];
+        return next;
+      }
+      return { ...pc, [id]: {} };
+    });
   }
   function toggleWindow(w: number) {
-    setWindows((p) => (p.includes(w) ? p.filter((x) => x !== w) : [...p, w].sort((a, b) => a - b)));
+    setPatternConfigs((pc) => {
+      const cur = pc["levels_reversal"];
+      if (!cur) return pc;
+      const base = Array.isArray(cur.confirm_windows)
+        ? (cur.confirm_windows as number[])
+        : ((registryDefaults("levels_reversal").confirm_windows as number[]) ?? []);
+      const next = base.includes(w) ? base.filter((x) => x !== w) : [...base, w].sort((a, b) => a - b);
+      return { ...pc, levels_reversal: { ...cur, confirm_windows: next } };
+    });
+  }
+  function openSettings(id: string) {
+    setPatternConfigs((pc) => (id in pc ? pc : { ...pc, [id]: {} }));
+    setSettingsTarget(id);
+  }
+  function applySettings(id: string, values: Record<string, unknown>) {
+    setPatternConfigs((pc) => ({ ...pc, [id]: values }));
+    setSettingsTarget(null);
   }
   function toggleMethod(id: string) {
     setMethods((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
@@ -471,8 +544,18 @@ function toggleTicker(t: string) {
     setSelectedId(s.id);
     setName(s.name);
     const c = s.config;
-    setPatterns(patternsToArray(c.patterns ?? []));
-    setWindows(c.confirm_windows ?? []);
+    // config.patterns: старый формат (список id) или новый (record id -> params)
+    const rawPatterns = c.patterns as unknown;
+    if (Array.isArray(rawPatterns)) {
+      const rec: Record<string, Record<string, unknown>> = {};
+      for (const pid of rawPatterns as string[]) rec[pid] = {};
+      if (rec["levels_reversal"] && Array.isArray(c.confirm_windows)) {
+        rec["levels_reversal"] = { confirm_windows: c.confirm_windows };
+      }
+      setPatternConfigs(rec);
+    } else {
+      setPatternConfigs((rawPatterns as Record<string, Record<string, unknown>> | null) ?? {});
+    }
     setCommission(String(c.commission_pct ?? 0.06));
     setSlippage(String(c.slippage_pct ?? 0));
     setRrOn(c.risk_reward !== null && c.risk_reward !== undefined);
@@ -527,8 +610,8 @@ function toggleTicker(t: string) {
     const nm = name.trim();
     if (!nm) { setError("Укажите имя стратегии"); return; }
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(nm)) { setError("Имя: английские буквы, цифры, _ и - (1-64)"); return; }
-    if (patterns.length === 0) { setError("Выберите хотя бы один паттерн"); return; }
-    if (windows.length === 0) { setError("Выберите хотя бы одно окно подтверждения"); return; }
+    if (enabledIds.length === 0) { setError("Выберите хотя бы один паттерн"); return; }
+    if (levelsOn && windows.length === 0) { setError("Выберите хотя бы одно окно подтверждения"); return; }
     if (tickers.length === 0) { setError("Выберите хотя бы один тикер"); return; }
     if (methods.length === 0) { setError("Выберите хотя бы один метод теста"); return; }
 if (depth === "custom") {
@@ -901,56 +984,84 @@ const progressPct =
             )}
           </Section>
 
-          <Section title="Паттерны" badge={patterns.length > 1 ? "AND" : String(patterns.length)}>
+          <Section title="Паттерны" badge={enabledIds.length > 1 ? "AND" : String(enabledIds.length)}>
             <div className="space-y-1.5">
-              {PATTERNS.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  disabled={isLocked}
-                  onClick={() => togglePattern(p.id)}
-                  className={
-                    "flex w-full items-center gap-2 rounded border px-2 py-1.5 text-left transition-all duration-150 disabled:cursor-not-allowed " +
-                    (patterns.includes(p.id)
-                      ? "border-sky-500/70 bg-sky-500/15"
-                      : "border-slate-800 bg-slate-950/60 hover:border-slate-600")
-                  }
-                >
-                  <span
+              {patternDefs.map((p) => {
+                const on = p.id in patternConfigs;
+                const tuned = on && isTuned(p.id);
+                return (
+                  <div
+                    key={p.id}
                     className={
-                      "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border font-mono text-[9px] transition " +
-                      (patterns.includes(p.id)
-                        ? "border-sky-400 bg-sky-500 text-slate-950"
-                        : "border-slate-600 text-transparent")
+                      "flex items-center gap-1 rounded border px-2 py-1.5 transition-all duration-150 " +
+                      (on
+                        ? "border-sky-500/70 bg-sky-500/15"
+                        : "border-slate-800 bg-slate-950/60 hover:border-slate-600")
                     }
                   >
-                    ✓
-                  </span>
-                  <span className="min-w-0">
-                    <span className={"block truncate font-mono text-[11px] " + (patterns.includes(p.id) ? "text-sky-200" : "text-slate-300")}>
-                      {p.label}
-                    </span>
-                    <span className="block truncate text-[10px] text-slate-600">{p.hint}</span>
-                  </span>
-                </button>
-              ))}
+                    <button
+                      type="button"
+                      disabled={isLocked}
+                      onClick={() => togglePattern(p.id)}
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-not-allowed"
+                    >
+                      <span
+                        className={
+                          "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border font-mono text-[9px] transition " +
+                          (on
+                            ? "border-sky-400 bg-sky-500 text-slate-950"
+                            : "border-slate-600 text-transparent")
+                        }
+                      >
+                        ✓
+                      </span>
+                      <span className="min-w-0">
+                        <span className={"block truncate font-mono text-[11px] " + (on ? "text-sky-200" : "text-slate-300")}>
+                          {p.label}
+                        </span>
+                        <span className="block truncate text-[10px] text-slate-600">{p.hint}</span>
+                      </span>
+                    </button>
+                    {p.params.length > 0 && (
+                      <button
+                        type="button"
+                        disabled={isLocked}
+                        onClick={() => openSettings(p.id)}
+                        title="Настройки паттерна"
+                        className={
+                          "relative shrink-0 rounded p-1 transition hover:bg-slate-800 disabled:cursor-not-allowed " +
+                          (tuned ? "text-sky-300" : "text-slate-500 hover:text-slate-300")
+                        }
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+                          <circle cx="12" cy="12" r="3" />
+                          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                        </svg>
+                        {tuned && (
+                          <span className="absolute right-0 top-0 h-1.5 w-1.5 rounded-full bg-amber-400 shadow-[0_0_5px_rgba(245,158,11,.7)]" />
+                        )}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-            {patterns.length > 1 && (
+            {enabledIds.length > 1 && (
               <p className="mt-2 rounded border border-amber-700/40 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-200">
-                сигнал только при совместном срабатывании всех ({patterns.length})
+                сигнал только при совместном срабатывании всех ({enabledIds.length})
               </p>
             )}
           </Section>
 
-          <Section title="Окна подтверждения" badge={windows.length > 1 ? "AND" : String(windows.length)}>
+          <Section title="Окна подтверждения" badge={levelsOn ? (windows.length > 1 ? "AND" : String(windows.length)) : "—"}>
             <div className="flex flex-wrap gap-1.5">
               {WINDOWS.map((w) => (
-                <Chip key={w} on={windows.includes(w)} disabled={isLocked} onClick={() => toggleWindow(w)} title={`${w} мин`}>
+                <Chip key={w} on={windows.includes(w)} disabled={isLocked || !levelsOn} onClick={() => toggleWindow(w)} title={`${w} мин`}>
                   {w}
                 </Chip>
               ))}
             </div>
-            <p className="mt-2 text-[10px] text-slate-600">минуты · закрытая свеча выше зоны</p>
+            <p className="mt-2 text-[10px] text-slate-600">{levelsOn ? "минуты · закрытая свеча выше зоны" : "включите паттерн Levels Reversal, чтобы задать окна"}</p>
           </Section>
 
           <Section title="Издержки">
@@ -1294,6 +1405,16 @@ const progressPct =
        emptyText="нет результатов walk-forward"
      />
       </main>
+      {settingsDef && (
+        <PatternSettingsModal
+          key={settingsDef.id}
+          def={settingsDef}
+          values={effectiveParams(settingsDef.id)}
+          locked={isLocked}
+          onSave={(v) => applySettings(settingsDef.id, v)}
+          onClose={() => setSettingsTarget(null)}
+        />
+      )}
       {deleteTarget && createPortal(
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4"
