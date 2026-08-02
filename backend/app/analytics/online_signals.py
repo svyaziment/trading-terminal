@@ -43,18 +43,30 @@ def _now_msk() -> datetime:
     return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=3)))
 
 
-def get_4h_levels(db: DBManager, ticker: str):
-    df_4h = db.select("""
-        SELECT timestamp, open, high, low, close FROM trading.candles_aggregated
-        WHERE ticker=%s AND timeframe='4h' ORDER BY timestamp
-    """, (ticker,)).to_dataframe()
-    if df_4h.empty:
+def get_4h_levels(db: DBManager, ticker: str, config: dict = None):
+    """Build higher-TF levels from pattern parameters (delegates to build_strategy_context)."""
+    from app.analytics.strategy_context import build_strategy_context
+
+    if config is None:
+        from app.analytics.trading_config import get_strategy
+        config = get_strategy()
+
+    # Levels-only view: avoid loading 4h BUY signals when only levels are needed.
+    levels_config = dict(config)
+    patterns = levels_config.get('patterns', ['levels_reversal'])
+
+    if isinstance(patterns, list):
+        levels_config['patterns'] = [p for p in patterns if p == 'levels_reversal'] or ['levels_reversal']
+    elif isinstance(patterns, dict):
+        levels_config['patterns'] = {'levels_reversal': patterns.get('levels_reversal', {})}
+    else:
+        levels_config['patterns'] = {'levels_reversal': {}}
+
+    ctx = build_strategy_context(db, ticker, levels_config)
+    if ctx.get('status') == 'failed':
         return []
-    for c in ['open', 'high', 'low', 'close']:
-        df_4h[c] = pd.to_numeric(df_4h[c], errors='coerce')
-    df_4h['atr'] = compute_atr(df_4h, 14)
-    return build_levels(df_4h, swing_windows=(SWING_WINDOW,), body_ratio=0.7,
-                        impulse_atr_mult=1.5, zone_atr_mult=ZONE_ATR)
+
+    return ctx['levels']
 
 
 def get_recent_1min_candles(db: DBManager, ticker: str, minutes: int = 30) -> pd.DataFrame:
