@@ -177,11 +177,6 @@ def register_routes(app: FastAPI) -> None:
 
 
     def get_patterns():
-
-
-        from app.analytics.pattern_registry import list_patterns
-
-
         return {"patterns": list_patterns()}
     _ensure_schema(_get_db())
 
