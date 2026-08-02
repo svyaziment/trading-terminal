@@ -103,7 +103,7 @@ export interface SignalStats {
 
 // ---- Strategy Lab (task-106) ----
 export interface StrategyConfig {
-  patterns: string[];
+  patterns: Record<string, Record<string, unknown>>;
   confirm_windows: number[];
   commission_pct: number;
   slippage_pct: number;
@@ -214,4 +214,23 @@ export interface PaperDynamics {
   timeframe: string;
   points: DynamicsPoint[];
   cum_pnl_rub: number;
+}
+
+export interface PatternParam {
+  key: string;
+  label: string;
+  type: 'select' | 'multiselect' | 'number' | 'text' | 'boolean';
+  options?: (string | number)[];
+  min?: number;
+  max?: number;
+  step?: number;
+  default?: unknown;
+}
+
+export interface PatternDef {
+  id: string;
+  label: string;
+  hint?: string;
+  category?: string;
+  params: PatternParam[];
 }

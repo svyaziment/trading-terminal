@@ -20,6 +20,29 @@ import type {
   WalkforwardMetrics,
 } from "../types";
 
+// issue-12 temporary compatibility helpers (UI modal is #15)
+export function patternsToArray(patterns: unknown): string[] {
+  if (Array.isArray(patterns)) return patterns as string[];
+  if (patterns && typeof patterns === "object") return Object.keys(patterns as Record<string, unknown>);
+  return [];
+}
+
+export function patternsFromArray(patterns: unknown): Record<string, Record<string, unknown>> {
+  const arr = Array.isArray(patterns)
+    ? (patterns as string[])
+    : patterns && typeof patterns === "object"
+      ? Object.keys(patterns as Record<string, unknown>)
+      : [];
+
+  const result: Record<string, Record<string, unknown>> = {};
+  for (const p of arr) {
+    result[p] = {};
+  }
+
+  return result;
+}
+
+
 const PATTERNS = [
   { id: "levels_reversal", label: "Levels Reversal", hint: "цена в зоне 4h + подтверждение" },
   { id: "signal_4h_buy", label: "4h BUY signal", hint: "активный BUY из trading.signals" },
@@ -322,7 +345,7 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
 
   const config: StrategyConfig = useMemo(
     () => ({
-      patterns,
+      patterns: patternsFromArray(patterns),
       confirm_windows: windows,
       commission_pct: parseFloat(commission) || 0,
       slippage_pct: parseFloat(slippage) || 0,
@@ -448,7 +471,7 @@ function toggleTicker(t: string) {
     setSelectedId(s.id);
     setName(s.name);
     const c = s.config;
-    setPatterns(c.patterns ?? []);
+    setPatterns(patternsToArray(c.patterns ?? []));
     setWindows(c.confirm_windows ?? []);
     setCommission(String(c.commission_pct ?? 0.06));
     setSlippage(String(c.slippage_pct ?? 0));
