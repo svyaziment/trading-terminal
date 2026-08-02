@@ -23,7 +23,7 @@ from app.db.db_manager import DBManager
 from app.analytics.levels_engine import build_levels
 from app.analytics.levels_backtest import compute_atr, aggregate_1min_to, build_confirm_series
 from app.analytics.strategy_engine import StrategyEvaluator
-from app.analytics.strategy_backtest import _load_4h_buy_ts, compute_indicators_1min
+from app.analytics.strategy_backtest import compute_indicators_1min
 from app.analytics.trading_config import get_trading_universe
 
 logger = logging.getLogger(__name__)
@@ -71,23 +71,17 @@ def get_paper_strategy(db: DBManager) -> Tuple[Optional[Dict], List[str], Option
 
 
 def build_4h_context(db: DBManager, ticker: str, config: Dict) -> Optional[Dict]:
-    """4h levels + BUY signals (identical construction to the backtest)."""
-    df_4h = db.select(
-        "SELECT timestamp, open, high, low, close FROM trading.candles_aggregated "
-        "WHERE ticker=%s AND timeframe='4h' ORDER BY timestamp", (ticker,)
-    ).to_dataframe()
-    if df_4h.empty:
+    """4h levels + BUY signals (delegates to build_strategy_context)."""
+    from app.analytics.strategy_context import build_strategy_context
+    ctx = build_strategy_context(db, ticker, config)
+    if ctx.get('status') == 'failed':
         return None
-    for c in ['open', 'high', 'low', 'close']:
-        df_4h[c] = pd.to_numeric(df_4h[c], errors='coerce')
-    df_4h['atr'] = compute_atr(df_4h, 14)
-    levels = build_levels(df_4h, swing_windows=(10,), body_ratio=0.7,
-                          impulse_atr_mult=1.5, zone_atr_mult=0.5)
-    ts_4h = df_4h['timestamp'].tolist()
-    atr_by_ts = dict(zip(df_4h['timestamp'], df_4h['atr']))
-    use_4h_buy = 'signal_4h_buy' in config.get('patterns', [])
-    buy_ts = _load_4h_buy_ts(db, ticker) if use_4h_buy else []
-    return {'levels': levels, 'ts_4h': ts_4h, 'atr_by_ts': atr_by_ts, 'buy_ts': buy_ts}
+    return {
+        'levels': ctx['levels'],
+        'ts_4h': ctx['ts_htf'],
+        'atr_by_ts': ctx['atr_by_ts'],
+        'buy_ts': ctx['buy_ts'],
+    }
 
 
 def build_1m_context(db: DBManager, ticker: str, config: Dict):

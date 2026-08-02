@@ -140,45 +140,33 @@ def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to
         return {'status': 'failed', 'ticker': ticker,
                 'error': 'levels_reversal required (defines stop/take); indicator patterns are AND-filters'}
 
-    # 4h levels
-    df_4h = db.select("SELECT timestamp, open, high, low, close FROM trading.candles_aggregated "
-                       "WHERE ticker=%s AND timeframe='4h' ORDER BY timestamp", (ticker,)).to_dataframe()
-    if df_4h.empty:
-        return {'status': 'failed', 'ticker': ticker, 'error': 'no 4h candles'}
-    for c in ['open', 'high', 'low', 'close']:
-        df_4h[c] = pd.to_numeric(df_4h[c], errors='coerce')
-    df_4h['atr'] = compute_atr(df_4h, 14)
-    levels = build_levels(df_4h, swing_windows=(10,), body_ratio=0.7, impulse_atr_mult=1.5, zone_atr_mult=0.5)
-    ts_4h = df_4h['timestamp'].tolist()
-    atr_by_ts = dict(zip(df_4h['timestamp'], df_4h['atr']))
-    buy_ts = _load_4h_buy_ts(db, ticker) if use_4h_buy else []
-
     # 1min candles (date-filtered)
-    q = "SELECT timestamp, open, high, low, close FROM trading.candles_1min_raw WHERE ticker=%s"
+    q = "SELECT timestamp, open, high, low, close FROM trading.candles_1min_raw WHERE ticker=%s "
     params = [ticker]
     if date_from is not None:
-        q += " AND timestamp >= %s"; params.append(date_from)
+        q += " AND timestamp >= %s "; params.append(date_from)
     if date_to is not None:
-        q += " AND timestamp < %s"; params.append(date_to)
-    q += " ORDER BY timestamp"
+        q += " AND timestamp < %s "; params.append(date_to)
+    q += " ORDER BY timestamp "
     df_1m = db.select(q, tuple(params)).to_dataframe()
     if df_1m.empty:
         return {'status': 'failed', 'ticker': ticker, 'error': 'no 1min candles'}
     for c in ['open', 'high', 'low', 'close']:
         df_1m[c] = pd.to_numeric(df_1m[c], errors='coerce')
-
+    
     if use_rsi or use_macd or use_bb:
         df_1m = compute_indicators_1min(df_1m)
-
-    # Multi-window confirmation series (AND)
-    confirm_series = []
-    for w in confirm_windows:
-        cs = build_confirm_series(aggregate_1min_to(df_1m, w))
-        confirm_series.append(([c[0] for c in cs], [c[1] for c in cs]))
-
+    
+    # Context from pattern parameters (single source of truth)
+    from app.analytics.strategy_context import build_strategy_context
+    ctx = build_strategy_context(db, ticker, config, df_1m=df_1m)
+    if ctx.get('status') == 'failed':
+        return {'status': 'failed', 'ticker': ticker, 'error': ctx.get('error')}
+    
     # Unified engine (single brain shared with paper/live trading)
-    ev = StrategyEvaluator(config)
-    ev.load_context(levels=levels, ts_4h=ts_4h, atr_by_ts=atr_by_ts, buy_ts=buy_ts, confirm_series=confirm_series)
+    ev = StrategyEvaluator(ctx['config'])
+    ev.load_context(levels=ctx['levels'], ts_4h=ctx['ts_htf'], atr_by_ts=ctx['atr_by_ts'],
+                    buy_ts=ctx['buy_ts'], confirm_series=ctx['confirm_series'])
 
     trades = []
     for i in range(len(df_1m)):
