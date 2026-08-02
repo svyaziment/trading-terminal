@@ -81,8 +81,11 @@ def build_4h_context(db: DBManager, ticker: str, config: Dict) -> Optional[Dict]
     for c in ['open', 'high', 'low', 'close']:
         df_4h[c] = pd.to_numeric(df_4h[c], errors='coerce')
     df_4h['atr'] = compute_atr(df_4h, 14)
-    levels = build_levels(df_4h, swing_windows=(10,), body_ratio=0.7,
-                          impulse_atr_mult=1.5, zone_atr_mult=0.5)
+    # Контекст через build_strategy_context
+    from app.analytics.strategy_context import build_strategy_context
+    context = build_strategy_context(db, ticker, config, df_4h)
+    levels = context['levels']
+    confirm_windows = context['confirm_windows']
     ts_4h = df_4h['timestamp'].tolist()
     atr_by_ts = dict(zip(df_4h['timestamp'], df_4h['atr']))
     use_4h_buy = 'signal_4h_buy' in config.get('patterns', [])
@@ -92,7 +95,7 @@ def build_4h_context(db: DBManager, ticker: str, config: Dict) -> Optional[Dict]
 
 def build_1m_context(db: DBManager, ticker: str, config: Dict):
     """Recent live 1min candles + multi-window confirmation series (+ indicators)."""
-    confirm_windows = config.get('confirm_windows', [10])
+    # confirm_windows теперь берется из контекста
     lookback = max(confirm_windows) * 3 + 30
     cutoff = _now_msk().replace(tzinfo=None) - timedelta(minutes=lookback)
     df = db.select(
