@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 from app.api import jobs_state
 from app.db.db_manager import DBManager
+from app.analytics.pattern_registry import list_patterns, normalize_patterns
 
 JOB = "strategy_backtest"
 NAME_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
@@ -119,6 +120,7 @@ def _run_job(strategy_id: int, tickers: List[str], test_types: List[str], depth:
             raise RuntimeError(f"strategy {strategy_id} not found")
         name = srow.iloc[0]['name']
         config = _to_dict(srow.iloc[0]['config'])
+        config = normalize_patterns(config or {})
         _write_report({"strategy_name": name, "config": config})
         custom_period = bool(date_from and date_to)
         if custom_period:
@@ -168,10 +170,24 @@ def _ensure_schema(db) -> None:
 
 
 def register_routes(app: FastAPI) -> None:
+
+
+
+    @app.get("/api/patterns")
+
+
+    def get_patterns():
+
+
+        from app.analytics.pattern_registry import list_patterns
+
+
+        return {"patterns": list_patterns()}
     _ensure_schema(_get_db())
 
     @app.post("/api/strategies")
     def save_strategy(payload: StrategyIn):
+        payload.config = normalize_patterns(payload.config)
         _validate_name(payload.name)
         db = _get_db()
         # Reject overwrite of a paper-trading (locked) strategy
