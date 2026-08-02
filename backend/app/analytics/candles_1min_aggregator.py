@@ -41,6 +41,14 @@ TIMEFRAMES: Dict[str, Dict[str, str]] = {
         'bucket': "date_trunc('day', r.timestamp)",
         'interval': "interval '1 day'",
     },
+    '1w': {
+        'bucket': "date_trunc('week', r.timestamp)",
+        'interval': "interval '1 week'",
+    },
+    '1M': {
+        'bucket': "date_trunc('month', r.timestamp)",
+        'interval': "interval '1 month'",
+    },
 }
 
 DEFAULT_TICKERS: Tuple[str, ...] = ('SBER', 'GAZP', 'VTBR')
@@ -93,7 +101,7 @@ def aggregate_ticker_timeframe(db: DBManager, ticker: str, timeframe: str) -> in
     INSERT INTO trading.candles_aggregated (ticker, figi, timestamp, timeframe, open, high, low, close, volume, created_at)
     SELECT
         r.ticker,
-        r.figi,
+        (array_agg(r.figi ORDER BY r.timestamp DESC))[1] as figi,
         {bucket_expr} as timestamp,
         '{timeframe}' as timeframe,
         (array_agg(r.open ORDER BY r.timestamp))[1] as open,
@@ -104,7 +112,7 @@ def aggregate_ticker_timeframe(db: DBManager, ticker: str, timeframe: str) -> in
         now() as created_at
     FROM trading.candles_1min_raw r
     {where_clause}
-    GROUP BY r.ticker, r.figi, {bucket_expr}
+    GROUP BY r.ticker, {bucket_expr}
     ON CONFLICT (ticker, timestamp, timeframe) DO UPDATE SET
         open = EXCLUDED.open,
         high = EXCLUDED.high,
