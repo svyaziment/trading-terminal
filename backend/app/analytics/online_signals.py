@@ -27,6 +27,10 @@ from app.analytics.levels_backtest import compute_atr, aggregate_1min_to, build_
 
 logger = logging.getLogger(__name__)
 from app.analytics.trading_config import get_trading_universe
+from app.analytics.paper_strategy import get_active_paper_strategy, PaperStrategyNotFoundError, PaperStrategyAmbiguousError
+from app.analytics.strategy_context import build_strategy_context
+from app.analytics.strategy_engine import StrategyEvaluator
+from app.analytics.strategy_backtest import compute_indicators_1min
 
 TOP5_TICKERS = ['RUAL', 'GMKN', 'PIKK', 'GAZP', 'SIBN']
 CONFIRM_TF_MINUTES = 10
@@ -247,76 +251,188 @@ def _is_empty_levels(levels) -> bool:
             or (isinstance(levels, (list, tuple)) and len(levels) == 0))
 
 
+
+def _build_1m_context_for_signals(db: DBManager, ticker: str, config: Dict):
+    """Build 1m context for signal generation (from online_candles_1min)."""
+    confirm_windows = config.get('confirm_windows', [10])
+    lookback = max(confirm_windows) * 3 + 30
+    cutoff = _now_msk().replace(tzinfo=None) - timedelta(minutes=lookback)
+    df = db.select(
+        "SELECT timestamp, open, high, low, close FROM trading.online_candles_1min "
+        "WHERE ticker=%s AND timestamp >= %s ORDER BY timestamp", (ticker, cutoff)
+    ).to_dataframe()
+    if df.empty:
+        return None, None
+    for c in ['open', 'high', 'low', 'close']:
+        df[c] = pd.to_numeric(df[c], errors='coerce')
+
+    patterns = config.get('patterns', {})
+    if isinstance(patterns, dict):
+        pattern_ids = list(patterns.keys())
+    else:
+        pattern_ids = patterns
+
+    INDICATOR_PATTERNS = ('rsi_oversold', 'macd_bullish', 'bb_lower')
+    if any(p in pattern_ids for p in INDICATOR_PATTERNS):
+        df = compute_indicators_1min(df)
+
+    confirm_series = []
+    for w in confirm_windows:
+        cs = build_confirm_series(aggregate_1min_to(df, w))
+        confirm_series.append(([c[0] for c in cs], [c[1] for c in cs]))
+    return df, confirm_series
+
+
+def _rr_mode_from_config(config: Dict) -> str:
+    """Determine rr_mode from config risk_reward."""
+    rr = config.get('risk_reward')
+    if not rr:
+        return 'all'
+    ratio = float(rr.get('reward', 2.0)) / float(rr.get('risk', 1.0))
+    if ratio >= 2.0:
+        return 'rr2'
+    if ratio >= 1.5:
+        return 'rr15'
+    return 'all'
+
+
+def _signal_source_from_config(config: Dict) -> str:
+    """Determine signal_source from config patterns."""
+    patterns = config.get('patterns', {})
+    if isinstance(patterns, dict):
+        pattern_ids = list(patterns.keys())
+    else:
+        pattern_ids = patterns
+    if 'signal_4h_buy' in pattern_ids:
+        return 'base_4hbuy'
+    return 'base'
+
+
 def run_signal_engine(tickers: List[str] = None, duration_minutes: int = 60,
-                      check_interval_sec: int = 30, levels_refresh_sec: int = 900):
-    """Main loop. Emits signals for all A/B factor combinations:
-    signal_source x window_mode x rr_mode. Dedup per (ticker, source, window, rr, confirm candle)."""
-    if tickers is None:
-        tickers = get_trading_universe(DBManager())
+                      check_interval_sec: int = 30, context_refresh_sec: int = 900):
+    """Main loop: StrategyEvaluator.check_entry on live data, signals to alerts.
+
+    Reads active paper strategy from DB via get_active_paper_strategy.
+    Builds context via build_strategy_context. Preserves A/B factor metadata.
+    """
     db = DBManager()
-    logger.info(f"Signal engine started for {len(tickers)} tickers, duration {duration_minutes} min")
-    levels_cache = {}
+
+    try:
+        strategy = get_active_paper_strategy(db)
+    except PaperStrategyNotFoundError as e:
+        logger.error(f"No active paper strategy: {e}")
+        return
+    except PaperStrategyAmbiguousError as e:
+        logger.error(f"Ambiguous paper strategy: {e}")
+        return
+
+    config = strategy['config']
+    strat_name = strategy['name']
+
+    if tickers is None:
+        rp = config.get('run_params') or {}
+        tickers = list(rp.get('tickers') or [])
+        if not tickers:
+            tickers = get_trading_universe(db)
+
+    logger.info(f"Signal engine: strategy '{strat_name}', {len(tickers)} tickers, duration {duration_minutes} min")
+
+    evaluators: Dict[str, StrategyEvaluator] = {}
+    last_processed: Dict[str, object] = {}
+
     for tk in tickers:
-        levels_cache[tk] = get_4h_levels(db, tk)
-        logger.info(f"4h levels for {tk}: {len(levels_cache[tk])} levels")
+        ctx = build_strategy_context(db, tk, config)
+        if ctx.get('status') == 'failed':
+            logger.warning(f"No 4h context for {tk}; skipping ticker")
+            continue
+        ev = StrategyEvaluator(config)
+        ev.load_context(ctx['levels'], ctx['ts_htf'], ctx['atr_by_ts'], ctx['buy_ts'], [])
+        evaluators[tk] = ev
+        last_processed[tk] = None
+
+    if not evaluators:
+        logger.error("No evaluators built (no 4h context). Signal engine exiting.")
+        return
+
     start_time = time.time()
-    last_check = 0
-    last_levels_refresh = time.time()
-    signals_generated = {'base': 0, 'imbalance': 0, 'sell': 0, 'base_4hbuy': 0}
-    last_signal_confirm_time = {}  # (ticker, mode, window_mode, rr_mode) -> confirm_close_time
+    last_check = 0.0
+    last_context_refresh = time.time()
+    signals_emitted = 0
+
+    signal_source = _signal_source_from_config(config)
+    rr_mode = _rr_mode_from_config(config)
+
     while (time.time() - start_time) < (duration_minutes * 60):
         now = time.time()
-        if now - last_levels_refresh >= levels_refresh_sec:
-            for tk in tickers:
-                levels_cache[tk] = get_4h_levels(db, tk)
-            logger.info(f"Levels cache rebuilt ({len(tickers)} tickers)")
-            last_levels_refresh = now
+
+        if now - last_context_refresh >= context_refresh_sec:
+            for tk, ev in evaluators.items():
+                ctx = build_strategy_context(db, tk, config)
+                if ctx.get('status') != 'failed':
+                    ev.update_context(levels=ctx['levels'], ts_4h=ctx['ts_htf'],
+                                      atr_by_ts=ctx['atr_by_ts'], buy_ts=ctx['buy_ts'])
+            last_context_refresh = now
+            logger.info("4h context refreshed")
+
         if now - last_check >= check_interval_sec:
-            in_window = ENTRY_WINDOW_START <= _now_msk().hour < ENTRY_WINDOW_END
-            for tk in tickers:
-                levels = levels_cache.get(tk, [])
-                if _is_empty_levels(levels):
+            now_msk = _now_msk()
+            entry_start, entry_end = config.get('entry_window', (7, 19))
+            in_window = entry_start <= now_msk.hour < entry_end
+            window_mode = 'window' if in_window else 'always'
+
+            for tk, ev in evaluators.items():
+                df_1m, confirm_series = _build_1m_context_for_signals(db, tk, config)
+                if df_1m is None or not confirm_series:
                     continue
-                for mode in ('base', 'imbalance', 'base_4hbuy'):
-                    sig = check_signal(db, tk, levels, mode=mode)
-                    if not sig:
-                        continue
-                    cct = sig.get('confirm_close_time')
-                    rr = sig.get('rr_ratio')
-                    # Determine which rr_mode arms to emit
-                    rr_modes = ['all']
-                    if rr is not None and rr >= RISK_REWARD_THRESHOLD_15:
-                        rr_modes.append('rr15')
-                    if rr is not None and rr >= RISK_REWARD_THRESHOLD:
-                        rr_modes.append('rr2')
-                    # Determine which window_mode arms to emit
-                    window_modes = ['always']
-                    if in_window:
-                        window_modes.append('window')
-                    for wm in window_modes:
-                        for rm in rr_modes:
-                            sig_v = dict(sig)
-                            sig_v['window_mode'] = wm
-                            sig_v['rr_mode'] = rm
-                            key = (tk, mode, wm, rm)
-                            if last_signal_confirm_time.get(key) != cct:
-                                save_signal(db, sig_v)
-                                signals_generated[mode] += 1
-                                last_signal_confirm_time[key] = cct
-                                logger.info(f"Signal {mode}/{wm}/{rm}: {tk} @ {sig['price']:.2f} (RR={rr})")
-                sig_sell = check_sell_signal(db, tk, levels)
-                if sig_sell:
-                    key = (tk, 'sell', 'always', 'all'); cct = sig_sell.get('confirm_close_time')
-                    if last_signal_confirm_time.get(key) != cct:
-                        save_signal(db, sig_sell); signals_generated['sell'] += 1
-                        last_signal_confirm_time[key] = cct
-                        logger.info(f"Signal SELL: {tk} @ {sig_sell['price']:.2f}")
+                ev.update_context(confirm_series=confirm_series)
+
+                bar = df_1m.iloc[-1]
+                bar_ts = bar['timestamp']
+                if last_processed[tk] is not None and bar_ts <= last_processed[tk]:
+                    continue
+                last_processed[tk] = bar_ts
+
+                dec = ev.check_entry(bar)
+                if dec is None:
+                    continue
+
+                price = dec['entry_price']
+                stop = dec['stop']
+                take = dec['take']
+                risk = price - stop
+                reward = take - price
+                rr_ratio = (reward / risk) if risk > 0 else None
+
+                signal = {
+                    'ticker': tk,
+                    'price': price,
+                    'support_level': stop,
+                    'take_level': take,
+                    'rr_ratio': round(rr_ratio, 4) if rr_ratio is not None else None,
+                    'signal_source': signal_source,
+                    'window_mode': window_mode,
+                    'rr_mode': rr_mode,
+                    'strategy_name': strat_name,
+                    'timestamp': now_msk.isoformat(),
+                }
+
+                save_signal(db, signal)
+                signals_emitted += 1
+                logger.info(f"Signal {signal_source}/{window_mode}/{rr_mode}: {tk} @ {price:.2f} (RR={rr_ratio})")
+
             last_check = now
+
         time.sleep(1)
-    try: db.close_pool()
-    except Exception: pass
-    logger.info(f"Signal engine finished: {signals_generated}")
-    return signals_generated
+
+    try:
+        db.close_pool()
+    except Exception:
+        pass
+
+    logger.info(f"Signal engine finished: {signals_emitted} signals emitted")
+    return signals_emitted
+
+
 
 
 if __name__ == '__main__':
