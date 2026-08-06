@@ -28,6 +28,7 @@ from app.db.db_manager import DBManager
 
 logger = logging.getLogger(__name__)
 from app.analytics.trading_config import get_trading_universe
+from app.analytics.paper_strategy import get_active_paper_strategy
 
 COMMISSION_PER_SIDE = 0.0003
 ROUND_TRIP = 2 * COMMISSION_PER_SIDE  # 0.06%
@@ -106,26 +107,26 @@ def _compute_pnl(entry_price, exit_price, lot_size, size_lots):
 
 
 def create_pending_order(db, ticker, limit_price, stop_price, take_price, lot_size, size_lots, size_rub,
-                         signal_source, window_mode, rr_mode, rr_ratio, entry_mode, signal_id):
+                         signal_source, window_mode, rr_mode, rr_ratio, entry_mode, signal_id, strategy_name=None):
     db.execute("""
         INSERT INTO trading.paper_positions
             (ticker, limit_price, limit_ts, stop_price, take_price, lot_size, size_lots, size_rub,
-             status, signal_source, window_mode, rr_mode, rr_ratio, entry_mode, signal_id, created_at, updated_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s,%s,%s,now(),now())
+             status, signal_source, window_mode, rr_mode, rr_ratio, entry_mode, signal_id, strategy_name, created_at, updated_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s,%s,%s,%s,now(),now())
     """, (ticker, limit_price, _now_msk().replace(tzinfo=None), stop_price, take_price,
-          lot_size, size_lots, size_rub, signal_source, window_mode, rr_mode, rr_ratio, entry_mode, signal_id))
+          lot_size, size_lots, size_rub, signal_source, window_mode, rr_mode, rr_ratio, entry_mode, signal_id, strategy_name))
     logger.info(f"PENDING {ticker} [{signal_source}/{window_mode}/{rr_mode}/{entry_mode}]: limit {limit_price:.4f} (stop {stop_price:.2f}, take {take_price:.2f}, signal#{signal_id})")
 
 
 def open_market_position(db, ticker, entry_price, stop_price, take_price, lot_size, size_lots, size_rub,
-                         signal_source, window_mode, rr_mode, rr_ratio, signal_id):
+                         signal_source, window_mode, rr_mode, rr_ratio, signal_id, strategy_name=None):
     db.execute("""
         INSERT INTO trading.paper_positions
             (ticker, entry_ts, entry_price, stop_price, take_price, lot_size, size_lots, size_rub,
-             status, signal_source, window_mode, rr_mode, rr_ratio, entry_mode, signal_id, created_at, updated_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'open',%s,%s,%s,%s,'market',%s,now(),now())
+             status, signal_source, window_mode, rr_mode, rr_ratio, entry_mode, signal_id, strategy_name, created_at, updated_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'open',%s,%s,%s,%s,'market',%s,%s,now(),now())
     """, (ticker, _now_msk().replace(tzinfo=None), entry_price, stop_price, take_price,
-          lot_size, size_lots, size_rub, signal_source, window_mode, rr_mode, rr_ratio, signal_id))
+          lot_size, size_lots, size_rub, signal_source, window_mode, rr_mode, rr_ratio, signal_id, strategy_name))
     logger.info(f"OPEN(market) {ticker} [{signal_source}/{window_mode}/{rr_mode}]: {size_lots} lots @ {entry_price:.4f} (stop {stop_price:.2f}, take {take_price:.2f}, signal#{signal_id})")
 
 
@@ -154,7 +155,8 @@ def cancel_pending(db, pos_id, ticker, reason):
     logger.info(f"CANCELLED #{pos_id} {ticker}: {reason}")
 
 
-def process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, per_trade_rub):
+def process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, per_trade_rub,
+                    strategy_name=None, config=None):
     """Create positions/orders from new signals: market (open now) + limit (pending) arms."""
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=30)
     new_signals = db.select("""
@@ -185,12 +187,28 @@ def process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, 
         tk = details.get('ticker')
         if tk not in tickers:
             continue
-        wmode = details.get('window_mode', 'always')
-        rmode = details.get('rr_mode', 'all')
+        # Issue #27: A/B factors from config
+
+        if config and 'risk_reward' in config:
+
+            rr = config['risk_reward']
+
+            ratio = float(rr.get('reward', 2.0)) / float(rr.get('risk', 1.0))
+
+            rr_ratio = round(ratio, 4) if ratio else None
+
+            rmode = 'rr2' if ratio >= 2.0 else ('rr15' if ratio >= 1.5 else 'all')
+
+        else:
+
+            rr_ratio = details.get('rr_ratio')
+
+            rmode = details.get('rr_mode', 'all')
+
+        wmode = 'window'
         sig_price = details.get('price')
         stop_price = details.get('support_level')
         take_price = details.get('take_level')
-        rr_ratio = details.get('rr_ratio')
         if sig_price is None or stop_price is None or take_price is None:
             logger.info(f"SKIP signal #{sig_id} {tk}: missing price/support/take")
             continue
@@ -206,7 +224,7 @@ def process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, 
             continue
         size_rub = size_lots * price_per_lot
         # Two entry arms: market + limit
-        for entry_mode in ('market', 'limit'):
+        for entry_mode in ('market',):  # Issue #27: market only
             active = db.select("""
                 SELECT ticker, signal_source, window_mode, rr_mode, entry_mode
                 FROM trading.paper_positions WHERE status IN ('pending','open')
@@ -235,10 +253,10 @@ def process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, 
                     logger.info(f"SKIP signal #{sig_id} {tk} [market]: entry {entry_price:.4f} >= take {take_price:.4f}")
                     continue
                 open_market_position(db, tk, entry_price, stop_price, take_price, lot_size, size_lots, size_rub,
-                                     src, wmode, rmode, rr_ratio, sig_id)
+                                     src, wmode, rmode, rr_ratio, sig_id, strategy_name)
             else:  # limit
                 create_pending_order(db, tk, sig_price, stop_price, take_price, lot_size, size_lots, size_rub,
-                                     src, wmode, rmode, rr_ratio, 'limit', sig_id)
+                                     src, wmode, rmode, rr_ratio, 'limit', sig_id, strategy_name)
         processed_ids.add(sig_id)
 
 
@@ -327,18 +345,28 @@ def write_equity(db, capital):
 def run_paper_trader(tickers=None, duration_minutes=60, check_interval_sec=30,
                      capital=100000.0, per_trade_rub=1000.0,
                      max_positions=80, max_entries_per_day=400):
-    if tickers is None:
-        tickers = get_trading_universe(DBManager())
+    # Issue #27: read strategy from DB
     db = DBManager()
+    strategy_name = None
+    config = None
+    try:
+        strategy = get_active_paper_strategy(db)
+        strategy_name = strategy['name']
+        config = strategy['config']
+    except Exception as e:
+        logger.error(f"Paper strategy error: {e}")
+    if tickers is None:
+        tickers = get_trading_universe(db)
     lot_sizes = get_lot_sizes(db, tickers)
-    logger.info(f"Paper trader (market+limit A/B) started: capital {capital:.0f}, per_trade {per_trade_rub:.0f}, max_pos {max_positions}, lots {lot_sizes}")
+    logger.info(f"Paper trader started: strategy '{strategy_name}', capital {capital:.0f}, per_trade {per_trade_rub:.0f}, max_pos {max_positions}, lots {lot_sizes}")
     start_time = time.time()
     last_check = 0
     last_equity_write = 0
     while (time.time() - start_time) < (duration_minutes * 60):
         now = time.time()
         if now - last_check >= check_interval_sec:
-            process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, per_trade_rub)
+            process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, per_trade_rub,
+                            strategy_name=strategy_name, config=config)
             monitor_pending(db)
             monitor_open(db)
             last_check = now
