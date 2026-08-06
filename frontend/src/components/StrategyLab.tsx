@@ -54,7 +54,6 @@ const PATTERNS = [
   { id: "macd_bullish", label: "MACD bullish", hint: "гистограмма > 0" },
   { id: "bb_lower", label: "BB lower", hint: "close ниже нижней полосы" },
 ];
-const WINDOWS = [1, 5, 10, 15, 20, 25, 30, 60, 90, 120];
 const DEPTHS = [
   { id: "express", label: "Экспресс", hint: "6 мес · 3 тикера" },
   { id: "serious", label: "Серьёзный", hint: "6 мес · 15 · WF" },
@@ -503,17 +502,6 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
       return { ...pc, [id]: {} };
     });
   }
-  function toggleWindow(w: number) {
-    setPatternConfigs((pc) => {
-      const cur = pc["levels_reversal"];
-      if (!cur) return pc;
-      const base = Array.isArray(cur.confirm_windows)
-        ? (cur.confirm_windows as number[])
-        : ((registryDefaults("levels_reversal").confirm_windows as number[]) ?? []);
-      const next = base.includes(w) ? base.filter((x) => x !== w) : [...base, w].sort((a, b) => a - b);
-      return { ...pc, levels_reversal: { ...cur, confirm_windows: next } };
-    });
-  }
   function openSettings(id: string) {
     setPatternConfigs((pc) => (id in pc ? pc : { ...pc, [id]: {} }));
     setSettingsTarget(id);
@@ -611,7 +599,6 @@ function toggleTicker(t: string) {
     if (!nm) { setError("Укажите имя стратегии"); return; }
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(nm)) { setError("Имя: английские буквы, цифры, _ и - (1-64)"); return; }
     if (enabledIds.length === 0) { setError("Выберите хотя бы один паттерн"); return; }
-    if (levelsOn && windows.length === 0) { setError("Выберите хотя бы одно окно подтверждения"); return; }
     if (tickers.length === 0) { setError("Выберите хотя бы один тикер"); return; }
     if (methods.length === 0) { setError("Выберите хотя бы один метод теста"); return; }
 if (depth === "custom") {
@@ -1053,16 +1040,6 @@ const progressPct =
             )}
           </Section>
 
-          <Section title="Окна подтверждения" badge={levelsOn ? (windows.length > 1 ? "AND" : String(windows.length)) : "—"}>
-            <div className="flex flex-wrap gap-1.5">
-              {WINDOWS.map((w) => (
-                <Chip key={w} on={windows.includes(w)} disabled={isLocked || !levelsOn} onClick={() => toggleWindow(w)} title={`${w} мин`}>
-                  {w}
-                </Chip>
-              ))}
-            </div>
-            <p className="mt-2 text-[10px] text-slate-600">{levelsOn ? "минуты · закрытая свеча выше зоны" : "включите паттерн Levels Reversal, чтобы задать окна"}</p>
-          </Section>
 
           <Section title="Издержки">
             <div className="grid grid-cols-2 gap-2">
