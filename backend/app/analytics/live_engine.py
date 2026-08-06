@@ -54,21 +54,23 @@ def _parse_config(raw) -> Optional[Dict]:
 
 
 def get_paper_strategy(db: DBManager) -> Tuple[Optional[Dict], List[str], Optional[str]]:
-    """Active paper strategy (in_paper_test=true). Returns (config, tickers, name).
-    Tickers come from run_params (the backtested universe), else the trading universe."""
-    df = db.select(
-        "SELECT id, name, config FROM trading.strategies WHERE in_paper_test=true ORDER BY id LIMIT 1"
-    ).to_dataframe()
-    if df.empty:
+    """Active paper strategy (in_paper_test=true AND locked=true).
+    Delegates to paper_strategy.get_active_paper_strategy for validation.
+    Returns (config, tickers, name)."""
+    from app.analytics.paper_strategy import get_active_paper_strategy, PaperStrategyNotFoundError, PaperStrategyAmbiguousError
+
+    try:
+        strategy = get_active_paper_strategy(db)
+    except (PaperStrategyNotFoundError, PaperStrategyAmbiguousError) as e:
+        logger.error(f"get_paper_strategy: {e}")
         return None, [], None
-    row = df.iloc[0]
-    config = _parse_config(row['config']) or {}
+
+    config = strategy['config']
     rp = config.get('run_params') or {}
     tickers = list(rp.get('tickers') or [])
     if not tickers:
         tickers = get_trading_universe(db)
-    return config, tickers, str(row['name'])
-
+    return config, tickers, strategy['name']
 
 def build_4h_context(db: DBManager, ticker: str, config: Dict) -> Optional[Dict]:
     """4h levels + BUY signals (delegates to build_strategy_context)."""
