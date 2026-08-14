@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-07-31 (task-136; синхронизировано с английской версией task-135). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-14 (task-178; синхронизировано с английской версией task-176). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -9,7 +9,7 @@
 
 Три опоры:
 1. **Backtest / Strategy Lab** - параметризуемый движок стратегий (AND-паттерны, multi-window confirmation, комиссия/слиппедж/RR, depth presets, bootstrap) + walk-forward validation, доступен через API и UI-конструктор.
-2. **Paper trading (live A/B test)** - валидированная стратегия `levels_reversal_4hbuy` торгует виртуально на top-15 вселенной, разделённой по 4 A/B факторам: `signal_source` (base/imbalance/base_4hbuy), `window_mode` (window/always), `rr_mode` (all/rr15/rr2), `entry_mode` (market/limit).
+2. **Paper trading** - активная стратегия из Strategy Lab (таблица `strategies`, `in_paper_test=true AND locked=true`) торгует виртуально через единый `StrategyEvaluator` (общий мозг с бэктестом). Текущая: `test_20260731` (levels_reversal + signal_4h_buy, RR 1:2, confirm 10min, 28 тикеров). Один arm: market вход, window mode (7-19 MSK), RR из конфига.
 3. **Frontend dashboards** - Signals, Strategy Lab (backtest constructor), Paper Trading (A/B monitoring с фильтрами факторов + PnL chart).
 
 ## 2. Структура файлов
@@ -41,10 +41,13 @@ trading-terminal/
 │ │ │ ├── levels_backtest_db.py # Сохранение levels backtest
 │ │ │ ├── levels_refresher.py # Обновление levels
 │ │ │ ├── strategy_backtest.py # Параметризуемый движок стратегий + walk-forward (Strategy Lab)
+│   │   ├── strategy_context.py      # Построение контекста стратегии (уровни, ATR, BUY-сигналы)
 │ │ │ ├── trading_config.py # ЕДИНЫЙ ИСТОЧНИК ИСТИНЫ: торговая вселенная + реестр стратегий
 │ │ │ ├── online_data.py # Стриминг: 1min свечи + стакан -> online_* таблицы
 │ │ │ ├── online_signals.py # Движок онлайн-сигналов (paper trading, A/B arms)
+│   │   ├── pattern_registry.py      # Реестр паттернов + normalize_patterns (Эпик #11)
 │ │ │ ├── paper_trader.py # Движок paper trading (market+limit, stop/take, equity)
+│   │   ├── paper_strategy.py        # Читатель активной paper-стратегии (из trading.strategies)
 │ │ │ ├── position_catchup.py # Стартовый catch-up pending/open позиций
 │ │ │ ├── top_stocks.py # Логика top stocks по объёму
 │ │ │ └── patterns/ # 10 паттернов: trend/, mean_reversion/, breakout/, volume/, price_action/
@@ -60,6 +63,7 @@ trading-terminal/
 │ │ │ ├── SignalsPanel.tsx # Таблица сигналов (сортировка, фильтр, пагинация)
 │ │ │ ├── StrategyLab.tsx # Strategy Lab: конструктор бэктестов + результаты + lock UI
 │ │ │ ├── PaperTradingPanel.tsx # Paper Trading: A/B dashboard (фильтры, PnL chart, позиции)
+│   │   ├── PatternSettingsModal.tsx # Schema-driven модалка настроек паттернов (Эпик #11)
 │ │ │ ├── PipelineWidget.tsx # Виджет статуса refresh/regenerate
 │ │ │ ├── CandleChart.tsx # Свечной график
 │ │ │ ├── InstrumentsPanel.tsx # Список инструментов
@@ -84,20 +88,20 @@ trading-terminal/
 | Таблица | Строк (примерно) | Описание |
 |---|---|---|
 | candles_30min_raw | ~28k | 30min свечи из T-Bank API (30 тикеров, ~1 месяц) |
-| candles_1min_raw | ~3.5M | 1min свечи из MOEX ISS API (top-15+, 2 года) |
-| candles_aggregated | ~400k | Агрегированные свечи (30min, 1h, 4h, 1d) |
-| indicators | ~600k | 33 технических индикатора на свечу |
-| signals | ~200k | BUY/SELL сигналы (10 паттернов, confidence, total_signals) |
+| candles_1min_raw | ~14.6M | 1min свечи из MOEX ISS API (top-15+, 2 года) |
+| candles_aggregated | ~384k | Агрегированные свечи (30min, 1h, 4h, 1d) |
+| indicators | ~210k | 33 технических индикатора на свечу |
+| signals | ~170k | BUY/SELL сигналы (10 паттернов, confidence, total_signals) |
 | instruments | ~4.3k | Метаданные тикеров (figi, lot_size, min_price_increment) |
 | top_stocks_by_volume | 30 | Топ 30 тикеров по объёму |
 | online_candles_1min | streaming | Живые 1min свечи (streaming) |
 | online_orderbook_aggregates | streaming | Живые агрегаты стакана (bid/ask depth, volume_imbalance) |
-| **strategies** | ~10 | Strategy Lab: name, config (jsonb), in_paper_test, locked, description |
-| **backtest_results** | ~10 | Strategy Lab: метрики backtest/walk-forward по тикерам (jsonb) |
-| **paper_positions** | ~590 | Позиции paper trading (A/B factors, limit/market, stop/take, PnL) |
-| **paper_equity** | ~1400 | Кривая equity (equity_rub, realized_pnl, drawdown_pct, open_positions) |
+| **strategies** | ~15 | Strategy Lab: name, config (jsonb), in_paper_test, locked, description |
+| **backtest_results** | ~64 | Strategy Lab: метрики backtest/walk-forward по тикерам (jsonb) |
+| **paper_positions** | ~704 | Позиции paper trading (A/B factors, limit/market, stop/take, PnL) |
+| **paper_equity** | ~2855 | Кривая equity (equity_rub, realized_pnl, drawdown_pct, open_positions) |
 | **trading_universe** | 15 | Торговая вселенная (ticker, rank, pf, source) - top-15 по PF |
-| **alerts** | ~2100 | Онлайн-сигналы (details jsonb: price, support/take, factors) |
+| **alerts** | ~72 | Онлайн-сигналы (details jsonb: price, support/take, factors) |
 | backtest_runs | ~300 | Метаданные прогонов backtest (legacy + levels matrix) |
 | backtest_trades | ~200k | Отдельные сделки (legacy matrix) |
 | backtest_equity | ~200k | Кривая equity по прогонам (legacy matrix) |
@@ -106,7 +110,7 @@ trading-terminal/
 Ключевые колонки (новые таблицы):
 - `strategies`: id, name (unique), config (jsonb: patterns, confirm_windows, commission_pct, slippage_pct, risk_reward, n_runs), in_paper_test (bool), locked (bool), description
 - `backtest_results`: id, strategy_id (FK), ticker, test_type (full_sample/walkforward), depth, metrics (jsonb), created_at
-- `paper_positions`: id, ticker, entry_ts/price, stop_price, take_price, limit_price, limit_ts, size_lots, size_rub, lot_size, status (pending/open/closed_stop/closed_take/cancelled), signal_source, window_mode, rr_mode, rr_ratio, entry_mode (market/limit), signal_id, exit_ts/price/reason, pnl_rub, pnl_pct
+- `paper_positions`: id, ticker, entry_ts/price, stop_price, take_price, limit_price, limit_ts, size_lots, size_rub, lot_size, status (pending/open/closed_stop/closed_take/cancelled), signal_source, window_mode, rr_mode, rr_ratio, entry_mode (market/limit), signal_id, strategy_name, exit_ts/price/reason, pnl_rub, pnl_pct
 - `paper_equity`: id, timestamp, equity_rub, realized_pnl, open_positions, drawdown_pct
 - `trading_universe`: ticker (PK), rank, pf, source, notes, updated_at
 - `alerts`: id, alert_type, ticker, message, details (jsonb), created_at
@@ -118,9 +122,9 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 
 **Streaming** (`online_data.py`, background): T-Bank streaming -> online_candles_1min + online_orderbook_aggregates.
 
-**Paper trading** (`online_signals.py` + `paper_trader.py`, background):
-- online_signals: 4h levels + живая 1min цена -> support-zone + reversal confirmation -> генерация сигналов для всех A/B arms (signal_source x window_mode x rr_mode) в alerts. base_4hbuy дополнительно требует активный 4h BUY signal.
-- paper_trader: alerts -> market positions (open по best_ask) + limit orders (pending, fill on touch, TTL 20min) -> мониторинг stop/take -> запись equity.
+**Paper trading** (`live_engine.py` + `paper_trader.py`, background):
+- live_engine: читает активную стратегию из БД (`paper_strategy.get_active_paper_strategy`), строит 4h контекст через `build_strategy_context`, передаёт живые 1min бары в per-ticker `StrategyEvaluator` (единая логика входа, та же что в бэктесте), генерирует сигналы в `trading.alerts`.
+- paper_trader: читает конфиг стратегии из БД (RR из `config.risk_reward`), alerts -> market positions (open по best_ask, один arm) -> мониторинг stop/take -> запись equity. Записывает `strategy_name` в `paper_positions`.
 - При старте `start_processes.sh` запускает `position_catchup.py` (разбор pending + проверка open по историческим 1min свечам).
 
 **Strategy Lab** (`strategy_backtest.py` через `strategy_jobs.py`): config -> backtest по тикерам (full-sample) + walk-forward (полугодия 2024-H2..2026-H1) -> backtest_results.
@@ -172,7 +176,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 
 ## 7. Известные проблемы и статус
 
-- **Валидированная стратегия**: `levels_reversal_4hbuy` (4h zone + 4h BUY + 10min confirm + RR 1:2, комиссия 0.06%). Бэктест top-15 по PF: RUAL 2.45, GMKN 2.45, GAZP 2.06, LKOH 2.02, PIKK 2.0, ... (у 28 тикеров были данные PF, 25 выше 1). Сейчас в paper trading (заблокирована в Strategy Lab).
+- **Активная paper-стратегия**: `test_20260731` (id=36 в `trading.strategies`, `in_paper_test=true`, `locked=true`). Конфиг: levels_reversal (4h, swing+impulse, window 10, body 0.7, impulse 1.5, zone 0.5) + signal_4h_buy, confirm [10], RR 1:2, комиссия 0.06%. Вселенная: 28 тикеров из run_params. Верифицирована: 72 сигнала сгенерировано, 62 позиции открыто, первая закрытая сделка PnL +0.77%. Предыдущая валидированная стратегия `levels_reversal_4hbuy` остаётся в trading_config.py как reference.
 - **Legacy pattern-matrix backtest**: rule-based стратегии НЕ прибыльны после комиссии на MOEX top-3 за 2 года (все PF < 1). Заменены подходом levels.
 - **Вселенная**: top-15 по PF (trading_universe), единый источник истины через trading_config.get_trading_universe(). Все фоновые модули используют её.
 - **Таймзона сессии**: timestamp свечей naive (в торговой логике считается MSK). session_only принудительно False в backtest v1.
@@ -193,7 +197,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | H | 1min свечи (MOEX ISS) + агрегация | Готово |
 | K | Levels engine + levels backtest + matrix | Готово |
 | L | Strategy Lab (параметризуемый движок + walk-forward + хранение + UI) | Готово |
-| M | Paper trading (A/B, market+limit, monitoring UI) | Готово (идёт тестирование) |
+| M | Paper trading (параметризованная стратегия из Strategy Lab, один arm market) | Готово (верифицировано: 72 сигнала, 62 позиции) |
 | N | Trading universe (top-15 по PF, единый источник истины) | Готово |
 | I | ML (CatBoost/LightGBM) | Не начато |
 | J | Отчёт анализа A/B теста (signal_source x window x rr x entry) | Ожидает (накопить закрытые сделки) |
@@ -205,4 +209,4 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 - **Docker**: после изменений кода пересоберите backend image (`docker compose up -d --build backend`). Backend монтирует `./reports` (для last_run.json).
 - **Единый источник истины**: торговая вселенная + определения стратегий живут в `trading_config.py` / `trading.trading_universe`. Не хардкодьте списки тикеров или параметры стратегий в модулях.
 - **Заблокированная стратегия**: стратегия в paper test имеет `locked=true`; API отклоняет её перезапись (409). Разблокировать только после тестового периода.
-- **Логирование**: DBManager по умолчанию пишет в stdout. В скриптах, которые парсят JSON из stdout, перенаправьте логи в stderr.
+- **Логирование**: DBManager по умолчанию пишет в stdout. В скриптах, которые парсят JSON из stdout, перенаправьте логи в stderr. Фоновые процессы (start_processes.sh) используют `python -u` + `logging.basicConfig(level=INFO, stream=sys.stdout)` для немедленной записи логов в файлы.

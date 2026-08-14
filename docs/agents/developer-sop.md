@@ -10,6 +10,7 @@
 | Team Lead | Reynard | Qwen AI |
 | Backend Dev | Arctic | Qwen AI |
 | Frontend Dev | Fennec | Qwen AI |
+| Data Analyst | Vulpec | Qwen AI |
 
 ---
 
@@ -25,7 +26,7 @@ reports/<AGENT_NAME>/<ISSUE_NUMBER>_<ISSUE_NAME>/
 
 ### Naming Conventions
 
-- `AGENT_NAME`: `Reynard` | `Arctic` | `Fennec`
+- `AGENT_NAME`: `Reynard` | `Arctic` | `Fennec` | `Vulpec`
   - Product Owner (Alex) does not write reports here — he reviews them.
 - `ISSUE_NUMBER`: GitHub Issue number (without `#`)
 - `ISSUE_NAME`: short kebab-case description (latin characters)

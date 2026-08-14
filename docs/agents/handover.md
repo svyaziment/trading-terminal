@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-07-31 (task-135). Companion to project-context.md.
+Last refreshed: 2026-08-14 (task-181). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -24,8 +24,8 @@ See project-context.md section 3. New tables (Strategy Lab + paper trading): `st
 See project-context.md section 4. Four background processes (started by start_processes.sh):
 1. `data_refresher` - MOEX 1min + aggregation + indicators + signals (every 15 min, top-15).
 2. `online_data` - streaming 1min candles + order book.
-3. `online_signals` - paper signals (A/B arms) -> alerts.
-4. `paper_trader` - positions (market+limit) + stop/take + equity.
+3. `live_engine` - reads active strategy from DB (`paper_strategy.get_active_paper_strategy`), builds 4h context via `build_strategy_context`, feeds live 1min bars into per-ticker `StrategyEvaluator` instances (unified entry logic, same as backtest), emits signals to `trading.alerts`.
+4. `paper_trader` - reads strategy config from DB (RR from `config.risk_reward`), alerts -> market positions (open at best_ask, single arm) -> monitor stop/take -> write equity. Records `strategy_name` in `paper_positions`.
 On startup: `position_catchup` resolves pending/open positions against historical candles.
 
 ## 5. API Endpoints
@@ -57,6 +57,7 @@ See project-context.md section 9.
 - **close_pool()**: never call `db.close_pool()` in FastAPI handlers or long-lived background loops (process-wide pool). Only in standalone scripts that exit. In data_refresher the pool is kept alive across cycles.
 - **Heredoc loss**: large bash heredocs can lose blocks when copied in Git Bash. Always verify file size after creation (`wc -c`). If bytes < expected, re-copy.
 - **Docker rebuild**: after backend code changes, MUST rebuild (`docker compose up -d --build backend`).
+- **Unbuffered logging**: Background processes (start_processes.sh) use `python -u` + `logging.basicConfig(level=INFO, stream=sys.stdout)` for immediate log writing to files. Without this, logs are block-buffered and appear empty until the buffer fills.
 - **JSON NaN**: pandas produces NaN/NaT that `json.dumps` rejects ("Out of range float values"). Sanitize API responses (see `_json_safe` in strategy_jobs.py / paper_trading_jobs.py) and cast timestamps to text in SQL (`created_at::text`).
 - **JSONB as string**: DBManager returns JSONB columns as Python-repr strings, not dicts. Normalize with `_to_dict` (json.loads, then ast.literal_eval fallback).
 - **Backtest matrix runtime**: full matrix takes ~10-15 min. Use quick=true for liveness.
@@ -71,6 +72,6 @@ python docs/refresh/context_collector.py
 --tables backtest_runs,backtest_trades
 --output reports/task-NNN/context.json
   `--files` collects file contents; `--tables` collects schema + row count + sample + date range. Load the resulting `context.json` before implementing.
-- **Task scripts live in `scripts/`** (gitignored). Each task writes a report to `reports/task-NNN/report.json` + `log.txt`.
+- **Task scripts live in `scripts/`** (gitignored). Each task writes reports to `reports/<AGENT_NAME>/<ISSUE_NUMBER>_<ISSUE_NAME>/` (see developer-sop.md for naming conventions).
 - **Verify after write**: always check file sizes (`wc -c`) and run a build/health check after changes.
 - **Docs are bilingual**: keep `*.md` and `*.ru.md` in sync (project-context, handover, strategy docs).

@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-07-31 (task-135). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-14 (task-176). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -9,7 +9,7 @@ Trading terminal for MOEX stocks. Sandbox mode (no real trading). Stack: FastAPI
 
 Three pillars:
 1. **Backtest / Strategy Lab** - parameterizable strategy engine (AND-patterns, multi-window confirmation, commission/slippage/RR, depth presets, bootstrap) + walk-forward validation, exposed via API and a constructor UI.
-2. **Paper trading (live A/B test)** - the validated `levels_reversal_4hbuy` strategy trades virtually on a top-15 universe, split by 4 A/B factors: `signal_source` (base/imbalance/base_4hbuy), `window_mode` (window/always), `rr_mode` (all/rr15/rr2), `entry_mode` (market/limit).
+2. **Paper trading** - the active strategy from Strategy Lab (table `strategies`, `in_paper_test=true AND locked=true`) trades virtually via the unified `StrategyEvaluator` (single brain with backtest). Current: `test_20260731` (levels_reversal + signal_4h_buy, RR 1:2, confirm 10min, 28 tickers). Single arm: market entry, window mode (7-19 MSK), RR from config.
 3. **Frontend dashboards** - Signals, Strategy Lab (backtest constructor), Paper Trading (A/B monitoring with factor filters + PnL chart).
 
 ## 2. File Structure
@@ -41,10 +41,13 @@ trading-terminal/
 │ │ │ ├── levels_backtest_db.py # Levels backtest persistence
 │ │ │ ├── levels_refresher.py # Levels refresh
 │ │ │ ├── strategy_backtest.py # Parameterizable strategy engine + walk-forward (Strategy Lab)
+│   │   ├── strategy_context.py      # Build strategy context (levels, ATR, BUY signals)
 │ │ │ ├── trading_config.py # SINGLE SOURCE OF TRUTH: trading universe + strategy registry
 │ │ │ ├── online_data.py # Streaming: 1min candles + order book -> online_* tables
 │ │ │ ├── online_signals.py # Online signal engine (paper trading, A/B arms)
+│   │   ├── pattern_registry.py      # Pattern registry + normalize_patterns (Epic #11)
 │ │ │ ├── paper_trader.py # Paper trading engine (market+limit, stop/take, equity)
+│   │   ├── paper_strategy.py        # Active paper strategy reader (from trading.strategies)
 │ │ │ ├── position_catchup.py # Startup catch-up of pending/open positions
 │ │ │ ├── top_stocks.py # Top stocks by volume logic
 │ │ │ └── patterns/ # 10 patterns: trend/, mean_reversion/, breakout/, volume/, price_action/
@@ -60,6 +63,7 @@ trading-terminal/
 │ │ │ ├── SignalsPanel.tsx # Signals table (sort, filter, pagination)
 │ │ │ ├── StrategyLab.tsx # Strategy Lab: backtest constructor + results + lock UI
 │ │ │ ├── PaperTradingPanel.tsx # Paper Trading: A/B dashboard (filters, PnL chart, positions)
+│   │   ├── PatternSettingsModal.tsx # Schema-driven pattern settings modal (Epic #11)
 │ │ │ ├── PipelineWidget.tsx # Refresh/regenerate status widget
 │ │ │ ├── CandleChart.tsx # Candlestick chart
 │ │ │ ├── InstrumentsPanel.tsx # Instruments list
@@ -84,20 +88,20 @@ trading-terminal/
 | Table | Rows (approx) | Description |
 |---|---|---|
 | candles_30min_raw | ~28k | 30min candles from T-Bank API (30 tickers, ~1 month) |
-| candles_1min_raw | ~3.5M | 1min candles from MOEX ISS API (top-15+, 2 years) |
-| candles_aggregated | ~400k | Aggregated candles (30min, 1h, 4h, 1d) |
-| indicators | ~600k | 33 technical indicators per candle |
-| signals | ~200k | BUY/SELL signals (10 patterns, confidence, total_signals) |
+| candles_1min_raw | ~14.6M | 1min candles from MOEX ISS API (top-15+, 2 years) |
+| candles_aggregated | ~384k | Aggregated candles (30min, 1h, 4h, 1d) |
+| indicators | ~210k | 33 technical indicators per candle |
+| signals | ~170k | BUY/SELL signals (10 patterns, confidence, total_signals) |
 | instruments | ~4.3k | Ticker metadata (figi, lot_size, min_price_increment) |
 | top_stocks_by_volume | 30 | Top 30 tickers by volume |
 | online_candles_1min | streaming | Live 1min candles (streaming) |
 | online_orderbook_aggregates | streaming | Live order book aggregates (bid/ask depth, volume_imbalance) |
-| **strategies** | ~10 | Strategy Lab: name, config (jsonb), in_paper_test, locked, description |
-| **backtest_results** | ~10 | Strategy Lab: per-ticker backtest/walk-forward metrics (jsonb) |
-| **paper_positions** | ~590 | Paper trading positions (A/B factors, limit/market, stop/take, PnL) |
-| **paper_equity** | ~1400 | Equity curve (equity_rub, realized_pnl, drawdown_pct, open_positions) |
+| **strategies** | ~15 | Strategy Lab: name, config (jsonb), in_paper_test, locked, description |
+| **backtest_results** | ~64 | Strategy Lab: per-ticker backtest/walk-forward metrics (jsonb) |
+| **paper_positions** | ~704 | Paper trading positions (A/B factors, limit/market, stop/take, PnL) |
+| **paper_equity** | ~2855 | Equity curve (equity_rub, realized_pnl, drawdown_pct, open_positions) |
 | **trading_universe** | 15 | Traded universe (ticker, rank, pf, source) - top-15 by PF |
-| **alerts** | ~2100 | Online signals (details jsonb: price, support/take, factors) |
+| **alerts** | ~72 | Online signals (details jsonb: price, support/take, factors) |
 | backtest_runs | ~300 | Backtest run metadata (legacy + levels matrix) |
 | backtest_trades | ~200k | Individual trades (legacy matrix) |
 | backtest_equity | ~200k | Equity curve per run (legacy matrix) |
@@ -106,7 +110,7 @@ trading-terminal/
 Key columns (new tables):
 - `strategies`: id, name (unique), config (jsonb: patterns, confirm_windows, commission_pct, slippage_pct, risk_reward, n_runs), in_paper_test (bool), locked (bool), description
 - `backtest_results`: id, strategy_id (FK), ticker, test_type (full_sample/walkforward), depth, metrics (jsonb), created_at
-- `paper_positions`: id, ticker, entry_ts/price, stop_price, take_price, limit_price, limit_ts, size_lots, size_rub, lot_size, status (pending/open/closed_stop/closed_take/cancelled), signal_source, window_mode, rr_mode, rr_ratio, entry_mode (market/limit), signal_id, exit_ts/price/reason, pnl_rub, pnl_pct
+- `paper_positions`: id, ticker, entry_ts/price, stop_price, take_price, limit_price, limit_ts, size_lots, size_rub, lot_size, status (pending/open/closed_stop/closed_take/cancelled), signal_source, window_mode, rr_mode, rr_ratio, entry_mode (market/limit), signal_id, strategy_name, exit_ts/price/reason, pnl_rub, pnl_pct
 - `paper_equity`: id, timestamp, equity_rub, realized_pnl, open_positions, drawdown_pct
 - `trading_universe`: ticker (PK), rank, pf, source, notes, updated_at
 - `alerts`: id, alert_type, ticker, message, details (jsonb), created_at
@@ -118,9 +122,9 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 
 **Streaming** (`online_data.py`, background): T-Bank streaming -> online_candles_1min + online_orderbook_aggregates.
 
-**Paper trading** (`online_signals.py` + `paper_trader.py`, background):
-- online_signals: 4h levels + live 1min price -> support-zone + reversal confirmation -> emit signals for all A/B arms (signal_source x window_mode x rr_mode) into alerts. base_4hbuy additionally requires an active 4h BUY signal.
-- paper_trader: alerts -> market positions (open at best_ask) + limit orders (pending, fill on touch, TTL 20min) -> monitor stop/take -> write equity.
+**Paper trading** (`live_engine.py` + `paper_trader.py`, background):
+- live_engine: reads active strategy from DB (`paper_strategy.get_active_paper_strategy`), builds 4h context via `build_strategy_context`, feeds live 1min bars into per-ticker `StrategyEvaluator` instances (unified entry logic, same as backtest), emits signals to `trading.alerts`.
+- paper_trader: reads strategy config from DB (RR from `config.risk_reward`), alerts -> market positions (open at best_ask, single arm) -> monitor stop/take -> write equity. Records `strategy_name` in `paper_positions`.
 - On startup `start_processes.sh` runs `position_catchup.py` (resolve pending + check open against historical 1min candles).
 
 **Strategy Lab** (`strategy_backtest.py` via `strategy_jobs.py`): config -> per-ticker backtest (full-sample) + walk-forward (half-years 2024-H2..2026-H1) -> backtest_results.
@@ -172,7 +176,7 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 
 ## 7. Known Issues & Status
 
-- **Validated strategy**: `levels_reversal_4hbuy` (4h zone + 4h BUY + 10min confirm + RR 1:2, commission 0.06%). Backtest top-15 by PF: RUAL 2.45, GMKN 2.45, GAZP 2.06, LKOH 2.02, PIKK 2.0, ... (28 tickers had PF data, 25 above 1). Now in paper trading (locked in Strategy Lab).
+- **Active paper strategy**: `test_20260731` (id=36 in `trading.strategies`, `in_paper_test=true`, `locked=true`). Config: levels_reversal (4h, swing+impulse, window 10, body 0.7, impulse 1.5, zone 0.5) + signal_4h_buy, confirm [10], RR 1:2, commission 0.06%. Universe: 28 tickers from run_params. Verified: 72 signals emitted, 62 positions opened, first closed trade PnL +0.77%. Previous validated strategy `levels_reversal_4hbuy` remains in trading_config.py as reference.
 - **Legacy pattern-matrix backtest**: rule-based strategies NOT profitable after commission on MOEX top-3 over 2 years (all PF < 1). Superseded by the levels approach.
 - **Universe**: top-15 by PF (trading_universe), single source of truth via trading_config.get_trading_universe(). All background modules use it.
 - **Session timezone**: candles timestamps are naive (assumed MSK for trading logic). session_only forced False in backtest v1.
@@ -193,7 +197,7 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 | H | 1min candles (MOEX ISS) + aggregation | Done |
 | K | Levels engine + levels backtest + matrix | Done |
 | L | Strategy Lab (parameterizable engine + walk-forward + storage + UI) | Done |
-| M | Paper trading (A/B, market+limit, monitoring UI) | Done (test in progress) |
+| M | Paper trading (parameterized strategy from Strategy Lab, single arm market) | Done (verified: 72 signals, 62 positions) |
 | N | Trading universe (top-15 by PF, single source of truth) | Done |
 | I | ML (CatBoost/LightGBM) | Not started |
 | J | A/B test analysis report (signal_source x window x rr x entry) | Pending (accumulate closed trades) |
@@ -205,4 +209,4 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 - **Docker**: rebuild backend image after code changes (`docker compose up -d --build backend`). Backend mounts `./reports` (for last_run.json).
 - **Single source of truth**: trading universe + strategy definitions live in `trading_config.py` / `trading.trading_universe`. Do not hardcode ticker lists or strategy params in modules.
 - **Locked strategy**: the strategy under paper test has `locked=true`; the API rejects overwriting it (409). Unlock only after the test period.
-- **Logging**: DBManager logs to stdout by default. Reroute to stderr in scripts that parse JSON from stdout.
+- **Logging**: DBManager logs to stdout by default. Reroute to stderr in scripts that parse JSON from stdout. Background processes (start_processes.sh) use `python -u` + `logging.basicConfig(level=INFO, stream=sys.stdout)` for unbuffered logging to log files.
