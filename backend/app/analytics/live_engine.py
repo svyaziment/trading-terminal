@@ -186,11 +186,6 @@ def emit_signal(db: DBManager, ticker: str, dec: Dict, config: Dict,
     """Write a paper signal to trading.alerts (format paper_trader consumes)."""
     patterns = config.get('patterns', [])
 
-    # Issue #35: max_rr_ratio filter
-    max_rr_ratio = float(config.get('max_rr_ratio', MAX_RR_RATIO_DEFAULT))
-    if risk > 0 and rr_ratio is not None and rr_ratio > max_rr_ratio:
-        logger.info(f"SKIP signal {src}: {ticker} rr_ratio={rr_ratio:.2f} > max_rr_ratio={max_rr_ratio}")
-        return
     if imbalance is not None:
         src = 'imbalance'
     elif 'signal_4h_buy' in patterns:
@@ -203,6 +198,12 @@ def emit_signal(db: DBManager, ticker: str, dec: Dict, config: Dict,
     risk = price - stop
     reward = take - price
     rr_ratio = (reward / risk) if risk > 0 else None
+
+    # Issue #35: max_rr_ratio filter
+    max_rr_ratio = float(config.get('max_rr_ratio', MAX_RR_RATIO_DEFAULT))
+    if risk > 0 and rr_ratio is not None and rr_ratio > max_rr_ratio:
+        logger.info(f"SKIP signal {src}: {ticker} rr_ratio={rr_ratio:.2f} > max_rr_ratio={max_rr_ratio}")
+        return
     signal = {
         'ticker': ticker, 'price': price,
         'support_level': stop, 'take_level': take,
