@@ -131,6 +131,52 @@ def _rr_mode(config: Dict) -> str:
     return 'all'
 
 
+def _can_emit_signal(db: DBManager, ticker: str, config: Dict) -> bool:
+    """Check if a signal can be emitted for this ticker.
+
+    Rules:
+    1. No signal if there is an open or pending position for this ticker.
+    2. After position close (stop/take/cancel), cooldown reentry_cooldown_min.
+
+    Returns True if signal can be emitted.
+    """
+    cooldown_min = int(config.get('reentry_cooldown_min', 30))
+
+    # Rule 1: check open/pending positions
+    df_active = db.select(
+        "SELECT COUNT(*) AS cnt FROM trading.paper_positions "
+        "WHERE ticker = %s AND status IN ('open', 'pending')",
+        (ticker,)
+    ).to_dataframe()
+    if not df_active.empty and int(df_active.iloc[0]['cnt']) > 0:
+        return False
+
+    # Rule 2: check cooldown after last closed/cancelled position
+    # For cancelled positions exit_ts is NULL, so use COALESCE
+    df_last = db.select(
+        "SELECT COALESCE(exit_ts, updated_at, created_at) AS close_ts "
+        "FROM trading.paper_positions "
+        "WHERE ticker = %s AND status IN ('closed_stop', 'closed_take', 'cancelled') "
+        "ORDER BY close_ts DESC LIMIT 1",
+        (ticker,)
+    ).to_dataframe()
+
+    if df_last.empty or df_last.iloc[0]['close_ts'] is None:
+        # No closed positions yet, allow signal
+        return True
+
+    last_close_ts = df_last.iloc[0]['close_ts']
+    if hasattr(last_close_ts, 'to_pydatetime'):
+        last_close_ts = last_close_ts.to_pydatetime()
+    if hasattr(last_close_ts, 'tzinfo') and last_close_ts.tzinfo is not None:
+        last_close_ts = last_close_ts.replace(tzinfo=None)
+
+    now_naive = _now_msk().replace(tzinfo=None)
+    elapsed_min = (now_naive - last_close_ts).total_seconds() / 60.0
+
+    return elapsed_min >= cooldown_min
+
+
 def emit_signal(db: DBManager, ticker: str, dec: Dict, config: Dict,
                 imbalance: Optional[float] = None) -> None:
     """Write a paper signal to trading.alerts (format paper_trader consumes)."""
@@ -230,6 +276,10 @@ def run_live_engine(duration_minutes: int = 60, check_interval_sec: int = 30,
                     imbalance_val = get_recent_imbalance(db, tk)
                     if imbalance_val is None or imbalance_val <= IMBALANCE_THRESHOLD:
                         continue  # live-only overlay not satisfied
+                if not _can_emit_signal(db, tk, config):
+
+                    continue
+
                 emit_signal(db, tk, dec, config, imbalance=imbalance_val)
                 signals_emitted += 1
             last_check = now
