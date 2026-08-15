@@ -1,0 +1,124 @@
+Task: task-40-strategy-plugin-system (Strategy Plugin System Architecture) — v2
+
+=== Step 1: Create strategies directory ===
+  Created: backend/app/analytics/strategies/
+
+=== Step 2: Create __init__.py ===
+589 backend/app/analytics/strategies/__init__.py
+
+=== Step 3: Create context.py (MarketContext) ===
+2787 backend/app/analytics/strategies/context.py
+
+=== Step 4: Create base.py (StrategyPlugin ABC) ===
+2215 backend/app/analytics/strategies/base.py
+
+=== Step 5: Create registry.py (StrategyRegistry) ===
+1844 backend/app/analytics/strategies/registry.py
+
+=== Step 6: Create levels_reversal.py ===
+3042 backend/app/analytics/strategies/levels_reversal.py
+
+=== Step 7: Create portfolio_simulator.py ===
+5698 backend/app/analytics/portfolio_simulator.py
+
+=== Step 8: Docker rebuild ===
+#1 [internal] load local bake definitions
+#1 reading from stdin 384B 0.0s done
+#1 DONE 0.0s
+
+#2 [internal] load build definition from Dockerfile
+#2 transferring dockerfile: 1.44kB done
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim
+#3 ...
+
+#4 [auth] library/python:pull token for registry-1.docker.io
+#4 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/python:3.12-slim
+#3 DONE 1.7s
+
+#5 [internal] load .dockerignore
+#5 transferring context: 150B done
+#5 DONE 0.0s
+
+#6 [ 1/12] FROM docker.io/library/python:3.12-slim@sha256:dd29372629eeba2dd003fd9e9d35a5b8236c44727875a0364254b5127af88e65
+#6 resolve docker.io/library/python:3.12-slim@sha256:dd29372629eeba2dd003fd9e9d35a5b8236c44727875a0364254b5127af88e65 0.0s done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 20.26kB 0.0s done
+#7 DONE 0.0s
+
+#8 [ 2/12] RUN apt-get update     && apt-get install -y --no-install-recommends ca-certificates     && update-ca-certificates     && rm -rf /var/lib/apt/lists/*
+#8 CACHED
+
+#9 [ 5/12] RUN update-ca-certificates
+#9 CACHED
+
+#10 [ 6/12] COPY requirements.txt requirements-dev.txt ./
+#10 CACHED
+
+#11 [ 4/12] COPY certs/tbank-root.pem /usr/local/share/ca-certificates/tbank-root.crt
+#11 CACHED
+
+#12 [ 3/12] WORKDIR /app
+#12 CACHED
+
+#13 [ 7/12] RUN pip install --no-cache-dir     --extra-index-url https://opensource.tbank.ru/api/v4/projects/238/packages/pypi/simple     --trusted-host opensource.tbank.ru     -r requirements-dev.txt
+#13 CACHED
+
+#14 [ 8/12] COPY app ./app
+#14 DONE 0.1s
+
+#15 [ 9/12] COPY tests ./tests
+#15 DONE 0.0s
+
+#16 [10/12] RUN find /app -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+#16 DONE 1.4s
+
+#17 [11/12] RUN find /app -type f -name '*.py' -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+#17 DONE 0.3s
+
+#18 [12/12] RUN python -c "import t_tech.invest; from t_tech.invest.constants import INVEST_GRPC_API; print('SDK_OK')"
+#18 1.051 SDK_OK
+#18 DONE 1.1s
+
+#19 exporting to image
+#19 exporting layers
+#19 exporting layers 0.2s done
+#19 exporting manifest sha256:3339ca6736cd484ef2c8764a39ae98d66a76679d4b7e1dfc81e185345eb0ca8f 0.0s done
+#19 exporting config sha256:f8e53cd59e144841c320091bfb76d92f48eda20529d3a3706b14b4e9cf0ff3aa 0.0s done
+#19 exporting attestation manifest sha256:ca66d7dff1acbef1bd0a0a6b856b0676c7b6dd66db20da000d080d1542f4eb63 0.0s done
+#19 exporting manifest list sha256:8737480faafac0ffb4cf5989f09dd76f38214078925ab3f22f5bc98ffd3aee2f 0.0s done
+#19 naming to docker.io/library/trading-terminal-backend:latest done
+#19 unpacking to docker.io/library/trading-terminal-backend:latest
+#19 unpacking to docker.io/library/trading-terminal-backend:latest 0.2s done
+#19 DONE 0.5s
+
+#20 resolving provenance for metadata file
+#20 DONE 0.0s
+ backend  Built
+ Container trading-terminal-backend  Recreate
+ Container trading-terminal-backend  Recreated
+ Container trading-terminal-backend  Starting
+ Container trading-terminal-backend  Started
+
+=== Step 9: Verify py_compile (inside container) ===
+OK app/analytics/strategies/__init__.py
+OK app/analytics/strategies/base.py
+OK app/analytics/strategies/context.py
+OK app/analytics/strategies/registry.py
+OK app/analytics/strategies/levels_reversal.py
+OK app/analytics/portfolio_simulator.py
+
+=== Step 10: Import test ===
+Registry plugins: ['levels_reversal']
+Plugin: levels_reversal(config={'patterns': ['levels_reversal'], 'confirm_windows': [10], 'commission_pct': 0.06, 'slippage_pct': 0.0, 'risk_reward': {'risk': 1.0, 'reward': 2.0}})
+Plugin name: levels_reversal
+IMPORT_TEST: PASS
+
+=== Step 11: Final report ===
+OK report.json exists
+Done
