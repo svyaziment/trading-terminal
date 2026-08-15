@@ -1,0 +1,208 @@
+2026-08-15 17:11:45,239 - DBManager - INFO - PostgreSQL connection pool created
+{
+  "status": "success",
+  "strategy": "atr_reversal",
+  "tickers": [
+    "SBER",
+    "LKOH",
+    "PIKK",
+    "GAZP",
+    "VTBR"
+  ],
+  "total_trades": 14,
+  "successful_tickers": 5,
+  "aggregate_metrics": {
+    "total_trades": 14,
+    "profit_factor": 0.98,
+    "win_rate": 35.7,
+    "expectancy": -0.002,
+    "max_drawdown_pct": 0.52,
+    "total_net_pct": -0.02
+  },
+  "results": [
+    {
+      "ticker": "SBER",
+      "status": "success",
+      "n_trades": 8,
+      "trades": [
+        {
+          "entry_ts": "2026-07-02 11:55:00",
+          "exit_ts": "2026-07-02 11:59:00",
+          "entry_price": 304.91,
+          "exit_price": 305.1006428571429,
+          "exit_reason": "take",
+          "bars_held": 3,
+          "net_return_pct": 0.00252
+        },
+        {
+          "entry_ts": "2026-07-06 16:41:00",
+          "exit_ts": "2026-07-06 16:43:00",
+          "entry_price": 296.38,
+          "exit_price": 295.9264285714286,
+          "exit_reason": "stop",
+          "bars_held": 1,
+          "net_return_pct": -0.21304
+        },
+        {
+          "entry_ts": "2026-07-08 14:48:00",
+          "exit_ts": "2026-07-08 14:50:00",
+          "entry_price": 295.54,
+          "exit_price": 295.72760714285715,
+          "exit_reason": "take",
+          "bars_held": 1,
+          "net_return_pct": 0.00348
+        },
+        {
+          "entry_ts": "2026-07-12 11:36:00",
+          "exit_ts": "2026-07-12 11:37:00",
+          "entry_price": 292.06,
+          "exit_price": 291.9564285714286,
+          "exit_reason": "stop",
+          "bars_held": 0,
+          "net_return_pct": -0.09546
+        },
+        {
+          "entry_ts": "2026-07-15 08:10:00",
+          "exit_ts": "2026-07-15 08:30:00",
+          "entry_price": 293.15,
+          "exit_price": 293.29692857142857,
+          "exit_reason": "take",
+          "bars_held": 19,
+          "net_return_pct": -0.00988
+        },
+        {
+          "entry_ts": "2026-07-17 18:26:00",
+          "exit_ts": "2026-07-17 18:29:00",
+          "entry_price": 276.34,
+          "exit_price": 275.96642857142854,
+          "exit_reason": "stop",
+          "bars_held": 2,
+          "net_return_pct": -0.19519
+        },
+        {
+          "entry_ts": "2026-07-18 10:00:00",
+          "exit_ts": "2026-07-20 07:00:00",
+          "entry_price": 248.62,
+          "exit_price": 251.13660714285714,
+          "exit_reason": "take",
+          "bars_held": 1074,
+          "net_return_pct": 0.95223
+        },
+        {
+          "entry_ts": "2026-07-29 22:39:00",
+          "exit_ts": "2026-07-29 22:40:00",
+          "entry_price": 275.77,
+          "exit_price": 275.83860714285714,
+          "exit_reason": "take",
+          "bars_held": 0,
+          "net_return_pct": -0.03512
+        }
+      ],
+      "metrics": {
+        "n_trades": 8,
+        "profit_factor": 1.75,
+        "win_rate": 37.5,
+        "expectancy": 0.051,
+        "max_drawdown_pct": 0.51,
+        "total_net_pct": 0.41
+      }
+    },
+    {
+      "ticker": "LKOH",
+      "status": "success",
+      "n_trades": 0,
+      "metrics": null
+    },
+    {
+      "ticker": "PIKK",
+      "status": "success",
+      "n_trades": 1,
+      "trades": [
+        {
+          "entry_ts": "2026-07-02 14:03:00",
+          "exit_ts": "2026-07-02 14:05:00",
+          "entry_price": 539.5,
+          "exit_price": 540.1739285714286,
+          "exit_reason": "take",
+          "bars_held": 1,
+          "net_return_pct": 0.06492
+        }
+      ],
+      "metrics": {
+        "n_trades": 1,
+        "profit_factor": Infinity,
+        "win_rate": 100.0,
+        "expectancy": 0.065,
+        "max_drawdown_pct": 0.0,
+        "total_net_pct": 0.06
+      }
+    },
+    {
+      "ticker": "GAZP",
+      "status": "success",
+      "n_trades": 0,
+      "metrics": null
+    },
+    {
+      "ticker": "VTBR",
+      "status": "success",
+      "n_trades": 5,
+      "trades": [
+        {
+          "entry_ts": "2026-07-03 10:44:00",
+          "exit_ts": "2026-07-03 10:45:00",
+          "entry_price": 70.52,
+          "exit_price": 70.42071428571428,
+          "exit_reason": "stop",
+          "bars_held": 0,
+          "net_return_pct": -0.20079
+        },
+        {
+          "entry_ts": "2026-07-07 07:12:00",
+          "exit_ts": "2026-07-07 07:16:00",
+          "entry_price": 63.675,
+          "exit_price": 63.51714285714286,
+          "exit_reason": "stop",
+          "bars_held": 3,
+          "net_return_pct": -0.30791
+        },
+        {
+          "entry_ts": "2026-07-12 14:00:00",
+          "exit_ts": "2026-07-12 14:05:00",
+          "entry_price": 64.31,
+          "exit_price": 64.33944642857143,
+          "exit_reason": "take",
+          "bars_held": 4,
+          "net_return_pct": -0.01421
+        },
+        {
+          "entry_ts": "2026-07-15 10:49:00",
+          "exit_ts": "2026-07-15 10:55:00",
+          "entry_price": 64.325,
+          "exit_price": 64.38116071428571,
+          "exit_reason": "take",
+          "bars_held": 5,
+          "net_return_pct": 0.02731
+        },
+        {
+          "entry_ts": "2026-07-28 20:37:00",
+          "exit_ts": "2026-07-28 20:39:00",
+          "entry_price": 56.945,
+          "exit_price": 56.979,
+          "exit_reason": "take",
+          "bars_held": 1,
+          "net_return_pct": -0.00029
+        }
+      ],
+      "metrics": {
+        "n_trades": 5,
+        "profit_factor": 0.05,
+        "win_rate": 20.0,
+        "expectancy": -0.099,
+        "max_drawdown_pct": 0.32,
+        "total_net_pct": -0.5
+      }
+    }
+  ]
+}
+2026-08-15 17:18:52,860 - DBManager - INFO - PostgreSQL connection pool closed
