@@ -1,0 +1,316 @@
+2026-08-15 11:36:16,722 - DBManager - INFO - PostgreSQL connection pool created
+2026-08-15 15:56:21,247 - DBManager - INFO - PostgreSQL connection pool closed
+{
+  "regression_match": true,
+  "dev_test": {
+    "regression_match": true,
+    "successful_tickers": 5,
+    "total_tickers": 5,
+    "results": [
+      {
+        "ticker": "SBER",
+        "status": "success",
+        "n_trades_old": 91,
+        "n_trades_new": 91,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "LKOH",
+        "status": "success",
+        "n_trades_old": 15,
+        "n_trades_new": 15,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "PIKK",
+        "status": "success",
+        "n_trades_old": 31,
+        "n_trades_new": 31,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "GAZP",
+        "status": "success",
+        "n_trades_old": 25,
+        "n_trades_new": 25,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "VTBR",
+        "status": "success",
+        "n_trades_old": 43,
+        "n_trades_new": 43,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      }
+    ]
+  },
+  "full_test": {
+    "regression_match": true,
+    "successful_tickers": 28,
+    "total_tickers": 28,
+    "results": [
+      {
+        "ticker": "AFKS",
+        "status": "success",
+        "n_trades_old": 384,
+        "n_trades_new": 384,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "ALRS",
+        "status": "success",
+        "n_trades_old": 313,
+        "n_trades_new": 313,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "CBOM",
+        "status": "success",
+        "n_trades_old": 610,
+        "n_trades_new": 610,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "CHMF",
+        "status": "success",
+        "n_trades_old": 273,
+        "n_trades_new": 273,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "FEES",
+        "status": "success",
+        "n_trades_old": 436,
+        "n_trades_new": 436,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "FLOT",
+        "status": "success",
+        "n_trades_old": 586,
+        "n_trades_new": 586,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "GAZP",
+        "status": "success",
+        "n_trades_old": 311,
+        "n_trades_new": 311,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "GMKN",
+        "status": "success",
+        "n_trades_old": 370,
+        "n_trades_new": 370,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "IRAO",
+        "status": "success",
+        "n_trades_old": 512,
+        "n_trades_new": 512,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "LKOH",
+        "status": "success",
+        "n_trades_old": 391,
+        "n_trades_new": 391,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "MGNT",
+        "status": "success",
+        "n_trades_old": 383,
+        "n_trades_new": 383,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "MOEX",
+        "status": "success",
+        "n_trades_old": 473,
+        "n_trades_new": 473,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "MTLR",
+        "status": "success",
+        "n_trades_old": 272,
+        "n_trades_new": 272,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "MTSS",
+        "status": "success",
+        "n_trades_old": 393,
+        "n_trades_new": 393,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "NLMK",
+        "status": "success",
+        "n_trades_old": 347,
+        "n_trades_new": 347,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "NVTK",
+        "status": "success",
+        "n_trades_old": 428,
+        "n_trades_new": 428,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "PHOR",
+        "status": "success",
+        "n_trades_old": 678,
+        "n_trades_new": 678,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "PIKK",
+        "status": "success",
+        "n_trades_old": 365,
+        "n_trades_new": 365,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "PLZL",
+        "status": "success",
+        "n_trades_old": 402,
+        "n_trades_new": 402,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "ROSN",
+        "status": "success",
+        "n_trades_old": 392,
+        "n_trades_new": 392,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "RTKM",
+        "status": "success",
+        "n_trades_old": 326,
+        "n_trades_new": 326,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "RUAL",
+        "status": "success",
+        "n_trades_old": 421,
+        "n_trades_new": 421,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "SBER",
+        "status": "success",
+        "n_trades_old": 424,
+        "n_trades_new": 424,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "SIBN",
+        "status": "success",
+        "n_trades_old": 285,
+        "n_trades_new": 285,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "SNGS",
+        "status": "success",
+        "n_trades_old": 461,
+        "n_trades_new": 461,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "TATN",
+        "status": "success",
+        "n_trades_old": 404,
+        "n_trades_new": 404,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "TRNFP",
+        "status": "success",
+        "n_trades_old": 466,
+        "n_trades_new": 466,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      },
+      {
+        "ticker": "VTBR",
+        "status": "success",
+        "n_trades_old": 418,
+        "n_trades_new": 418,
+        "match": true,
+        "reason": "All trades match; metrics match",
+        "first_diff": null
+      }
+    ]
+  }
+}

@@ -122,3 +122,7 @@ IMPORT_TEST: PASS
 === Step 11: Final report ===
 OK report.json exists
 Done
+SMOKE_TEST: PASS
+  plugin type: LevelsReversalStrategy
+  plugin name: levels_reversal
+  methods: check_entry, manage_position, check_exit — all present

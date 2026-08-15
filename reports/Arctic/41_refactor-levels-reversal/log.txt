@@ -1,0 +1,15 @@
+Task: pr-48-resolve-conflicts-v3 (Resolve PR #48 merge conflicts — resolve in-place)
+
+=== Step 1: Check merge state ===
+  Merge in progress (MERGE_HEAD exists)
+  Merging from: 31d3ec377db1428bc757d5a8e9c31d6fd0bb85bd
+
+=== Step 2: Conflicted files ===
+backend/app/analytics/strategies/levels_reversal.py
+
+=== Step 3: Resolve levels_reversal.py ===
+  Resolving backend/app/analytics/strategies/levels_reversal.py with --ours (Issue #41 version)
+  OK: checkout --ours succeeded
+4289 backend/app/analytics/strategies/levels_reversal.py
+
+=== Step 4: Stage files ===

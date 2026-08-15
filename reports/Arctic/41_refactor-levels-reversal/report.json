@@ -1,0 +1,12 @@
+{
+  "task_id": "pr-48-resolve-conflicts",
+  "status": "needs_human",
+  "started_at": "2026-08-15T16:43:39Z",
+  "finished_at": "2026-08-15T16:43:41Z",
+  "changes": [
+    "Attempted merge from origin/main",
+    "Detected 1 conflicted file(s)"
+  ],
+  "note": "Merge conflicts detected. Manual resolution required. See log.txt for conflict details.",
+  "next_action": "Resolve conflicts manually, then commit and push"
+}
