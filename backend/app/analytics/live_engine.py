@@ -29,6 +29,10 @@ from app.analytics.trading_config import get_trading_universe
 logger = logging.getLogger(__name__)
 
 IMBALANCE_THRESHOLD = 1.0
+
+MAX_RR_RATIO_DEFAULT = 10.0
+IMBALANCE_THRESHOLD_DEFAULT = 1.0
+
 INDICATOR_PATTERNS = ('rsi_oversold', 'macd_bullish', 'bb_lower')
 
 
@@ -181,6 +185,12 @@ def emit_signal(db: DBManager, ticker: str, dec: Dict, config: Dict,
                 imbalance: Optional[float] = None) -> None:
     """Write a paper signal to trading.alerts (format paper_trader consumes)."""
     patterns = config.get('patterns', [])
+
+    # Issue #35: max_rr_ratio filter
+    max_rr_ratio = float(config.get('max_rr_ratio', MAX_RR_RATIO_DEFAULT))
+    if risk > 0 and rr_ratio is not None and rr_ratio > max_rr_ratio:
+        logger.info(f"SKIP signal {src}: {ticker} rr_ratio={rr_ratio:.2f} > max_rr_ratio={max_rr_ratio}")
+        return
     if imbalance is not None:
         src = 'imbalance'
     elif 'signal_4h_buy' in patterns:
@@ -221,9 +231,8 @@ def run_live_engine(duration_minutes: int = 60, check_interval_sec: int = 30,
     if config is None:
         logger.error("No active paper strategy (in_paper_test=true). Live engine exiting.")
         return
-    use_imbalance = 'orderbook_imbalance' in config.get('patterns', [])
     logger.info(f"Live engine: strategy '{strat_name}', {len(tickers)} tickers {tickers}, "
-                f"imbalance_overlay={use_imbalance}, duration={duration_minutes}min")
+                f"imbalance_overlay=True (mandatory), duration={duration_minutes}min")
 
     evaluators: Dict[str, StrategyEvaluator] = {}
     last_processed: Dict[str, object] = {}
@@ -271,11 +280,11 @@ def run_live_engine(duration_minutes: int = 60, check_interval_sec: int = 30,
                 dec = ev.check_entry(bar)
                 if dec is None:
                     continue
-                imbalance_val = None
-                if use_imbalance:
-                    imbalance_val = get_recent_imbalance(db, tk)
-                    if imbalance_val is None or imbalance_val <= IMBALANCE_THRESHOLD:
-                        continue  # live-only overlay not satisfied
+                # Issue #35: mandatory imbalance filter (always active in live)
+                imbalance_threshold = float(config.get('imbalance_threshold', IMBALANCE_THRESHOLD_DEFAULT))
+                imbalance_val = get_recent_imbalance(db, tk)
+                if imbalance_val is None or imbalance_val <= imbalance_threshold:
+                    continue  # imbalance filter not satisfied
                 if not _can_emit_signal(db, tk, config):
 
                     continue
