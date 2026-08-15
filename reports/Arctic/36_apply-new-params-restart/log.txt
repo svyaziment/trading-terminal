@@ -1,0 +1,90 @@
+================================================================================
+Issue #36: Apply new params and restart trading processes
+Agent: Arctic
+Part of epic: #33
+================================================================================
+
+[2026-08-15 08:16:27 UTC] TASK STARTED
+  Branch: feature/issue-36-apply-new-params-restart
+  Executor: Arctic (Backend Dev)
+
+[2026-08-15 08:16:28 UTC] Step 1: Analyze Issue #36
+  Context: Final step of epic #33 - apply new params and restart processes
+  Requirements:
+    1. Add reentry_cooldown_min, max_rr_ratio, imbalance_threshold to active strategy
+    2. Clean tables: alerts, paper_positions, paper_equity
+    3. Rebuild backend, restart processes, verify logs
+
+[2026-08-15 08:16:30 UTC] Step 2: Branch created
+  git checkout -b feature/issue-36-apply-new-params-restart
+
+[2026-08-15 08:16:30 UTC] Step 3: Context collected
+  Files: trading_config.py, paper_strategy.py, paper_trader.py, live_engine.py
+  Active strategy: test_20260731 (id=36, in_paper_test=true, locked=true)
+  Target config keys: commission_pct, confirm_windows, n_runs, patterns, 
+                      risk_reward, run_params, slippage_pct
+
+[2026-08-15 08:18:24 UTC] Attempt 1: DB operations on host - FAILED
+  Error: 'app.db.db_manager' module not found on host
+  Reason: DB connection only available inside Docker container
+
+[2026-08-15 08:20:33 UTC] Attempt 2: DB operations in container - FAILED
+  Error: column "updated_at" of relation "strategies" does not exist
+  Root cause: strategies table has no updated_at column
+
+[2026-08-15 08:37:26 UTC] Attempt 3: Atomic SQL update via jsonb merge - SUCCESS
+  SQL: UPDATE trading.strategies 
+       SET config = config || '{"reentry_cooldown_min":30,"max_rr_ratio":10.0,"imbalance_threshold":1.0}'::jsonb
+       WHERE id = 36
+  Config keys AFTER: commission_pct, confirm_windows, imbalance_threshold, 
+                     max_rr_ratio, n_runs, patterns, reentry_cooldown_min, 
+                     risk_reward, run_params, slippage_pct
+  Verification: all 3 new parameters saved correctly
+
+[2026-08-15 08:37:26 UTC] TRUNCATE operations:
+  trading.alerts: 72 rows removed
+  trading.paper_positions: 704 rows removed
+  trading.paper_equity: 2855 rows removed
+
+[2026-08-15 08:37:40 UTC] Backend rebuild
+  docker compose up -d --build backend
+  Image: trading-terminal-backend:latest (rebuilt)
+  Container status: Up (healthy)
+
+[2026-08-15 08:37:48 UTC] Processes restarted
+  bash stop_processes.sh (no previous processes to kill)
+  bash start_processes.sh
+  Duration: 1200 min
+  Result (verification via /proc scan):
+    run_data_refresher: 1 instance - OK
+    run_online_data: 1 instance - OK
+    run_live_engine: 1 instance - OK
+    run_paper_trader: 1 instance - OK
+
+[2026-08-15 08:37:52 UTC] Live engine startup confirmed
+  Log: reports/live-engine/live.log
+  Message: "Live engine: strategy 'test_20260731', 28 tickers 
+           ['AFKS','ALRS','CBOM','CHMF','FEES','FLOT','GAZP','GMKN',
+            'IRAO','LKOH','MGNT','MOEX','MTLR','MTSS','NLMK','NVTK',
+            'PHOR','PIKK','PLZL','ROSN','RTKM','RUAL','SBER','SIBN',
+            'SNGS','TATN','TRNFP','VTBR'], 
+           imbalance_overlay=True (mandatory), duration=1200min"
+
+[2026-08-15 08:37:53 UTC] Paper trader startup confirmed
+  Log: reports/paper-trader/trader.log
+  Message: "Paper trader started: strategy 'test_20260731', capital 100000,
+           per_trade 1000, max_pos 80, lots {RUAL:10, ALRS:10, TATN:1, ...}"
+
+[2026-08-15 08:43:03 UTC] Acceptance criteria verification
+  AC1 (config params):      PASS
+  AC2 (tables cleared):     PASS (paper_equity has 6 new rows - expected 
+                             since process writes equity every 60s after start)
+  AC3 (backend healthy):    PASS
+  AC4 (processes running):  PASS (4/4)
+  AC5 (startup logs):       PASS
+  Result: 5/5 criteria passed
+
+================================================================================
+STATUS: success
+NEXT ACTION: Create PR, merge into main
+================================================================================

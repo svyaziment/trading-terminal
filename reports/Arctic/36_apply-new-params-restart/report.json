@@ -1,0 +1,22 @@
+{
+  "issue": 36,
+  "branch": "feature/issue-36-apply-new-params-restart",
+  "status": "success",
+  "part_of_epic": 33,
+  "started_at": "2026-08-15T08:16:27Z",
+  "finished_at": "2026-08-15T08:43:03Z",
+  "changes": [
+    "Конфиг стратегии test_20260731 (id=36) обновлён: reentry_cooldown_min=30, max_rr_ratio=10.0, imbalance_threshold=1.0",
+    "Очищены таблицы: trading.alerts (72), trading.paper_positions (704), trading.paper_equity (2855)",
+    "Backend пересобран (docker compose up -d --build backend)",
+    "Процессы перезапущены: 4 движка, duration=1200 min"
+  ],
+  "verification": {
+    "live_engine": "Live engine: strategy 'test_20260731', 28 tickers, imbalance_overlay=True",
+    "paper_trader": "Paper trader started: strategy 'test_20260731'",
+    "processes_count": 4
+  },
+  "related_issues": [34, 35],
+  "note": "Операционная задача: применение параметров из #34 (дедупликация) и #35 (RR/imbalance фильтры) к активной стратегии.",
+  "next_action": "Мержить PR #46"
+}
