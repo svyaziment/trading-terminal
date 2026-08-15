@@ -1,0 +1,24 @@
+{
+  "task_id": "task-41-refactor-levels-reversal",
+  "issue": 41,
+  "status": "success",
+  "part_of_epic": 39,
+  "started_at": "2026-08-15T11:36:02Z",
+  "finished_at": "2026-08-15T15:56:21Z",
+  "changes": [
+    "Refactored levels_reversal.py: check_exit mirrors StrategyEvaluator.on_bar exit branch (stop/take)",
+    "Created portfolio_backtest.py: strategy-agnostic backtest via StrategyRegistry with exact on_bar parity (entry_exec, slippage, round-trip, _bootstrap_metrics)",
+    "Created tests/test_strategy_plugin.py: bit-for-bit regression test with sys.path fix",
+    "LevelsReversalStrategy registered in StrategyRegistry (from Issue #40)"
+  ],
+  "verification": {
+    "py_compile": "3/3 modules passed",
+    "docker_rebuild": "successful",
+    "regression_match": true,
+    "dev_test": "1 month, top-5 tickers - PASSED",
+    "full_test": "2 years, 28 tickers - PASSED",
+    "StrategyEvaluator_unchanged": true
+  },
+  "note": "LevelsReversalStrategy fully implements StrategyPlugin interface. Bit-for-bit regression confirms parity with strategy_backtest.",
+  "next_action": "Create PR: feature/issue-41-refactor-levels-reversal -> main"
+}

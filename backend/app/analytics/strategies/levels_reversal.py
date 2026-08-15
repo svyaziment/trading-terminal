@@ -1,4 +1,9 @@
-"""Levels reversal strategy plugin - wrapper around StrategyEvaluator."""
+"""Levels reversal strategy plugin - wrapper around StrategyEvaluator.
+
+Refactored for Issue #41: check_exit delegates the exit logic that lives in
+StrategyEvaluator.on_bar (stop/take checks). The exit logic here is a direct
+mirror of the exit branch in on_bar, ensuring bit-for-bit regression parity.
+"""
 
 from __future__ import annotations
 
@@ -24,20 +29,18 @@ class LevelsReversalStrategy(StrategyPlugin):
     """Levels reversal strategy plugin.
 
     Wrapper around the existing StrategyEvaluator (single brain architecture).
-    Delegates entry logic to StrategyEvaluator.check_entry() while providing
-    the new StrategyPlugin interface.
+    - check_entry: delegates to StrategyEvaluator.check_entry
+    - check_exit: mirrors the exit branch of StrategyEvaluator.on_bar (stop/take)
+    - manage_position: HOLD (no averaging/pyramiding for this strategy)
     """
 
     def __init__(self, config: dict):
         super().__init__(config)
         self._evaluator = StrategyEvaluator(config)
+        self._context_loaded = False
 
-    def check_entry(self, context: MarketContext) -> Optional[EntrySignal]:
-        """Check entry conditions using StrategyEvaluator."""
-        if context.candles_1min is None or context.candles_1min.empty:
-            return None
-
-        # Load context into evaluator
+    def load_market_context(self, context: MarketContext) -> None:
+        """Load 4h context into the internal evaluator (call once before the bar loop)."""
         self._evaluator.load_context(
             levels=context.levels,
             ts_4h=context.ts_4h,
@@ -45,11 +48,20 @@ class LevelsReversalStrategy(StrategyPlugin):
             buy_ts=context.buy_ts,
             confirm_series=context.confirm_series,
         )
+        self._context_loaded = True
 
-        # Get latest 1min bar
+    def check_entry(self, context: MarketContext) -> Optional[EntrySignal]:
+        """Check entry conditions using StrategyEvaluator.check_entry."""
+        if context.candles_1min is None or context.candles_1min.empty:
+            return None
+
+        if not self._context_loaded:
+            self.load_market_context(context)
+
+        # Reset position state so check_entry is pure (no open position)
+        self._evaluator.position = None
+
         latest_bar = context.candles_1min.iloc[-1]
-
-        # Delegate to StrategyEvaluator
         decision = self._evaluator.check_entry(latest_bar)
 
         if decision is None:
@@ -65,11 +77,17 @@ class LevelsReversalStrategy(StrategyPlugin):
         )
 
     def manage_position(self, position: Position, context: MarketContext) -> PositionAction:
-        """Manage open position. Current: HOLD (no averaging)."""
+        """No position management (no averaging/pyramiding)."""
         return PositionAction.HOLD
 
     def check_exit(self, position: Position, context: MarketContext) -> Optional[ExitSignal]:
-        """Check exit conditions (stop/take hit)."""
+        """Check exit conditions - mirrors the exit branch of StrategyEvaluator.on_bar.
+
+        This is the exact exit logic from on_bar:
+            if row['low'] <= stop: exit at stop
+            elif row['high'] >= take: exit at take
+        Kept as a direct mirror to guarantee bit-for-bit regression parity.
+        """
         if context.candles_1min is None or context.candles_1min.empty:
             return None
 
@@ -77,12 +95,14 @@ class LevelsReversalStrategy(StrategyPlugin):
         bar_low = float(latest_bar['low'])
         bar_high = float(latest_bar['high'])
 
+        # Mirror of on_bar exit branch (stop checked first, then take)
         if bar_low <= position.stop:
             return ExitSignal(
                 exit_price=position.stop,
                 reason='stop',
                 timestamp=context.timestamp,
                 partial_pct=1.0,
+                metadata={'bars_held': position.bars_held},
             )
 
         if bar_high >= position.take:
@@ -91,6 +111,7 @@ class LevelsReversalStrategy(StrategyPlugin):
                 reason='take',
                 timestamp=context.timestamp,
                 partial_pct=1.0,
+                metadata={'bars_held': position.bars_held},
             )
 
         return None
