@@ -1,0 +1,48 @@
+Task: task-42-atr-reversal — FIX v3 (register_default_strategies + stderr logging)
+Python interpreter: /c/Program Files/Python311/python
+
+=== Step 1: Current state ===
+  Size before: 8829 bytes
+  register_default_strategies present: 0 occurrence(s)
+  logging.basicConfig near top: 0 occurrence(s)
+
+=== Step 2: Patch atr_backtest.py (2 atomic patches) ===
+  Size after: 9065 bytes
+  Verification:
+    register_default_strategies() calls: 1
+    stderr logging lines: 2
+
+=== Step 3: Docker rebuild ===
+ backend  Built
+ Container trading-terminal-backend  Recreate
+ Container trading-terminal-backend  Recreated
+ Container trading-terminal-backend  Starting
+ Container trading-terminal-backend  Started
+
+=== Step 4: py_compile verification ===
+OK app/analytics/atr_backtest.py
+
+=== Step 5: DEV test (1 month, top-5 tickers) ===
+  Estimated: 1-3 minutes
+INFO:DBManager:PostgreSQL connection pool created
+INFO:DBManager:PostgreSQL connection pool closed
+  DEV test exit code: 0
+
+=== Step 6: Validate dev_test_results.json ===
+
+=== Step 7: Final report ===
+OK report.json exists
+
+=========================================
+  Issue #42 DEV Test Complete
+=========================================
+
+Verification:
+  [✓] register_default_strategies() added
+  [✓] stderr logging added
+  [✓] py_compile passed
+  [✓] DEV test completed
+
+Next: Create PR for Issue #42
+
+Done

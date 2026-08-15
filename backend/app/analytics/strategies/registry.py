@@ -50,7 +50,10 @@ def get_registry() -> StrategyRegistry:
 def register_default_strategies() -> None:
     """Register all default strategy plugins."""
     from app.analytics.strategies.levels_reversal import LevelsReversalStrategy
+    from app.analytics.strategies.atr_reversal import AtrReversalStrategy
 
     registry = get_registry()
     if 'levels_reversal' not in registry:
         registry.register('levels_reversal', LevelsReversalStrategy)
+    if 'atr_reversal' not in registry:
+        registry.register('atr_reversal', AtrReversalStrategy)
