@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-17 (задачи #59-#60 Live Trading Infrastructure; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-17 (задачи #59-#61 Live Trading Infrastructure; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -98,3 +98,11 @@ python docs/refresh/context_collector.py
 - Retry-политика берётся только из `SANDBOX_TRADING` в `trading_config.py`. Не добавляйте отдельные retry-циклы вокруг `execute_order`: клиент уже повторяет временные gRPC-ошибки с тем же idempotency key.
 - Клиент не открывает sandbox-счёт и не зачисляет на него 50 000 RUB из эпика автоматически. Создание и пополнение — явная операция пользователя. Никогда не печатайте токены и не коммитьте `.env`.
 - Unit-тест: `cd backend && python -m pytest -q tests/test_tinkoff_sandbox.py`.
+
+## 14. Эксплуатация расчёта размера позиции
+
+- Точка входа: `app.analytics.position_sizer.calculate_position_size`. Передавайте свободный капитал, расстояние до stop-loss в процентах от входа, цену входа и `lot_size` инструмента.
+- Live-значения берутся только из `POSITION_SIZING` файла `trading_config.py`: риск 1% на сделку и максимум 20% капитала в одной позиции. Необязательные переопределения функции предназначены для тестов и симуляций.
+- В broker order передавайте `size_lots`. `size_rub` — бюджет до округления, а не указание на дробное количество лотов.
+- Результаты `invalid_stop` и `insufficient_capital` означают отказ (`size_lots == 0`) и не должны доходить до брокера. `min_lot` можно исполнять: калькулятор уже убедился, что свободного капитала хватает на один полный лот.
+- Unit-тест: `cd backend && python -m pytest -q tests/test_position_sizer.py`.

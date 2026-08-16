@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-17 (Issues #59-#60 Live Trading Infrastructure). Companion to project-context.md.
+Last refreshed: 2026-08-17 (Issues #59-#61 Live Trading Infrastructure). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -98,3 +98,11 @@ python docs/refresh/context_collector.py
 - Retry policy comes only from `SANDBOX_TRADING` in `trading_config.py`. Do not add independent retry loops around `execute_order`: the client already retries transient gRPC failures with the same idempotency key.
 - The client does not open a sandbox account or deposit the epic's 50,000 RUB automatically. Provisioning/funding is an explicit operator step. Never print tokens or commit `.env`.
 - Unit test: `cd backend && python -m pytest -q tests/test_tinkoff_sandbox.py`.
+
+## 14. Operating Position Sizing
+
+- Entry point: `app.analytics.position_sizer.calculate_position_size`. Pass free capital, stop distance as a percent of entry, entry price, and the instrument's `lot_size`.
+- Live defaults come only from `POSITION_SIZING` in `trading_config.py`: 1% risk per trade and 20% maximum concentration. Optional function overrides are intended for tests and simulations.
+- Use `size_lots` as the broker order quantity. `size_rub` is the pre-rounding budget, not a fractional-lot instruction.
+- `invalid_stop` and `insufficient_capital` are rejection results (`size_lots == 0`) and must not reach the broker. `min_lot` is executable because the calculator has already confirmed that free capital covers one full lot.
+- Unit test: `cd backend && python -m pytest -q tests/test_position_sizer.py`.

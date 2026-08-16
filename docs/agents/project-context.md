@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-17 (Issues #59-#60 Live Trading Infrastructure). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-17 (Issues #59-#61 Live Trading Infrastructure). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -44,7 +44,8 @@ trading-terminal/
 │ │ │ ├── levels_refresher.py # Levels refresh
 │ │ │ ├── strategy_backtest.py # Parameterizable strategy engine + walk-forward (Strategy Lab)
 │   │   ├── strategy_context.py      # Build strategy context (levels, ATR, BUY signals)
-│ │ │ ├── trading_config.py # SINGLE SOURCE OF TRUTH: trading universe + strategy registry
+│ │ │ ├── trading_config.py # SINGLE SOURCE OF TRUTH: universe, strategies, live risk policy
+│ │ │ ├── position_sizer.py # Hybrid risk/concentration sizing + lot rounding
 │ │ │ ├── online_data.py # Streaming: 1min candles + order book -> online_* tables
 │ │ │ ├── orderbook_imbalance.py # Bid/ask depth ratio + mandatory live filter
 │ │ │ ├── online_signals.py # Online signal engine (paper trading, A/B arms)
@@ -221,7 +222,7 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 | I | ML (CatBoost/LightGBM) | Not started |
 | J | A/B test analysis report (signal_source x window x rr x entry) | Pending (accumulate closed trades) |
 | O  | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Done (Epic #39) |
-| P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, control panel) | In progress: sandbox broker client (#59) and real-time order-book imbalance (#60) done |
+| P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, control panel) | In progress: sandbox broker client (#59), real-time order-book imbalance (#60), and position sizing (#61) done |
 
 ## 9. Important Notes
 
@@ -255,3 +256,13 @@ Live verification on 2026-08-16: an operator opened a sandbox account and funded
 Infrastructure defaults live in `trading_config.py` (`ORDERBOOK_IMBALANCE`): depth 10, maximum aggregate age 5 minutes, and default threshold 1.0. The active strategy may override only the top-level `imbalance_threshold`; a live entry passes when its finite imbalance is strictly above that threshold.
 
 `live_engine.py` recalculates the ratio from `bid_depth` and `ask_depth` in the latest fresh `trading.online_orderbook_aggregates` row before emitting every signal. Missing/stale rows, null/non-finite values, and zero ask depth all produce `None`, so the mandatory filter rejects the signal rather than silently using zero or stale data. The legacy online signal path uses the same calculator.
+
+## 12. Position Sizing
+
+`backend/app/analytics/position_sizer.py` provides the shared `calculate_position_size()` function for live order sizing. It first calculates the capital budget implied by the configured per-trade risk and stop distance, then caps that budget by the maximum allowed portfolio concentration:
+
+`size_rub = min(capital_rub * risk_per_trade_pct / stop_distance_pct, capital_rub * max_position_pct / 100)`
+
+The executable quantity is the whole number of instrument lots that fit the budget: `floor(size_rub / (price * lot_size))`. If the budget is below one lot but free capital can still pay for one lot, the result is raised to one lot with reason `min_lot`. A non-positive stop distance returns `invalid_stop`; capital below one full lot returns `insufficient_capital`.
+
+Default limits are centralized in `trading_config.py` (`POSITION_SIZING`): 1% risk per trade and 20% maximum position concentration. The result also reports whether risk, concentration, or minimum-lot handling determined the final size.

@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-17 (задачи #59-#60 Live Trading Infrastructure; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-17 (задачи #59-#61 Live Trading Infrastructure; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -44,7 +44,8 @@ trading-terminal/
 │ │ │ ├── levels_refresher.py # Обновление levels
 │ │ │ ├── strategy_backtest.py # Параметризуемый движок стратегий + walk-forward (Strategy Lab)
 │   │   ├── strategy_context.py      # Построение контекста стратегии (уровни, ATR, BUY-сигналы)
-│ │ │ ├── trading_config.py # ЕДИНЫЙ ИСТОЧНИК ИСТИНЫ: торговая вселенная + реестр стратегий
+│ │ │ ├── trading_config.py # ЕДИНЫЙ ИСТОЧНИК ИСТИНЫ: вселенная, стратегии, live risk policy
+│ │ │ ├── position_sizer.py # Гибридный sizing по риску/концентрации + округление лотов
 │ │ │ ├── online_data.py # Стриминг: 1min свечи + стакан -> online_* таблицы
 │ │ │ ├── orderbook_imbalance.py # Отношение bid/ask depth + обязательный live-фильтр
 │ │ │ ├── online_signals.py # Движок онлайн-сигналов (paper trading, A/B arms)
@@ -221,7 +222,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | I | ML (CatBoost/LightGBM) | Не начато |
 | J | Отчёт анализа A/B теста (signal_source x window x rr x entry) | Ожидает (накопить закрытые сделки) |
 | O | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Готово (Эпик #39) |
-| P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, панель управления) | В работе: sandbox broker client (#59) и realtime imbalance стакана (#60) готовы |
+| P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, панель управления) | В работе: sandbox broker client (#59), realtime imbalance стакана (#60) и position sizing (#61) готовы |
 
 ## 9. Важные замечания
 
@@ -255,3 +256,13 @@ Live-проверка 2026-08-16: оператор открыл sandbox-счёт
 Инфраструктурные значения находятся в `trading_config.py` (`ORDERBOOK_IMBALANCE`): глубина 10, максимальный возраст агрегата 5 минут и порог по умолчанию 1.0. Активная стратегия может переопределить только верхнеуровневый `imbalance_threshold`; live-вход проходит, когда конечное значение imbalance строго больше порога.
 
 Перед генерацией каждого сигнала `live_engine.py` заново рассчитывает отношение из `bid_depth` и `ask_depth` последней свежей строки `trading.online_orderbook_aggregates`. Отсутствующая или устаревшая строка, null/нечисловые значения и нулевая ask depth дают `None`, поэтому обязательный фильтр отклоняет сигнал, а не использует ноль или старые данные. Legacy online signal path использует тот же калькулятор.
+
+## 12. Расчёт размера позиции
+
+`backend/app/analytics/position_sizer.py` предоставляет общую функцию `calculate_position_size()` для расчёта live-ордера. Сначала она определяет бюджет позиции по заданному риску на сделку и расстоянию до stop-loss, затем ограничивает бюджет максимальной долей одной позиции в портфеле:
+
+`size_rub = min(capital_rub * risk_per_trade_pct / stop_distance_pct, capital_rub * max_position_pct / 100)`
+
+Исполняемое количество — целое число лотов, помещающихся в бюджет: `floor(size_rub / (price * lot_size))`. Если бюджет меньше одного лота, но свободного капитала достаточно для его оплаты, результат повышается до одного лота с причиной `min_lot`. Неположительное расстояние до stop-loss возвращает `invalid_stop`, а капитал меньше стоимости полного лота — `insufficient_capital`.
+
+Лимиты по умолчанию централизованы в `trading_config.py` (`POSITION_SIZING`): риск 1% на сделку и не более 20% капитала в одной позиции. Результат также сообщает, что определило итоговый размер: риск, концентрация или правило минимального лота.

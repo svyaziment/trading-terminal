@@ -3,7 +3,8 @@ Central trading configuration - SINGLE SOURCE OF TRUTH for:
   1) the traded universe (tickers) - read from trading.trading_universe (rank order);
   2) strategy definitions (name -> params) - so backtest and paper trading never diverge;
   3) T-Bank sandbox execution and retry policy;
-  4) live order-book imbalance defaults.
+  4) live order-book imbalance defaults;
+  5) live position-sizing risk limits.
 
 Every module (data_refresher, online_data, online_signals, paper_trader, strategy_backtest)
 must import get_trading_universe() / get_strategy() from here instead of hardcoding
@@ -24,6 +25,19 @@ ORDERBOOK_IMBALANCE: Dict[str, Any] = {
 def get_orderbook_imbalance_config() -> Dict[str, Any]:
     """Return an isolated copy of the live order-book imbalance policy."""
     return dict(ORDERBOOK_IMBALANCE)
+
+
+# Non-secret defaults for live position sizing. Callers may override them for
+# simulations, while live trading uses these values as the single source of truth.
+POSITION_SIZING: Dict[str, float] = {
+    'risk_per_trade_pct': 1.0,
+    'max_position_pct': 20.0,
+}
+
+
+def get_position_sizing_config() -> Dict[str, float]:
+    """Return an isolated copy of the live position-sizing policy."""
+    return dict(POSITION_SIZING)
 
 
 # Secrets and the sandbox account id are intentionally loaded by config_manager from
