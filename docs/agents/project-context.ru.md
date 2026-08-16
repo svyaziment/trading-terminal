@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-16 (Эпик #39 Strategy Plugin System; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-16 (задача #59, интеграция T-Bank Sandbox API; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -63,6 +63,9 @@ trading-terminal/
 │ │ │ ├── top_stocks.py # Логика top stocks по объёму
 │ │ │ └── patterns/ # 10 паттернов: trend/, mean_reversion/, breakout/, volume/, price_action/
 │ │ ├── core/config_manager.py # Настройки (pydantic), logger, env vars
+│ │ ├── broker/
+│ │ │ ├── data_loader.py # Исторические свечи через T-Bank Invest API
+│ │ │ └── tinkoff_sandbox.py # Только sandbox: ордера, баланс, позиции, отмена
 │ │ ├── db/db_manager.py # Синхронный PostgreSQL manager (pool, select, execute, insert_with_schema)
 │ │ └── main.py # FastAPI app, регистрация маршрутов
 │ ├── Dockerfile # python:3.12-slim, T-Bank SDK, psycopg2
@@ -217,12 +220,27 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | I | ML (CatBoost/LightGBM) | Не начато |
 | J | Отчёт анализа A/B теста (signal_source x window x rr x entry) | Ожидает (накопить закрытые сделки) |
 | O | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Готово (Эпик #39) |
+| P | Live Trading Infrastructure (sandbox-исполнение, риск-контроль, панель управления) | В работе: sandbox broker client готов (#59) |
 
 ## 9. Важные замечания
 
 - **Песочница**: реальной торговли нет. Используются sandbox-токены T-Bank API.
-- **Секреты**: .env (TINVEST_TOKEN, PSTGRS_PWD). Никогда не логировать секреты.
+- **Секреты**: .env (`TINVEST_TOKEN` / `TINVEST_ACC` для рыночных данных, `TINVEST_SANDBOX` / необязательный `TINVEST_SANDBOX_ACC` для sandbox-исполнения, `PSTGRS_PWD`). Никогда не логировать секреты и не использовать реквизиты рыночных данных для торговли.
 - **Docker**: после изменений кода пересоберите backend image (`docker compose up -d --build backend`). Backend монтирует `./reports` (для last_run.json).
 - **Единый источник истины**: торговая вселенная + определения стратегий живут в `trading_config.py` / `trading.trading_universe`. Не хардкодьте списки тикеров или параметры стратегий в модулях.
 - **Заблокированная стратегия**: стратегия в paper test имеет `locked=true`; API отклоняет её перезапись (409). Разблокировать только после тестового периода.
 - **Логирование**: DBManager по умолчанию пишет в stdout. В скриптах, которые парсят JSON из stdout, перенаправьте логи в stderr. Фоновые процессы (start_processes.sh) используют `python -u` + `logging.basicConfig(level=INFO, stream=sys.stdout)` для немедленной записи логов в файлы.
+
+## 10. Интеграция T-Bank Sandbox API
+
+`backend/app/broker/tinkoff_sandbox.py` — граница исполнения ордеров для эпика #58. `TinkoffSandboxClient` подключается к отдельному endpoint `INVEST_GRPC_API_SANDBOX`, использует только `client.sandbox` и никогда не обращается к production-сервису `orders`. Клиент предоставляет:
+- `execute_order` для market- и limit-ордеров (количество задаётся в лотах);
+- `check_balance` для проверки свободных денег по валюте;
+- `get_positions` для получения ненулевых открытых позиций портфеля;
+- `cancel_order` для отмены активного sandbox-ордера.
+
+Операционная политика централизована в `analytics/trading_config.py` (`SANDBOX_TRADING`): включение sandbox, жёсткий запрет реальной торговли, справочный начальный капитал, валюта по умолчанию, число retry/backoff и обнаружение счёта. Секреты там не хранятся: отдельные реквизиты `TINVEST_SANDBOX` / `TINVEST_SANDBOX_ACC` загружаются через `core/config_manager.py`; `TINVEST_TOKEN` / `TINVEST_ACC` используются только для рыночных данных.
+
+При временных gRPC-ошибках (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`, `INTERNAL`) используется экспоненциальная задержка. Повтор ордера сохраняет один idempotency `order_id`, поэтому неопределённый ответ не приводит к дублирующему ордеру. Если `TINVEST_SANDBOX_ACC` пуст или некорректен (`50004`), клиент выбирает первый открытый sandbox-счёт и кеширует его id; счета и деньги автоматически не создаются.
+
+Live-проверка 2026-08-16: оператор открыл sandbox-счёт и пополнил его на 50 000 RUB. `TinkoffSandboxClient` успешно прочитал баланс и позиции, выставил limit-ордер SBER на один лот и отменил его.

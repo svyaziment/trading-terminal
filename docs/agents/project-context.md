@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-16 (Epic #39 Strategy Plugin System). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-16 (Issue #59 T-Bank Sandbox API integration). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -63,6 +63,9 @@ trading-terminal/
 │ │ │ ├── top_stocks.py # Top stocks by volume logic
 │ │ │ └── patterns/ # 10 patterns: trend/, mean_reversion/, breakout/, volume/, price_action/
 │ │ ├── core/config_manager.py # Settings (pydantic), logger, env vars
+│ │ ├── broker/
+│ │ │ ├── data_loader.py # Historical candles via T-Bank Invest API
+│ │ │ └── tinkoff_sandbox.py # Sandbox-only orders, balance, positions, cancellation
 │ │ ├── db/db_manager.py # Synchronous PostgreSQL manager (pool, select, execute, insert_with_schema)
 │ │ └── main.py # FastAPI app, route registration
 │ ├── Dockerfile # python:3.12-slim, T-Bank SDK, psycopg2
@@ -217,12 +220,27 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 | I | ML (CatBoost/LightGBM) | Not started |
 | J | A/B test analysis report (signal_source x window x rr x entry) | Pending (accumulate closed trades) |
 | O  | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Done (Epic #39) |
+| P | Live Trading Infrastructure (sandbox execution, risk controls, control panel) | In progress: sandbox broker client done (#59) |
 
 ## 9. Important Notes
 
 - **Sandbox mode**: no real trading. T-Bank API sandbox tokens.
-- **Secrets**: .env (TINVEST_TOKEN, PSTGRS_PWD). Never log secrets.
+- **Secrets**: .env (`TINVEST_TOKEN` / `TINVEST_ACC` for market data, `TINVEST_SANDBOX` / optional `TINVEST_SANDBOX_ACC` for sandbox execution, `PSTGRS_PWD`). Never log secrets or reuse market-data credentials for trading.
 - **Docker**: rebuild backend image after code changes (`docker compose up -d --build backend`). Backend mounts `./reports` (for last_run.json).
 - **Single source of truth**: trading universe + strategy definitions live in `trading_config.py` / `trading.trading_universe`. Do not hardcode ticker lists or strategy params in modules.
 - **Locked strategy**: the strategy under paper test has `locked=true`; the API rejects overwriting it (409). Unlock only after the test period.
 - **Logging**: DBManager logs to stdout by default. Reroute to stderr in scripts that parse JSON from stdout. Background processes (start_processes.sh) use `python -u` + `logging.basicConfig(level=INFO, stream=sys.stdout)` for unbuffered logging to log files.
+
+## 10. T-Bank Sandbox API Integration
+
+`backend/app/broker/tinkoff_sandbox.py` is the execution boundary for Epic #58. `TinkoffSandboxClient` connects to the dedicated `INVEST_GRPC_API_SANDBOX` endpoint and uses only `client.sandbox`; it never calls the production `orders` service. It provides:
+- `execute_order` for market and limit orders (quantity is in lots);
+- `check_balance` for free cash by currency;
+- `get_positions` for non-zero open portfolio positions;
+- `cancel_order` for active sandbox orders.
+
+Operational policy is centralized in `analytics/trading_config.py` (`SANDBOX_TRADING`): sandbox enablement, hard prohibition of real trading, initial capital reference, default currency, retry count/backoff, and account discovery. Secrets are not stored there: dedicated `TINVEST_SANDBOX` / `TINVEST_SANDBOX_ACC` credentials are loaded through `core/config_manager.py`; `TINVEST_TOKEN` / `TINVEST_ACC` are reserved for market data.
+
+Transient gRPC failures (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`, `INTERNAL`) use exponential backoff. Order retries reuse the same idempotency `order_id`, preventing duplicate execution after an uncertain response. If `TINVEST_SANDBOX_ACC` is empty or invalid (`50004`), the client falls back to the first open sandbox account and caches its id; it does not create or fund accounts automatically.
+
+Live verification on 2026-08-16: an operator opened a sandbox account and funded it with 50,000 RUB. `TinkoffSandboxClient` successfully read the balance and positions, submitted a one-lot SBER limit order, and cancelled that order.
