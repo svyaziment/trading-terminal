@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-16 (Issue #59 T-Bank Sandbox API integration). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-17 (Issues #59-#60 Live Trading Infrastructure). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -46,6 +46,7 @@ trading-terminal/
 │   │   ├── strategy_context.py      # Build strategy context (levels, ATR, BUY signals)
 │ │ │ ├── trading_config.py # SINGLE SOURCE OF TRUTH: trading universe + strategy registry
 │ │ │ ├── online_data.py # Streaming: 1min candles + order book -> online_* tables
+│ │ │ ├── orderbook_imbalance.py # Bid/ask depth ratio + mandatory live filter
 │ │ │ ├── online_signals.py # Online signal engine (paper trading, A/B arms)
 │   │   ├── pattern_registry.py      # Pattern registry + normalize_patterns (Epic #11)
 │ │ │ ├── paper_trader.py # Paper trading engine (market+limit, stop/take, equity)
@@ -220,7 +221,7 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 | I | ML (CatBoost/LightGBM) | Not started |
 | J | A/B test analysis report (signal_source x window x rr x entry) | Pending (accumulate closed trades) |
 | O  | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Done (Epic #39) |
-| P | Live Trading Infrastructure (sandbox execution, risk controls, control panel) | In progress: sandbox broker client done (#59) |
+| P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, control panel) | In progress: sandbox broker client (#59) and real-time order-book imbalance (#60) done |
 
 ## 9. Important Notes
 
@@ -244,3 +245,13 @@ Operational policy is centralized in `analytics/trading_config.py` (`SANDBOX_TRA
 Transient gRPC failures (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`, `INTERNAL`) use exponential backoff. Order retries reuse the same idempotency `order_id`, preventing duplicate execution after an uncertain response. If `TINVEST_SANDBOX_ACC` is empty or invalid (`50004`), the client falls back to the first open sandbox account and caches its id; it does not create or fund accounts automatically.
 
 Live verification on 2026-08-16: an operator opened a sandbox account and funded it with 50,000 RUB. `TinkoffSandboxClient` successfully read the balance and positions, submitted a one-lot SBER limit order, and cancelled that order.
+
+## 11. Real-time Order-book Imbalance
+
+`backend/app/analytics/orderbook_imbalance.py` is the shared calculator and mandatory live-entry filter for Issue #60. On every streamed order-book update, `online_data.py` sums quantities over the configured first 10 bid and ask levels and persists:
+
+`volume_imbalance = bid_depth / ask_depth`
+
+Infrastructure defaults live in `trading_config.py` (`ORDERBOOK_IMBALANCE`): depth 10, maximum aggregate age 5 minutes, and default threshold 1.0. The active strategy may override only the top-level `imbalance_threshold`; a live entry passes when its finite imbalance is strictly above that threshold.
+
+`live_engine.py` recalculates the ratio from `bid_depth` and `ask_depth` in the latest fresh `trading.online_orderbook_aggregates` row before emitting every signal. Missing/stale rows, null/non-finite values, and zero ask depth all produce `None`, so the mandatory filter rejects the signal rather than silently using zero or stale data. The legacy online signal path uses the same calculator.

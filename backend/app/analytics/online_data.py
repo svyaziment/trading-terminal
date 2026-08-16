@@ -23,12 +23,16 @@ except ImportError:
 
 from app.db.db_manager import DBManager
 from app.core.config_manager import load_settings
+from app.analytics.orderbook_imbalance import calculate_volume_imbalance
+from app.analytics.trading_config import (
+    get_orderbook_imbalance_config,
+    get_trading_universe,
+)
 
 logger = logging.getLogger(__name__)
-from app.analytics.trading_config import get_trading_universe
 
 TOP5_TICKERS = ['RUAL', 'GMKN', 'PIKK', 'GAZP', 'SIBN']
-ORDERBOOK_DEPTH = 10
+ORDERBOOK_DEPTH = int(get_orderbook_imbalance_config()['depth'])
 RECONNECT_DELAY = 5  # seconds
 
 
@@ -82,7 +86,7 @@ def save_orderbook_aggregate(db: DBManager, ticker: str, orderbook):
     spread_pct = (spread / mid_price * 100) if mid_price > 0 else 0
     bid_depth = sum(getattr(b, 'quantity', 0) for b in bids[:ORDERBOOK_DEPTH])
     ask_depth = sum(getattr(a, 'quantity', 0) for a in asks[:ORDERBOOK_DEPTH])
-    volume_imbalance = (bid_depth / ask_depth) if ask_depth > 0 else 0
+    volume_imbalance = calculate_volume_imbalance(bid_depth, ask_depth)
     row = {
         'ticker': ticker,
         'timestamp': datetime.now(timezone.utc).replace(tzinfo=None),

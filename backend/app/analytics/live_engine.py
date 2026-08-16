@@ -24,14 +24,16 @@ from app.analytics.levels_engine import build_levels
 from app.analytics.levels_backtest import compute_atr, aggregate_1min_to, build_confirm_series
 from app.analytics.strategy_engine import StrategyEvaluator
 from app.analytics.strategy_backtest import compute_indicators_1min
+from app.analytics.orderbook_imbalance import (
+    get_imbalance_threshold,
+    get_recent_imbalance,
+    passes_imbalance_filter,
+)
 from app.analytics.trading_config import get_trading_universe
 
 logger = logging.getLogger(__name__)
 
-IMBALANCE_THRESHOLD = 1.0
-
 MAX_RR_RATIO_DEFAULT = 10.0
-IMBALANCE_THRESHOLD_DEFAULT = 1.0
 
 INDICATOR_PATTERNS = ('rsi_oversold', 'macd_bullish', 'bb_lower')
 
@@ -110,17 +112,6 @@ def build_1m_context(db: DBManager, ticker: str, config: Dict):
         cs = build_confirm_series(aggregate_1min_to(df, w))
         confirm_series.append(([c[0] for c in cs], [c[1] for c in cs]))
     return df, confirm_series
-
-
-def get_recent_imbalance(db: DBManager, ticker: str, minutes: int = 5) -> Optional[float]:
-    cutoff = _now_msk().replace(tzinfo=None) - timedelta(minutes=minutes)
-    df = db.select(
-        "SELECT volume_imbalance FROM trading.online_orderbook_aggregates "
-        "WHERE ticker=%s AND timestamp >= %s ORDER BY timestamp DESC LIMIT 1", (ticker, cutoff)
-    ).to_dataframe()
-    if df.empty or df.iloc[0]['volume_imbalance'] is None:
-        return None
-    return float(df.iloc[0]['volume_imbalance'])
 
 
 def _rr_mode(config: Dict) -> str:
@@ -232,8 +223,10 @@ def run_live_engine(duration_minutes: int = 60, check_interval_sec: int = 30,
     if config is None:
         logger.error("No active paper strategy (in_paper_test=true). Live engine exiting.")
         return
+    imbalance_threshold = get_imbalance_threshold(config)
     logger.info(f"Live engine: strategy '{strat_name}', {len(tickers)} tickers {tickers}, "
-                f"imbalance_overlay=True (mandatory), duration={duration_minutes}min")
+                f"imbalance_threshold={imbalance_threshold} (mandatory), "
+                f"duration={duration_minutes}min")
 
     evaluators: Dict[str, StrategyEvaluator] = {}
     last_processed: Dict[str, object] = {}
@@ -281,11 +274,16 @@ def run_live_engine(duration_minutes: int = 60, check_interval_sec: int = 30,
                 dec = ev.check_entry(bar)
                 if dec is None:
                     continue
-                # Issue #35: mandatory imbalance filter (always active in live)
-                imbalance_threshold = float(config.get('imbalance_threshold', IMBALANCE_THRESHOLD_DEFAULT))
+                # Issue #60: mandatory fresh order-book filter (always active in live).
                 imbalance_val = get_recent_imbalance(db, tk)
-                if imbalance_val is None or imbalance_val <= imbalance_threshold:
-                    continue  # imbalance filter not satisfied
+                if not passes_imbalance_filter(imbalance_val, config):
+                    logger.info(
+                        "SKIP signal: %s imbalance=%s threshold=%s",
+                        tk,
+                        imbalance_val,
+                        imbalance_threshold,
+                    )
+                    continue
                 if not _can_emit_signal(db, tk, config):
 
                     continue

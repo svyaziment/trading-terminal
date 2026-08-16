@@ -2,7 +2,8 @@
 Central trading configuration - SINGLE SOURCE OF TRUTH for:
   1) the traded universe (tickers) - read from trading.trading_universe (rank order);
   2) strategy definitions (name -> params) - so backtest and paper trading never diverge;
-  3) T-Bank sandbox execution and retry policy.
+  3) T-Bank sandbox execution and retry policy;
+  4) live order-book imbalance defaults.
 
 Every module (data_refresher, online_data, online_signals, paper_trader, strategy_backtest)
 must import get_trading_universe() / get_strategy() from here instead of hardcoding
@@ -10,6 +11,20 @@ ticker lists or strategy parameters.
 """
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
+
+# Non-secret defaults for the real-time order-book filter. A strategy can override
+# only imbalance_threshold; stream depth and freshness remain infrastructure policy.
+ORDERBOOK_IMBALANCE: Dict[str, Any] = {
+    'depth': 10,
+    'max_age_minutes': 5,
+    'default_threshold': 1.0,
+}
+
+
+def get_orderbook_imbalance_config() -> Dict[str, Any]:
+    """Return an isolated copy of the live order-book imbalance policy."""
+    return dict(ORDERBOOK_IMBALANCE)
+
 
 # Secrets and the sandbox account id are intentionally loaded by config_manager from
 # TINVEST_SANDBOX / TINVEST_SANDBOX_ACC. TINVEST_TOKEN / TINVEST_ACC remain

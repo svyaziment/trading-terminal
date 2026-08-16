@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-16 (задача #59, интеграция T-Bank Sandbox API; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-17 (задачи #59-#60 Live Trading Infrastructure; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -46,6 +46,7 @@ trading-terminal/
 │   │   ├── strategy_context.py      # Построение контекста стратегии (уровни, ATR, BUY-сигналы)
 │ │ │ ├── trading_config.py # ЕДИНЫЙ ИСТОЧНИК ИСТИНЫ: торговая вселенная + реестр стратегий
 │ │ │ ├── online_data.py # Стриминг: 1min свечи + стакан -> online_* таблицы
+│ │ │ ├── orderbook_imbalance.py # Отношение bid/ask depth + обязательный live-фильтр
 │ │ │ ├── online_signals.py # Движок онлайн-сигналов (paper trading, A/B arms)
 │   │   ├── pattern_registry.py      # Реестр паттернов + normalize_patterns (Эпик #11)
 │ │ │ ├── paper_trader.py # Движок paper trading (market+limit, stop/take, equity)
@@ -220,7 +221,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | I | ML (CatBoost/LightGBM) | Не начато |
 | J | Отчёт анализа A/B теста (signal_source x window x rr x entry) | Ожидает (накопить закрытые сделки) |
 | O | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Готово (Эпик #39) |
-| P | Live Trading Infrastructure (sandbox-исполнение, риск-контроль, панель управления) | В работе: sandbox broker client готов (#59) |
+| P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, панель управления) | В работе: sandbox broker client (#59) и realtime imbalance стакана (#60) готовы |
 
 ## 9. Важные замечания
 
@@ -244,3 +245,13 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 При временных gRPC-ошибках (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`, `INTERNAL`) используется экспоненциальная задержка. Повтор ордера сохраняет один idempotency `order_id`, поэтому неопределённый ответ не приводит к дублирующему ордеру. Если `TINVEST_SANDBOX_ACC` пуст или некорректен (`50004`), клиент выбирает первый открытый sandbox-счёт и кеширует его id; счета и деньги автоматически не создаются.
 
 Live-проверка 2026-08-16: оператор открыл sandbox-счёт и пополнил его на 50 000 RUB. `TinkoffSandboxClient` успешно прочитал баланс и позиции, выставил limit-ордер SBER на один лот и отменил его.
+
+## 11. Imbalance стакана в реальном времени
+
+`backend/app/analytics/orderbook_imbalance.py` — общий калькулятор и обязательный фильтр live-входа для задачи #60. При каждом streaming-обновлении стакана `online_data.py` суммирует объёмы первых 10 уровней bid и ask из конфига и сохраняет:
+
+`volume_imbalance = bid_depth / ask_depth`
+
+Инфраструктурные значения находятся в `trading_config.py` (`ORDERBOOK_IMBALANCE`): глубина 10, максимальный возраст агрегата 5 минут и порог по умолчанию 1.0. Активная стратегия может переопределить только верхнеуровневый `imbalance_threshold`; live-вход проходит, когда конечное значение imbalance строго больше порога.
+
+Перед генерацией каждого сигнала `live_engine.py` заново рассчитывает отношение из `bid_depth` и `ask_depth` последней свежей строки `trading.online_orderbook_aggregates`. Отсутствующая или устаревшая строка, null/нечисловые значения и нулевая ask depth дают `None`, поэтому обязательный фильтр отклоняет сигнал, а не использует ноль или старые данные. Legacy online signal path использует тот же калькулятор.

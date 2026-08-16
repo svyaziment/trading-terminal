@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-16 (Issue #59 T-Bank Sandbox API integration). Companion to project-context.md.
+Last refreshed: 2026-08-17 (Issues #59-#60 Live Trading Infrastructure). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -76,7 +76,17 @@ python docs/refresh/context_collector.py
 - **Verify after write**: always check file sizes (`wc -c`) and run a build/health check after changes.
 - **Docs are bilingual**: keep `*.md` and `*.ru.md` in sync (project-context, handover, strategy docs).
 
-## 12. Operating the T-Bank Sandbox Client
+## 12. Operating the Order-book Imbalance Filter
+
+- Entry points: `online_data.save_orderbook_aggregate` calculates and stores each stream update; `orderbook_imbalance.get_recent_imbalance` reads a fresh aggregate; `passes_imbalance_filter` is the mandatory signal gate.
+- Infrastructure policy is `ORDERBOOK_IMBALANCE` in `trading_config.py`: depth 10, maximum age 5 minutes, default threshold 1.0. Strategy override: top-level `config.imbalance_threshold`.
+- Passing condition is strict: `volume_imbalance > imbalance_threshold`. Missing, stale, null, NaN/infinite data, or zero ask depth always rejects the signal.
+- Quick DB diagnostic:
+  `SELECT ticker, timestamp, bid_depth, ask_depth, volume_imbalance FROM trading.online_orderbook_aggregates ORDER BY timestamp DESC LIMIT 20;`
+- If all live signals are skipped, first confirm that `online_data` is running and the latest row is less than 5 minutes old. Do not weaken the missing-data guard.
+- Unit test: `cd backend && python -m pytest -q tests/test_orderbook_imbalance.py`.
+
+## 13. Operating the T-Bank Sandbox Client
 
 - Entry point: `app.broker.tinkoff_sandbox.TinkoffSandboxClient`. Keep all broker order execution behind this class; downstream executors must not instantiate or call the production `orders` service.
 - Required environment: dedicated sandbox token `TINVEST_SANDBOX`. Optional `TINVEST_SANDBOX_ACC` pins the sandbox account; otherwise the first open account is discovered. The client deliberately never falls back to market-data credentials `TINVEST_TOKEN` / `TINVEST_ACC`. Account discovery never opens or funds an account.
