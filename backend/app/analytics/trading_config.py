@@ -1,7 +1,8 @@
 """
 Central trading configuration - SINGLE SOURCE OF TRUTH for:
   1) the traded universe (tickers) - read from trading.trading_universe (rank order);
-  2) strategy definitions (name -> params) - so backtest and paper trading never diverge.
+  2) strategy definitions (name -> params) - so backtest and paper trading never diverge;
+  3) T-Bank sandbox execution and retry policy.
 
 Every module (data_refresher, online_data, online_signals, paper_trader, strategy_backtest)
 must import get_trading_universe() / get_strategy() from here instead of hardcoding
@@ -9,6 +10,24 @@ ticker lists or strategy parameters.
 """
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
+
+# Secrets and the sandbox account id are intentionally loaded by config_manager from
+# TINVEST_TOKEN / TINVEST_ACC. Only non-secret execution policy lives here.
+SANDBOX_TRADING: Dict[str, Any] = {
+    'enabled': True,
+    'allow_real_trading': False,
+    'initial_capital_rub': 50_000,
+    'default_currency': 'rub',
+    'retry_attempts': 3,
+    'retry_base_delay_seconds': 0.5,
+    'discover_account_when_missing': True,
+}
+
+
+def get_sandbox_trading_config() -> Dict[str, Any]:
+    """Return an isolated copy of the T-Bank sandbox execution policy."""
+    return dict(SANDBOX_TRADING)
+
 
 # Fallback only (used if trading.trading_universe is empty/unavailable).
 # The canonical universe lives in the DB table; this is a safety net.
