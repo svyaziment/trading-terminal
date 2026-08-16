@@ -32,7 +32,9 @@ class BaseConfig(BaseModel):
 
 class ApiConfig(BaseConfig):
     token: str = ""
+    sandbox_token: str = ""
     account_id: str = ""
+    sandbox_account_id: str = ""
 
 
 class TerminalConfig(BaseConfig):
@@ -109,7 +111,14 @@ def load_settings() -> Settings:
 
     api_config = ApiConfig(
         token=_env_str("TINVEST_TOKEN", str(api_yaml.get("token", ""))),
+        sandbox_token=_env_str(
+            "TINVEST_SANDBOX", str(api_yaml.get("sandbox_token", ""))
+        ),
         account_id=_env_str("TINVEST_ACC", str(api_yaml.get("account_id", ""))),
+        sandbox_account_id=_env_str(
+            "TINVEST_SANDBOX_ACC",
+            str(api_yaml.get("sandbox_account_id", "")),
+        ),
     )
 
     terminal_config = TerminalConfig(**terminal_yaml)

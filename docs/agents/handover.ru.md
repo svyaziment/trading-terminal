@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-16 (задача #60, realtime imbalance стакана; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-17 (задачи #59-#60 Live Trading Infrastructure; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -85,3 +85,16 @@ python docs/refresh/context_collector.py
   `SELECT ticker, timestamp, bid_depth, ask_depth, volume_imbalance FROM trading.online_orderbook_aggregates ORDER BY timestamp DESC LIMIT 20;`
 - Если все live-сигналы пропускаются, сначала убедитесь, что `online_data` запущен, а последняя строка моложе 5 минут. Не ослабляйте защиту от отсутствующих данных.
 - Unit-тест: `cd backend && python -m pytest -q tests/test_orderbook_imbalance.py`.
+
+## 13. Работа с клиентом T-Bank Sandbox
+
+- Точка входа: `app.broker.tinkoff_sandbox.TinkoffSandboxClient`. Всё исполнение брокерских ордеров должно оставаться за этим классом; downstream executor не должен создавать или вызывать production-сервис `orders`.
+- Обязательное окружение: отдельный sandbox-токен `TINVEST_SANDBOX`. Необязательный `TINVEST_SANDBOX_ACC` фиксирует sandbox-счёт; иначе выбирается первый открытый. Клиент намеренно никогда не использует реквизиты рыночных данных `TINVEST_TOKEN` / `TINVEST_ACC`. Обнаружение счёта не открывает и не пополняет его.
+- Read-only smoke check:
+  `cd backend && python -c "from app.broker.tinkoff_sandbox import TinkoffSandboxClient; print(TinkoffSandboxClient().check_balance())"`
+- Market-ордер: передайте `instrument_id`, положительный целый `quantity` в лотах и при необходимости `direction` (`buy`/`sell`). `price` передавать нельзя.
+- Limit-ордер: передайте те же поля, а также `order_type="limit"` и положительный `price`. В `instrument_id` используйте UID/FIGI инструмента, который принимает T-Bank.
+- Для отмены нужен брокерский `order_id`, возвращённый `execute_order`.
+- Retry-политика берётся только из `SANDBOX_TRADING` в `trading_config.py`. Не добавляйте отдельные retry-циклы вокруг `execute_order`: клиент уже повторяет временные gRPC-ошибки с тем же idempotency key.
+- Клиент не открывает sandbox-счёт и не зачисляет на него 50 000 RUB из эпика автоматически. Создание и пополнение — явная операция пользователя. Никогда не печатайте токены и не коммитьте `.env`.
+- Unit-тест: `cd backend && python -m pytest -q tests/test_tinkoff_sandbox.py`.
