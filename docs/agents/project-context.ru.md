@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-14 (task-178; синхронизировано с английской версией task-176). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-16 (Эпик #39 Strategy Plugin System; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -10,6 +10,8 @@
 Три опоры:
 1. **Backtest / Strategy Lab** - параметризуемый движок стратегий (AND-паттерны, multi-window confirmation, комиссия/слиппедж/RR, depth presets, bootstrap) + walk-forward validation, доступен через API и UI-конструктор.
 2. **Paper trading** - активная стратегия из Strategy Lab (таблица `strategies`, `in_paper_test=true AND locked=true`) торгует виртуально через единый `StrategyEvaluator` (общий мозг с бэктестом). Текущая: `test_20260731` (levels_reversal + signal_4h_buy, RR 1:2, confirm 10min, 28 тикеров). Один arm: market вход, window mode (7-19 MSK), RR из конфига.
+
+**Strategy Plugin System (Эпик #39):** стратегии подключаемы через `StrategyPlugin` ABC в `strategies/`. Зарегистрированные плагины: `levels_reversal` (обёртка над `StrategyEvaluator`), `atr_reversal` (ATR reversal Звездина). `portfolio_simulator.py` предоставляет backtest общего капитала (50k RUB, 10k слоты, макс 5 позиций, приоритет слотов по объёму, GAME OVER при cash<=0).
 3. **Frontend dashboards** - Signals, Strategy Lab (backtest constructor), Paper Trading (A/B monitoring с фильтрами факторов + PnL chart).
 
 ## 2. Структура файлов
@@ -48,6 +50,15 @@ trading-terminal/
 │   │   ├── pattern_registry.py      # Реестр паттернов + normalize_patterns (Эпик #11)
 │ │ │ ├── paper_trader.py # Движок paper trading (market+limit, stop/take, equity)
 │   │   ├── paper_strategy.py        # Читатель активной paper-стратегии (из trading.strategies)
+│   │   ├── strategies/            # StrategyPlugin архитектура (Эпик #39)
+│   │   │   ├── base.py            # StrategyPlugin ABC + EntrySignal/ExitSignal/Position
+│   │   │   ├── context.py         # MarketContext dataclass
+│   │   │   ├── registry.py        # StrategyRegistry + register_default_strategies
+│   │   │   ├── levels_reversal.py # LevelsReversalStrategy (обёртка над StrategyEvaluator)
+│   │   │   └── atr_reversal.py    # ATR reversal стратегия (Звездин)
+│   │   ├── portfolio_backtest.py  # Strategy-agnostic backtest через StrategyPlugin
+│   │   ├── portfolio_simulator.py # Симулятор портфеля общего капитала (50k/10k слоты, GAME OVER)
+│   │   ├── atr_backtest.py        # Фреймворк backtest ATR-стратегии
 │ │ │ ├── position_catchup.py # Стартовый catch-up pending/open позиций
 │ │ │ ├── top_stocks.py # Логика top stocks по объёму
 │ │ │ └── patterns/ # 10 паттернов: trend/, mean_reversion/, breakout/, volume/, price_action/
@@ -56,6 +67,8 @@ trading-terminal/
 │ │ └── main.py # FastAPI app, регистрация маршрутов
 │ ├── Dockerfile # python:3.12-slim, T-Bank SDK, psycopg2
 │ └── tests/
+│       ├── test_strategy_plugin.py    # Бит-в-бит регрессионный тест (levels_reversal)
+│       └── test_portfolio_simulator.py # Unit + integration тесты portfolio simulator
 ├── frontend/
 │ ├── src/
 │ │ ├── App.tsx # Главное приложение (табы: Signals, Stats, Top-30, Instruments, Lab, Paper Trading)
@@ -201,6 +214,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | N | Trading universe (top-15 по PF, единый источник истины) | Готово |
 | I | ML (CatBoost/LightGBM) | Не начато |
 | J | Отчёт анализа A/B теста (signal_source x window x rr x entry) | Ожидает (накопить закрытые сделки) |
+| O | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Готово (Эпик #39) |
 
 ## 9. Важные замечания
 

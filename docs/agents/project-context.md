@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-14 (task-176). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-16 (Epic #39 Strategy Plugin System). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -10,6 +10,8 @@ Trading terminal for MOEX stocks. Sandbox mode (no real trading). Stack: FastAPI
 Three pillars:
 1. **Backtest / Strategy Lab** - parameterizable strategy engine (AND-patterns, multi-window confirmation, commission/slippage/RR, depth presets, bootstrap) + walk-forward validation, exposed via API and a constructor UI.
 2. **Paper trading** - the active strategy from Strategy Lab (table `strategies`, `in_paper_test=true AND locked=true`) trades virtually via the unified `StrategyEvaluator` (single brain with backtest). Current: `test_20260731` (levels_reversal + signal_4h_buy, RR 1:2, confirm 10min, 28 tickers). Single arm: market entry, window mode (7-19 MSK), RR from config.
+
+**Strategy Plugin System (Epic #39):** strategies are pluggable via `StrategyPlugin` ABC in `strategies/`. Registered plugins: `levels_reversal` (wrapper around `StrategyEvaluator`), `atr_reversal` (Zvezdin ATR reversal). `portfolio_simulator.py` provides shared-capital backtest (50k RUB, 10k slots, max 5 positions, volume-priority slot competition, GAME OVER at cash<=0).
 3. **Frontend dashboards** - Signals, Strategy Lab (backtest constructor), Paper Trading (A/B monitoring with factor filters + PnL chart).
 
 ## 2. File Structure
@@ -48,6 +50,15 @@ trading-terminal/
 │   │   ├── pattern_registry.py      # Pattern registry + normalize_patterns (Epic #11)
 │ │ │ ├── paper_trader.py # Paper trading engine (market+limit, stop/take, equity)
 │   │   ├── paper_strategy.py        # Active paper strategy reader (from trading.strategies)
+│   │   ├── strategies/            # StrategyPlugin architecture (Epic #39)
+│   │   │   ├── base.py            # StrategyPlugin ABC + EntrySignal/ExitSignal/Position
+│   │   │   ├── context.py         # MarketContext dataclass
+│   │   │   ├── registry.py        # StrategyRegistry + register_default_strategies
+│   │   │   ├── levels_reversal.py # LevelsReversalStrategy (wrapper around StrategyEvaluator)
+│   │   │   └── atr_reversal.py    # ATR reversal strategy (Zvezdin)
+│   │   ├── portfolio_backtest.py  # Strategy-agnostic backtest via StrategyPlugin
+│   │   ├── portfolio_simulator.py # Shared-capital portfolio simulator (50k/10k slots, GAME OVER)
+│   │   ├── atr_backtest.py        # ATR strategy backtest framework
 │ │ │ ├── position_catchup.py # Startup catch-up of pending/open positions
 │ │ │ ├── top_stocks.py # Top stocks by volume logic
 │ │ │ └── patterns/ # 10 patterns: trend/, mean_reversion/, breakout/, volume/, price_action/
@@ -56,6 +67,8 @@ trading-terminal/
 │ │ └── main.py # FastAPI app, route registration
 │ ├── Dockerfile # python:3.12-slim, T-Bank SDK, psycopg2
 │ └── tests/
+│       ├── test_strategy_plugin.py    # Bit-for-bit regression test (levels_reversal)
+│       └── test_portfolio_simulator.py # Portfolio simulator unit + integration tests
 ├── frontend/
 │ ├── src/
 │ │ ├── App.tsx # Main app (tabs: Signals, Stats, Top-30, Instruments, Lab, Paper Trading)
@@ -201,6 +214,7 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 | N | Trading universe (top-15 by PF, single source of truth) | Done |
 | I | ML (CatBoost/LightGBM) | Not started |
 | J | A/B test analysis report (signal_source x window x rr x entry) | Pending (accumulate closed trades) |
+| O  | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Done (Epic #39) |
 
 ## 9. Important Notes
 
