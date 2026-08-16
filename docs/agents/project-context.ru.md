@@ -233,7 +233,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 
 ## 10. Интеграция T-Bank Sandbox API
 
-`backend/app/broker/tinkoff_sandbox.py` — граница исполнения ордеров для эпика #58. `TinkoffSandboxClient` использует только `client.sandbox` и никогда не обращается к production-сервису `orders`. Клиент предоставляет:
+`backend/app/broker/tinkoff_sandbox.py` — граница исполнения ордеров для эпика #58. `TinkoffSandboxClient` подключается к отдельному endpoint `INVEST_GRPC_API_SANDBOX`, использует только `client.sandbox` и никогда не обращается к production-сервису `orders`. Клиент предоставляет:
 - `execute_order` для market- и limit-ордеров (количество задаётся в лотах);
 - `check_balance` для проверки свободных денег по валюте;
 - `get_positions` для получения ненулевых открытых позиций портфеля;

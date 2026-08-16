@@ -20,14 +20,14 @@ try:
         OrderType,
         Quotation,
     )
-    from t_tech.invest.constants import INVEST_GRPC_API
+    from t_tech.invest.constants import INVEST_GRPC_API_SANDBOX
     from t_tech.invest.exceptions import RequestError
 
     IS_SDK_AVAILABLE = True
     SDK_RETRYABLE_ERRORS = (RequestError,)
 except ImportError:  # pragma: no cover - exercised only in a broken deployment
     AccountStatus = Client = OrderDirection = OrderType = Quotation = None
-    INVEST_GRPC_API = None
+    INVEST_GRPC_API_SANDBOX = None
     IS_SDK_AVAILABLE = False
     SDK_RETRYABLE_ERRORS = ()
 
@@ -354,7 +354,7 @@ class TinkoffSandboxClient:
             try:
                 with self._client_factory(
                     self.token,
-                    target=INVEST_GRPC_API,
+                    target=INVEST_GRPC_API_SANDBOX,
                     sandbox_token=self.token,
                 ) as services:
                     return request(services.sandbox)

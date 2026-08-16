@@ -98,6 +98,28 @@ def test_check_balance_returns_only_requested_free_currency():
     assert client.check_balance("usd") == Decimal("10")
 
 
+def test_client_uses_dedicated_sandbox_endpoint():
+    captured = {}
+
+    class Sandbox:
+        def get_sandbox_positions(self, **_kwargs):
+            return SimpleNamespace(money=[])
+
+    def client_factory(*_args, **kwargs):
+        captured.update(kwargs)
+        return FakeClientContext(Sandbox())
+
+    client = TinkoffSandboxClient(
+        token="token",
+        account_id="sandbox-account",
+        client_factory=client_factory,
+    )
+
+    client.check_balance()
+
+    assert captured["target"] == module.INVEST_GRPC_API_SANDBOX
+
+
 def test_get_positions_discovers_open_account_and_skips_zero_positions():
     class Sandbox:
         def get_sandbox_accounts(self):

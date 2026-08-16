@@ -233,7 +233,7 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 
 ## 10. T-Bank Sandbox API Integration
 
-`backend/app/broker/tinkoff_sandbox.py` is the execution boundary for Epic #58. `TinkoffSandboxClient` uses only `client.sandbox`; it never calls the production `orders` service. It provides:
+`backend/app/broker/tinkoff_sandbox.py` is the execution boundary for Epic #58. `TinkoffSandboxClient` connects to the dedicated `INVEST_GRPC_API_SANDBOX` endpoint and uses only `client.sandbox`; it never calls the production `orders` service. It provides:
 - `execute_order` for market and limit orders (quantity is in lots);
 - `check_balance` for free cash by currency;
 - `get_positions` for non-zero open portfolio positions;
