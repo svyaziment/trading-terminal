@@ -1,0 +1,50 @@
+{
+  "metrics": [
+    {
+      "strategy": "levels_reversal",
+      "final_equity_rub": 96343.49,
+      "pnl_rub": 46343.49,
+      "pnl_pct": 92.69,
+      "n_trades": 3500,
+      "win_rate_pct": 28.3,
+      "profit_factor": 1.31,
+      "event_max_drawdown_pct": 5.93,
+      "game_over": false,
+      "skipped_entries": 1452,
+      "max_drawdown_pct": 5.47,
+      "max_drawdown_peak_date": "2025-02-17",
+      "max_drawdown_trough_date": "2025-03-13",
+      "max_drawdown_peak_equity_rub": 69462.03,
+      "max_drawdown_trough_equity_rub": 65663.24,
+      "max_drawdown_rub": 3798.79
+    },
+    {
+      "strategy": "atr_reversal",
+      "final_equity_rub": 45587.14,
+      "pnl_rub": -4412.86,
+      "pnl_pct": -8.83,
+      "n_trades": 912,
+      "win_rate_pct": 38.8,
+      "profit_factor": 0.36,
+      "event_max_drawdown_pct": 8.95,
+      "game_over": false,
+      "skipped_entries": 0,
+      "max_drawdown_pct": 8.93,
+      "max_drawdown_peak_date": "2024-09-27",
+      "max_drawdown_trough_date": "2026-08-14",
+      "max_drawdown_peak_equity_rub": 50058.0,
+      "max_drawdown_trough_equity_rub": 45587.0,
+      "max_drawdown_rub": 4471.0
+    }
+  ],
+  "input_sha256": {
+    "levels_reversal": "c1c0a576eefdfcb3b90e53b397f652d2d0f4a3375bfc2ee0834fcb23800723c3",
+    "atr_reversal": "ac7905c6a2636d71b1156f4a1eb5e8b856f791d2982bbc8df98818a020269aa5"
+  },
+  "plot_files": [
+    "equity_curves.png",
+    "metrics_comparison.png",
+    "ticker_pnl_heatmap.png",
+    "trade_pnl_distribution.png"
+  ]
+}

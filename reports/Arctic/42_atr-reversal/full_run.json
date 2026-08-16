@@ -59,7 +59,7 @@
     "n_trades": 912,
     "win_rate": 38.8,
     "profit_factor": 0.36,
-    "max_drawdown_pct": 34.5,
+    "max_drawdown_pct": 8.95,
     "final_equity_rub": 45587.14,
     "pnl_rub": -4412.86,
     "pnl_pct": -8.83
@@ -8274,18 +8274,6 @@
       "bars_held": 1
     },
     {
-      "ticker": "LKOH",
-      "entry_ts": "2026-05-01 10:00:00",
-      "exit_ts": "2026-05-04 08:49:00",
-      "entry_price": 5253.0,
-      "exit_price": 5274.857142857143,
-      "exit_reason": "take",
-      "allocated_rub": 10000.0,
-      "net_return_pct": 0.35609,
-      "pnl_rub": 35.61,
-      "bars_held": 1714
-    },
-    {
       "ticker": "TATN",
       "entry_ts": "2026-05-04 07:58:00",
       "exit_ts": "2026-05-04 07:59:00",
@@ -8296,6 +8284,18 @@
       "net_return_pct": -0.00635,
       "pnl_rub": -0.64,
       "bars_held": 1
+    },
+    {
+      "ticker": "LKOH",
+      "entry_ts": "2026-05-01 10:00:00",
+      "exit_ts": "2026-05-04 08:49:00",
+      "entry_price": 5253.0,
+      "exit_price": 5274.857142857143,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 0.35609,
+      "pnl_rub": 35.61,
+      "bars_held": 1714
     },
     {
       "ticker": "MTSS",
@@ -9570,18 +9570,6 @@
       "bars_held": 4
     },
     {
-      "ticker": "TRNFP",
-      "entry_ts": "2026-06-22 16:40:00",
-      "exit_ts": "2026-06-22 16:47:00",
-      "entry_price": 1314.2,
-      "exit_price": 1312.857142857143,
-      "exit_reason": "stop",
-      "allocated_rub": 10000.0,
-      "net_return_pct": -0.16218,
-      "pnl_rub": -16.22,
-      "bars_held": 7
-    },
-    {
       "ticker": "NVTK",
       "entry_ts": "2026-06-22 16:43:00",
       "exit_ts": "2026-06-22 16:45:00",
@@ -9592,6 +9580,18 @@
       "net_return_pct": 0.09531,
       "pnl_rub": 9.53,
       "bars_held": 2
+    },
+    {
+      "ticker": "TRNFP",
+      "entry_ts": "2026-06-22 16:40:00",
+      "exit_ts": "2026-06-22 16:47:00",
+      "entry_price": 1314.2,
+      "exit_price": 1312.857142857143,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -0.16218,
+      "pnl_rub": -16.22,
+      "bars_held": 7
     },
     {
       "ticker": "VTBR",
@@ -11019,5469 +11019,5469 @@
     },
     {
       "ts": "2024-08-26 16:55:00",
-      "equity_rub": 59984.84,
+      "equity_rub": 49984.84,
       "cash_rub": 49984.84,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-08-27 10:08:00",
-      "equity_rub": 60002.4,
+      "equity_rub": 50002.4,
       "cash_rub": 50002.4,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-09-11 13:32:00",
-      "equity_rub": 60004.47,
+      "equity_rub": 50004.47,
       "cash_rub": 50004.47,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-09-17 13:32:00",
-      "equity_rub": 60005.5,
+      "equity_rub": 50005.5,
       "cash_rub": 50005.5,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-09-18 18:10:00",
-      "equity_rub": 59993.66,
+      "equity_rub": 49993.66,
       "cash_rub": 49993.66,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-09-27 10:10:00",
-      "equity_rub": 60058.0,
+      "equity_rub": 50058.0,
       "cash_rub": 50058.0,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-09-30 12:21:00",
-      "equity_rub": 60057.17,
+      "equity_rub": 50057.17,
       "cash_rub": 50057.17,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-01 16:20:00",
-      "equity_rub": 60068.8,
+      "equity_rub": 50068.8,
       "cash_rub": 50068.8,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-01 18:13:00",
-      "equity_rub": 59940.51,
+      "equity_rub": 49940.51,
       "cash_rub": 49940.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-07 12:26:00",
-      "equity_rub": 59944.96,
+      "equity_rub": 49944.96,
       "cash_rub": 49944.96,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-08 10:16:00",
-      "equity_rub": 59920.51,
+      "equity_rub": 49920.51,
       "cash_rub": 49920.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-10 12:01:00",
-      "equity_rub": 59922.3,
+      "equity_rub": 49922.3,
       "cash_rub": 49922.3,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-16 10:29:00",
-      "equity_rub": 59931.51,
+      "equity_rub": 49931.51,
       "cash_rub": 49931.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-18 10:07:00",
-      "equity_rub": 59935.74,
+      "equity_rub": 49935.74,
       "cash_rub": 49935.74,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-18 12:09:00",
-      "equity_rub": 59936.19,
+      "equity_rub": 49936.19,
       "cash_rub": 49936.19,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-18 15:36:00",
-      "equity_rub": 59925.0,
+      "equity_rub": 49925.0,
       "cash_rub": 49925.0,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-18 17:14:00",
-      "equity_rub": 59922.71,
+      "equity_rub": 49922.71,
       "cash_rub": 49922.71,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-21 20:01:00",
-      "equity_rub": 59919.08,
+      "equity_rub": 49919.08,
       "cash_rub": 49919.08,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-25 15:04:00",
-      "equity_rub": 59923.89,
+      "equity_rub": 49923.89,
       "cash_rub": 49923.89,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-28 16:31:00",
-      "equity_rub": 59925.65,
+      "equity_rub": 49925.65,
       "cash_rub": 49925.65,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-29 11:29:00",
-      "equity_rub": 59908.85,
+      "equity_rub": 49908.85,
       "cash_rub": 49908.85,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-10-29 14:43:00",
-      "equity_rub": 59877.66,
+      "equity_rub": 49877.66,
       "cash_rub": 49877.66,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-05 15:01:00",
-      "equity_rub": 59881.16,
+      "equity_rub": 49881.16,
       "cash_rub": 49881.16,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-08 10:06:00",
-      "equity_rub": 59892.89,
+      "equity_rub": 49892.89,
       "cash_rub": 49892.89,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-08 10:12:00",
-      "equity_rub": 59913.73,
+      "equity_rub": 49913.73,
       "cash_rub": 49913.73,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-08 12:12:00",
-      "equity_rub": 59915.65,
+      "equity_rub": 49915.65,
       "cash_rub": 49915.65,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-13 13:19:00",
-      "equity_rub": 59915.36,
+      "equity_rub": 49915.36,
       "cash_rub": 49915.36,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-14 11:48:00",
-      "equity_rub": 59898.13,
+      "equity_rub": 49898.13,
       "cash_rub": 49898.13,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-15 10:05:00",
-      "equity_rub": 59899.45,
+      "equity_rub": 49899.45,
       "cash_rub": 49899.45,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-18 10:06:00",
-      "equity_rub": 59934.63,
+      "equity_rub": 49934.63,
       "cash_rub": 49934.63,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-18 12:41:00",
-      "equity_rub": 59936.44,
+      "equity_rub": 49936.44,
       "cash_rub": 49936.44,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-19 16:04:00",
-      "equity_rub": 59916.77,
+      "equity_rub": 49916.77,
       "cash_rub": 49916.77,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-21 10:39:00",
-      "equity_rub": 59894.87,
+      "equity_rub": 49894.87,
       "cash_rub": 49894.87,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-25 10:02:00",
-      "equity_rub": 59897.27,
+      "equity_rub": 49897.27,
       "cash_rub": 49897.27,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-25 10:23:00",
-      "equity_rub": 59873.12,
+      "equity_rub": 49873.12,
       "cash_rub": 49873.12,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-26 15:47:00",
-      "equity_rub": 59890.65,
+      "equity_rub": 49890.65,
       "cash_rub": 49890.65,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-28 10:08:00",
-      "equity_rub": 59906.38,
+      "equity_rub": 49906.38,
       "cash_rub": 49906.38,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-11-28 10:24:00",
-      "equity_rub": 59872.51,
+      "equity_rub": 49872.51,
       "cash_rub": 49872.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-02 17:03:00",
-      "equity_rub": 59878.0,
+      "equity_rub": 49878.0,
       "cash_rub": 49878.0,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-03 10:05:00",
-      "equity_rub": 59878.65,
+      "equity_rub": 49878.65,
       "cash_rub": 49878.65,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-03 10:10:00",
-      "equity_rub": 59898.74,
+      "equity_rub": 49898.74,
       "cash_rub": 49898.74,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-06 16:31:00",
-      "equity_rub": 59901.79,
+      "equity_rub": 49901.79,
       "cash_rub": 49901.79,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-06 18:04:00",
-      "equity_rub": 59901.22,
+      "equity_rub": 49901.22,
       "cash_rub": 49901.22,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-06 22:38:00",
-      "equity_rub": 59899.54,
+      "equity_rub": 49899.54,
       "cash_rub": 49899.54,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-11 10:44:00",
-      "equity_rub": 59880.29,
+      "equity_rub": 49880.29,
       "cash_rub": 49880.29,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-11 13:58:00",
-      "equity_rub": 59885.58,
+      "equity_rub": 49885.58,
       "cash_rub": 49885.58,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-12 12:14:00",
-      "equity_rub": 59889.27,
+      "equity_rub": 49889.27,
       "cash_rub": 49889.27,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-12 17:40:00",
-      "equity_rub": 59891.09,
+      "equity_rub": 49891.09,
       "cash_rub": 49891.09,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-13 11:30:00",
-      "equity_rub": 59892.23,
+      "equity_rub": 49892.23,
       "cash_rub": 49892.23,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-13 17:21:00",
-      "equity_rub": 59881.56,
+      "equity_rub": 49881.56,
       "cash_rub": 49881.56,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-16 11:06:00",
-      "equity_rub": 59865.53,
+      "equity_rub": 49865.53,
       "cash_rub": 49865.53,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2024-12-19 10:06:00",
-      "equity_rub": 59872.54,
+      "equity_rub": 49872.54,
       "cash_rub": 49872.54,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-01-03 10:08:00",
-      "equity_rub": 59820.01,
+      "equity_rub": 49820.01,
       "cash_rub": 49820.01,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-01-13 18:06:00",
-      "equity_rub": 59806.28,
+      "equity_rub": 49806.28,
       "cash_rub": 49806.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-01-17 10:06:00",
-      "equity_rub": 59810.62,
+      "equity_rub": 49810.62,
       "cash_rub": 49810.62,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-01-17 13:10:00",
-      "equity_rub": 59814.43,
+      "equity_rub": 49814.43,
       "cash_rub": 49814.43,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-01-17 15:38:00",
-      "equity_rub": 59819.68,
+      "equity_rub": 49819.68,
       "cash_rub": 49819.68,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-01-20 12:22:00",
-      "equity_rub": 59800.88,
+      "equity_rub": 49800.88,
       "cash_rub": 49800.88,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-01-22 20:02:00",
-      "equity_rub": 59779.37,
+      "equity_rub": 49779.37,
       "cash_rub": 49779.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-01-29 09:13:00",
-      "equity_rub": 59762.77,
+      "equity_rub": 49762.77,
       "cash_rub": 49762.77,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-01-29 18:16:00",
-      "equity_rub": 59763.61,
+      "equity_rub": 49763.61,
       "cash_rub": 49763.61,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-01-30 11:55:00",
-      "equity_rub": 59768.29,
+      "equity_rub": 49768.29,
       "cash_rub": 49768.29,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-03 09:24:00",
-      "equity_rub": 59755.49,
+      "equity_rub": 49755.49,
       "cash_rub": 49755.49,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-03 10:00:00",
-      "equity_rub": 59741.31,
+      "equity_rub": 49741.31,
       "cash_rub": 49741.31,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-03 10:20:00",
-      "equity_rub": 59767.22,
+      "equity_rub": 49767.22,
       "cash_rub": 49767.22,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-06 10:08:00",
-      "equity_rub": 59769.17,
+      "equity_rub": 49769.17,
       "cash_rub": 49769.17,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-06 11:52:00",
-      "equity_rub": 59771.95,
+      "equity_rub": 49771.95,
       "cash_rub": 49771.95,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-07 14:08:00",
-      "equity_rub": 59759.74,
+      "equity_rub": 49759.74,
       "cash_rub": 49759.74,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-10 15:10:00",
-      "equity_rub": 59740.17,
+      "equity_rub": 49740.17,
       "cash_rub": 49740.17,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-10 16:27:00",
-      "equity_rub": 59745.5,
+      "equity_rub": 49745.5,
       "cash_rub": 49745.5,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-11 11:03:00",
-      "equity_rub": 59746.64,
+      "equity_rub": 49746.64,
       "cash_rub": 49746.64,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-12 18:23:00",
-      "equity_rub": 59756.43,
+      "equity_rub": 49756.43,
       "cash_rub": 49756.43,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-13 09:01:00",
-      "equity_rub": 59776.07,
+      "equity_rub": 49776.07,
       "cash_rub": 49776.07,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-14 14:04:00",
-      "equity_rub": 59808.52,
+      "equity_rub": 49808.52,
       "cash_rub": 49808.52,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-14 16:29:00",
-      "equity_rub": 59812.65,
+      "equity_rub": 49812.65,
       "cash_rub": 49812.65,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-18 11:57:00",
-      "equity_rub": 59823.29,
+      "equity_rub": 49823.29,
       "cash_rub": 49823.29,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-19 11:20:00",
-      "equity_rub": 59795.66,
+      "equity_rub": 49795.66,
       "cash_rub": 49795.66,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-27 20:15:00",
-      "equity_rub": 59801.53,
+      "equity_rub": 49801.53,
       "cash_rub": 49801.53,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-02-27 21:12:00",
-      "equity_rub": 59805.05,
+      "equity_rub": 49805.05,
       "cash_rub": 49805.05,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-03 16:16:00",
-      "equity_rub": 59788.98,
+      "equity_rub": 49788.98,
       "cash_rub": 49788.98,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-05 23:15:00",
-      "equity_rub": 59771.8,
+      "equity_rub": 49771.8,
       "cash_rub": 49771.8,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-06 13:58:00",
-      "equity_rub": 59749.48,
+      "equity_rub": 49749.48,
       "cash_rub": 49749.48,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-06 14:42:00",
-      "equity_rub": 59735.13,
+      "equity_rub": 49735.13,
       "cash_rub": 49735.13,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-11 22:55:00",
-      "equity_rub": 59736.62,
+      "equity_rub": 49736.62,
       "cash_rub": 49736.62,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-12 18:12:00",
-      "equity_rub": 59721.58,
+      "equity_rub": 49721.58,
       "cash_rub": 49721.58,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-13 11:34:00",
-      "equity_rub": 59724.0,
+      "equity_rub": 49724.0,
       "cash_rub": 49724.0,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-13 14:30:00",
-      "equity_rub": 59701.47,
+      "equity_rub": 49701.47,
       "cash_rub": 49701.47,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-13 15:53:00",
-      "equity_rub": 59703.3,
+      "equity_rub": 49703.3,
       "cash_rub": 49703.3,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-20 18:14:00",
-      "equity_rub": 59711.77,
+      "equity_rub": 49711.77,
       "cash_rub": 49711.77,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-21 17:01:00",
-      "equity_rub": 59715.05,
+      "equity_rub": 49715.05,
       "cash_rub": 49715.05,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-27 15:56:00",
-      "equity_rub": 59719.01,
+      "equity_rub": 49719.01,
       "cash_rub": 49719.01,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-28 15:04:00",
-      "equity_rub": 59688.25,
+      "equity_rub": 49688.25,
       "cash_rub": 49688.25,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-28 16:56:00",
-      "equity_rub": 59664.98,
+      "equity_rub": 49664.98,
       "cash_rub": 49664.98,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-28 19:56:00",
-      "equity_rub": 59655.33,
+      "equity_rub": 49655.33,
       "cash_rub": 49655.33,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-28 21:19:00",
-      "equity_rub": 59641.76,
+      "equity_rub": 49641.76,
       "cash_rub": 49641.76,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-03-31 16:02:00",
-      "equity_rub": 59640.92,
+      "equity_rub": 49640.92,
       "cash_rub": 49640.92,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-02 07:06:00",
-      "equity_rub": 59672.21,
+      "equity_rub": 49672.21,
       "cash_rub": 49672.21,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-02 14:40:00",
-      "equity_rub": 59692.02,
+      "equity_rub": 49692.02,
       "cash_rub": 49692.02,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-02 22:48:00",
-      "equity_rub": 59698.94,
+      "equity_rub": 49698.94,
       "cash_rub": 49698.94,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-03 07:39:00",
-      "equity_rub": 59685.07,
+      "equity_rub": 49685.07,
       "cash_rub": 49685.07,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-03 20:26:00",
-      "equity_rub": 59664.39,
+      "equity_rub": 49664.39,
       "cash_rub": 49664.39,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-04 09:01:00",
-      "equity_rub": 59669.89,
+      "equity_rub": 49669.89,
       "cash_rub": 49669.89,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-04 10:14:00",
-      "equity_rub": 59690.42,
+      "equity_rub": 49690.42,
       "cash_rub": 49690.42,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-04 10:57:00",
-      "equity_rub": 59670.76,
+      "equity_rub": 49670.76,
       "cash_rub": 49670.76,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-04 12:43:00",
-      "equity_rub": 59681.73,
+      "equity_rub": 49681.73,
       "cash_rub": 49681.73,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-07 07:18:00",
-      "equity_rub": 59718.86,
+      "equity_rub": 49718.86,
       "cash_rub": 49718.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-07 12:43:00",
-      "equity_rub": 59729.68,
+      "equity_rub": 49729.68,
       "cash_rub": 49729.68,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-07 13:01:00",
-      "equity_rub": 59740.6,
+      "equity_rub": 49740.6,
       "cash_rub": 49740.6,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-07 19:15:00",
-      "equity_rub": 59710.28,
+      "equity_rub": 49710.28,
       "cash_rub": 49710.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-08 19:54:00",
-      "equity_rub": 59724.9,
+      "equity_rub": 49724.9,
       "cash_rub": 49724.9,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-10 11:19:00",
-      "equity_rub": 59733.95,
+      "equity_rub": 49733.95,
       "cash_rub": 49733.95,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-10 16:36:00",
-      "equity_rub": 59708.45,
+      "equity_rub": 49708.45,
       "cash_rub": 49708.45,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-11 19:47:00",
-      "equity_rub": 59710.82,
+      "equity_rub": 49710.82,
       "cash_rub": 49710.82,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-14 09:34:00",
-      "equity_rub": 59718.36,
+      "equity_rub": 49718.36,
       "cash_rub": 49718.36,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-14 10:31:00",
-      "equity_rub": 59700.25,
+      "equity_rub": 49700.25,
       "cash_rub": 49700.25,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-14 14:56:00",
-      "equity_rub": 59682.63,
+      "equity_rub": 49682.63,
       "cash_rub": 49682.63,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-15 23:26:00",
-      "equity_rub": 59684.24,
+      "equity_rub": 49684.24,
       "cash_rub": 49684.24,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-16 13:30:00",
-      "equity_rub": 59670.19,
+      "equity_rub": 49670.19,
       "cash_rub": 49670.19,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-18 17:19:00",
-      "equity_rub": 59654.9,
+      "equity_rub": 49654.9,
       "cash_rub": 49654.9,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-22 08:30:00",
-      "equity_rub": 59655.65,
+      "equity_rub": 49655.65,
       "cash_rub": 49655.65,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-22 22:56:00",
-      "equity_rub": 59655.88,
+      "equity_rub": 49655.88,
       "cash_rub": 49655.88,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-23 09:51:00",
-      "equity_rub": 59656.7,
+      "equity_rub": 49656.7,
       "cash_rub": 49656.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-24 14:24:00",
-      "equity_rub": 59658.35,
+      "equity_rub": 49658.35,
       "cash_rub": 49658.35,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-25 18:06:00",
-      "equity_rub": 59638.14,
+      "equity_rub": 49638.14,
       "cash_rub": 49638.14,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-28 20:24:00",
-      "equity_rub": 59644.29,
+      "equity_rub": 49644.29,
       "cash_rub": 49644.29,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-29 13:13:00",
-      "equity_rub": 59644.97,
+      "equity_rub": 49644.97,
       "cash_rub": 49644.97,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-30 07:12:00",
-      "equity_rub": 59658.8,
+      "equity_rub": 49658.8,
       "cash_rub": 49658.8,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-30 07:43:00",
-      "equity_rub": 59660.03,
+      "equity_rub": 49660.03,
       "cash_rub": 49660.03,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-30 18:27:00",
-      "equity_rub": 59662.53,
+      "equity_rub": 49662.53,
       "cash_rub": 49662.53,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-30 19:23:00",
-      "equity_rub": 59673.12,
+      "equity_rub": 49673.12,
       "cash_rub": 49673.12,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-04-30 19:43:00",
-      "equity_rub": 59672.62,
+      "equity_rub": 49672.62,
       "cash_rub": 49672.62,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-02 09:24:00",
-      "equity_rub": 59688.99,
+      "equity_rub": 49688.99,
       "cash_rub": 49688.99,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-05 12:28:00",
-      "equity_rub": 59689.83,
+      "equity_rub": 49689.83,
       "cash_rub": 49689.83,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-07 09:42:00",
-      "equity_rub": 59670.78,
+      "equity_rub": 49670.78,
       "cash_rub": 49670.78,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-07 09:55:00",
-      "equity_rub": 59674.22,
+      "equity_rub": 49674.22,
       "cash_rub": 49674.22,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-07 10:39:00",
-      "equity_rub": 59677.34,
+      "equity_rub": 49677.34,
       "cash_rub": 49677.34,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-07 16:37:00",
-      "equity_rub": 59655.38,
+      "equity_rub": 49655.38,
       "cash_rub": 49655.38,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-12 10:21:00",
-      "equity_rub": 59632.26,
+      "equity_rub": 49632.26,
       "cash_rub": 49632.26,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-12 17:20:00",
-      "equity_rub": 59632.09,
+      "equity_rub": 49632.09,
       "cash_rub": 49632.09,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-15 16:10:00",
-      "equity_rub": 59634.29,
+      "equity_rub": 49634.29,
       "cash_rub": 49634.29,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-16 13:23:00",
-      "equity_rub": 59632.63,
+      "equity_rub": 49632.63,
       "cash_rub": 49632.63,
+      "open_positions": 0
+    },
+    {
+      "ts": "2025-05-16 17:38:00",
+      "equity_rub": 49613.13,
+      "cash_rub": 39613.13,
       "open_positions": 1
     },
     {
       "ts": "2025-05-16 17:38:00",
-      "equity_rub": 59613.13,
-      "cash_rub": 39613.13,
-      "open_positions": 2
-    },
-    {
-      "ts": "2025-05-16 17:38:00",
-      "equity_rub": 69594.18,
+      "equity_rub": 49594.18,
       "cash_rub": 49594.18,
-      "open_positions": 2
+      "open_positions": 0
     },
     {
       "ts": "2025-05-17 10:03:00",
-      "equity_rub": 59597.66,
+      "equity_rub": 49597.66,
       "cash_rub": 49597.66,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-18 10:32:00",
-      "equity_rub": 59599.61,
+      "equity_rub": 49599.61,
       "cash_rub": 49599.61,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-19 07:03:00",
-      "equity_rub": 59608.18,
+      "equity_rub": 49608.18,
       "cash_rub": 49608.18,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-19 16:08:00",
-      "equity_rub": 59609.92,
+      "equity_rub": 49609.92,
       "cash_rub": 49609.92,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-19 17:13:00",
-      "equity_rub": 59613.04,
+      "equity_rub": 49613.04,
       "cash_rub": 49613.04,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-21 20:25:00",
-      "equity_rub": 59603.47,
+      "equity_rub": 49603.47,
       "cash_rub": 49603.47,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-23 08:48:00",
-      "equity_rub": 59580.15,
+      "equity_rub": 49580.15,
       "cash_rub": 49580.15,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-23 10:03:00",
-      "equity_rub": 59586.67,
+      "equity_rub": 49586.67,
       "cash_rub": 49586.67,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-23 14:45:00",
-      "equity_rub": 59573.03,
+      "equity_rub": 49573.03,
       "cash_rub": 49573.03,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-26 17:02:00",
-      "equity_rub": 59573.04,
+      "equity_rub": 49573.04,
       "cash_rub": 49573.04,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-26 18:26:00",
-      "equity_rub": 59554.39,
+      "equity_rub": 49554.39,
       "cash_rub": 49554.39,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-26 18:37:00",
-      "equity_rub": 59552.8,
+      "equity_rub": 49552.8,
       "cash_rub": 49552.8,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-28 08:31:00",
-      "equity_rub": 59550.37,
+      "equity_rub": 49550.37,
       "cash_rub": 49550.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-28 10:23:00",
-      "equity_rub": 59555.67,
+      "equity_rub": 49555.67,
       "cash_rub": 49555.67,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-28 15:15:00",
-      "equity_rub": 59560.92,
+      "equity_rub": 49560.92,
       "cash_rub": 49560.92,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-29 10:01:00",
-      "equity_rub": 59543.99,
+      "equity_rub": 49543.99,
       "cash_rub": 49543.99,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-05-29 10:25:00",
-      "equity_rub": 59515.4,
+      "equity_rub": 49515.4,
       "cash_rub": 49515.4,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-01 10:05:00",
-      "equity_rub": 59515.14,
+      "equity_rub": 49515.14,
       "cash_rub": 49515.14,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-01 14:38:00",
-      "equity_rub": 59517.1,
+      "equity_rub": 49517.1,
       "cash_rub": 49517.1,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-02 11:01:00",
-      "equity_rub": 59501.32,
+      "equity_rub": 49501.32,
       "cash_rub": 49501.32,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-02 19:22:00",
-      "equity_rub": 59506.34,
+      "equity_rub": 49506.34,
       "cash_rub": 49506.34,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-02 20:21:00",
-      "equity_rub": 59491.57,
+      "equity_rub": 49491.57,
       "cash_rub": 49491.57,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-03 13:22:00",
-      "equity_rub": 59480.45,
+      "equity_rub": 49480.45,
       "cash_rub": 49480.45,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-03 21:59:00",
-      "equity_rub": 59477.79,
+      "equity_rub": 49477.79,
       "cash_rub": 49477.79,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-04 07:24:00",
-      "equity_rub": 59434.8,
+      "equity_rub": 49434.8,
       "cash_rub": 49434.8,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-04 07:29:00",
-      "equity_rub": 59446.26,
+      "equity_rub": 49446.26,
       "cash_rub": 49446.26,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-04 07:32:00",
-      "equity_rub": 59459.67,
+      "equity_rub": 49459.67,
       "cash_rub": 49459.67,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-04 10:05:00",
-      "equity_rub": 59458.18,
+      "equity_rub": 49458.18,
       "cash_rub": 49458.18,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-04 17:50:00",
-      "equity_rub": 59437.38,
+      "equity_rub": 49437.38,
       "cash_rub": 49437.38,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-04 17:53:00",
-      "equity_rub": 59445.89,
+      "equity_rub": 49445.89,
       "cash_rub": 49445.89,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-06 15:32:00",
-      "equity_rub": 59422.83,
+      "equity_rub": 49422.83,
       "cash_rub": 49422.83,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-09 07:02:00",
-      "equity_rub": 59396.3,
+      "equity_rub": 49396.3,
       "cash_rub": 49396.3,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-09 17:38:00",
-      "equity_rub": 59398.8,
+      "equity_rub": 49398.8,
       "cash_rub": 49398.8,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-11 16:52:00",
-      "equity_rub": 59388.06,
+      "equity_rub": 49388.06,
       "cash_rub": 49388.06,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-11 17:33:00",
-      "equity_rub": 59386.42,
+      "equity_rub": 49386.42,
       "cash_rub": 49386.42,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-13 18:32:00",
-      "equity_rub": 59369.95,
+      "equity_rub": 49369.95,
       "cash_rub": 49369.95,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-15 11:40:00",
-      "equity_rub": 59372.94,
+      "equity_rub": 49372.94,
       "cash_rub": 49372.94,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-15 17:48:00",
-      "equity_rub": 59368.95,
+      "equity_rub": 49368.95,
       "cash_rub": 49368.95,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-16 10:09:00",
-      "equity_rub": 59341.3,
+      "equity_rub": 49341.3,
       "cash_rub": 49341.3,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-16 10:30:00",
-      "equity_rub": 59327.87,
+      "equity_rub": 49327.87,
       "cash_rub": 49327.87,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-17 11:58:00",
-      "equity_rub": 59309.71,
+      "equity_rub": 49309.71,
       "cash_rub": 49309.71,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-18 17:43:00",
-      "equity_rub": 59310.37,
+      "equity_rub": 49310.37,
       "cash_rub": 49310.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-18 18:39:00",
-      "equity_rub": 59296.93,
+      "equity_rub": 49296.93,
       "cash_rub": 49296.93,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-18 19:29:00",
-      "equity_rub": 59296.48,
+      "equity_rub": 49296.48,
       "cash_rub": 49296.48,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-19 13:39:00",
-      "equity_rub": 59281.54,
+      "equity_rub": 49281.54,
       "cash_rub": 49281.54,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-23 10:01:00",
-      "equity_rub": 59268.31,
+      "equity_rub": 49268.31,
       "cash_rub": 49268.31,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-23 10:06:00",
-      "equity_rub": 59268.6,
+      "equity_rub": 49268.6,
       "cash_rub": 49268.6,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-23 10:23:00",
-      "equity_rub": 59252.7,
+      "equity_rub": 49252.7,
       "cash_rub": 49252.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-23 21:11:00",
-      "equity_rub": 59237.2,
+      "equity_rub": 49237.2,
       "cash_rub": 49237.2,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-26 19:58:00",
-      "equity_rub": 59225.92,
+      "equity_rub": 49225.92,
       "cash_rub": 49225.92,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-28 09:59:00",
-      "equity_rub": 59216.4,
+      "equity_rub": 49216.4,
       "cash_rub": 49216.4,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-06-30 11:29:00",
-      "equity_rub": 59205.18,
+      "equity_rub": 49205.18,
       "cash_rub": 49205.18,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-01 08:10:00",
-      "equity_rub": 59197.42,
+      "equity_rub": 49197.42,
       "cash_rub": 49197.42,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-02 09:02:00",
-      "equity_rub": 59199.67,
+      "equity_rub": 49199.67,
       "cash_rub": 49199.67,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-02 10:50:00",
-      "equity_rub": 59187.32,
+      "equity_rub": 49187.32,
       "cash_rub": 49187.32,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-02 22:32:00",
-      "equity_rub": 59184.53,
+      "equity_rub": 49184.53,
       "cash_rub": 49184.53,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-03 09:52:00",
-      "equity_rub": 59184.76,
+      "equity_rub": 49184.76,
       "cash_rub": 49184.76,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-03 22:58:00",
-      "equity_rub": 59185.33,
+      "equity_rub": 49185.33,
       "cash_rub": 49185.33,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-04 16:06:00",
-      "equity_rub": 59170.7,
+      "equity_rub": 49170.7,
       "cash_rub": 49170.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-04 21:55:00",
-      "equity_rub": 59162.84,
+      "equity_rub": 49162.84,
       "cash_rub": 49162.84,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-07 15:54:00",
-      "equity_rub": 59162.72,
+      "equity_rub": 49162.72,
       "cash_rub": 49162.72,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-08 21:12:00",
-      "equity_rub": 59140.47,
+      "equity_rub": 49140.47,
       "cash_rub": 49140.47,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-09 18:27:00",
-      "equity_rub": 59149.42,
+      "equity_rub": 49149.42,
       "cash_rub": 49149.42,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-10 12:41:00",
-      "equity_rub": 59136.35,
+      "equity_rub": 49136.35,
       "cash_rub": 49136.35,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-10 13:44:00",
-      "equity_rub": 59136.94,
+      "equity_rub": 49136.94,
       "cash_rub": 49136.94,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-10 16:35:00",
-      "equity_rub": 59137.06,
+      "equity_rub": 49137.06,
       "cash_rub": 49137.06,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-10 17:21:00",
-      "equity_rub": 59124.8,
+      "equity_rub": 49124.8,
       "cash_rub": 49124.8,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-11 15:20:00",
-      "equity_rub": 59126.34,
+      "equity_rub": 49126.34,
       "cash_rub": 49126.34,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-15 15:31:00",
-      "equity_rub": 59131.39,
+      "equity_rub": 49131.39,
       "cash_rub": 49131.39,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-15 19:27:00",
-      "equity_rub": 59131.7,
+      "equity_rub": 49131.7,
       "cash_rub": 49131.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-16 10:04:00",
-      "equity_rub": 59129.53,
+      "equity_rub": 49129.53,
       "cash_rub": 49129.53,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-16 18:10:00",
-      "equity_rub": 59128.21,
+      "equity_rub": 49128.21,
       "cash_rub": 49128.21,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-17 12:29:00",
-      "equity_rub": 59015.78,
+      "equity_rub": 49015.78,
       "cash_rub": 49015.78,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-18 09:48:00",
-      "equity_rub": 59016.76,
+      "equity_rub": 49016.76,
       "cash_rub": 49016.76,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-18 12:35:00",
-      "equity_rub": 59017.45,
+      "equity_rub": 49017.45,
       "cash_rub": 49017.45,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-18 18:31:00",
-      "equity_rub": 59002.63,
+      "equity_rub": 49002.63,
       "cash_rub": 49002.63,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-21 07:16:00",
-      "equity_rub": 59010.01,
+      "equity_rub": 49010.01,
       "cash_rub": 49010.01,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-21 12:12:00",
-      "equity_rub": 59020.66,
+      "equity_rub": 49020.66,
       "cash_rub": 49020.66,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-22 15:47:00",
-      "equity_rub": 59026.96,
+      "equity_rub": 49026.96,
       "cash_rub": 49026.96,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-23 10:21:00",
-      "equity_rub": 59029.97,
+      "equity_rub": 49029.97,
       "cash_rub": 49029.97,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-24 10:54:00",
-      "equity_rub": 59031.85,
+      "equity_rub": 49031.85,
       "cash_rub": 49031.85,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-24 12:31:00",
-      "equity_rub": 59013.51,
+      "equity_rub": 49013.51,
       "cash_rub": 49013.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-25 13:10:00",
-      "equity_rub": 59000.26,
+      "equity_rub": 49000.26,
       "cash_rub": 49000.26,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-25 17:41:00",
-      "equity_rub": 58981.39,
+      "equity_rub": 48981.39,
       "cash_rub": 48981.39,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-27 11:04:00",
-      "equity_rub": 58978.57,
+      "equity_rub": 48978.57,
       "cash_rub": 48978.57,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-28 14:33:00",
-      "equity_rub": 58981.69,
+      "equity_rub": 48981.69,
       "cash_rub": 48981.69,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-28 15:01:00",
-      "equity_rub": 58961.31,
+      "equity_rub": 48961.31,
       "cash_rub": 48961.31,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-28 23:49:00",
-      "equity_rub": 58958.3,
+      "equity_rub": 48958.3,
       "cash_rub": 48958.3,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-29 07:13:00",
-      "equity_rub": 58930.26,
+      "equity_rub": 48930.26,
       "cash_rub": 48930.26,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-29 09:00:00",
-      "equity_rub": 58928.12,
+      "equity_rub": 48928.12,
       "cash_rub": 48928.12,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-29 10:25:00",
-      "equity_rub": 58911.52,
+      "equity_rub": 48911.52,
       "cash_rub": 48911.52,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-29 10:26:00",
-      "equity_rub": 58898.28,
+      "equity_rub": 48898.28,
       "cash_rub": 48898.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-29 12:29:00",
-      "equity_rub": 58897.16,
+      "equity_rub": 48897.16,
       "cash_rub": 48897.16,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-30 07:17:00",
-      "equity_rub": 58878.36,
+      "equity_rub": 48878.36,
       "cash_rub": 48878.36,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-30 10:36:00",
-      "equity_rub": 58879.56,
+      "equity_rub": 48879.56,
       "cash_rub": 48879.56,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-30 14:23:00",
-      "equity_rub": 58860.6,
+      "equity_rub": 48860.6,
       "cash_rub": 48860.6,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-07-31 10:03:00",
-      "equity_rub": 58841.87,
+      "equity_rub": 48841.87,
       "cash_rub": 48841.87,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-01 08:50:00",
-      "equity_rub": 58831.95,
+      "equity_rub": 48831.95,
       "cash_rub": 48831.95,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-01 14:00:00",
-      "equity_rub": 58818.76,
+      "equity_rub": 48818.76,
       "cash_rub": 48818.76,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-01 14:55:00",
-      "equity_rub": 58805.47,
+      "equity_rub": 48805.47,
       "cash_rub": 48805.47,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-04 10:25:00",
-      "equity_rub": 58804.06,
+      "equity_rub": 48804.06,
       "cash_rub": 48804.06,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-05 10:05:00",
-      "equity_rub": 58789.54,
+      "equity_rub": 48789.54,
       "cash_rub": 48789.54,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-05 11:01:00",
-      "equity_rub": 58791.63,
+      "equity_rub": 48791.63,
       "cash_rub": 48791.63,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-05 15:21:00",
-      "equity_rub": 58793.78,
+      "equity_rub": 48793.78,
       "cash_rub": 48793.78,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-06 07:48:00",
-      "equity_rub": 58797.45,
+      "equity_rub": 48797.45,
       "cash_rub": 48797.45,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-06 15:33:00",
-      "equity_rub": 58786.03,
+      "equity_rub": 48786.03,
       "cash_rub": 48786.03,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-06 17:24:00",
-      "equity_rub": 58765.97,
+      "equity_rub": 48765.97,
       "cash_rub": 48765.97,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-07 09:30:00",
-      "equity_rub": 58762.73,
+      "equity_rub": 48762.73,
       "cash_rub": 48762.73,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-07 15:14:00",
-      "equity_rub": 58745.67,
+      "equity_rub": 48745.67,
       "cash_rub": 48745.67,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-08 10:05:00",
-      "equity_rub": 58744.43,
+      "equity_rub": 48744.43,
       "cash_rub": 48744.43,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-08 13:25:00",
-      "equity_rub": 58744.06,
+      "equity_rub": 48744.06,
       "cash_rub": 48744.06,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-08 16:07:00",
-      "equity_rub": 58744.53,
+      "equity_rub": 48744.53,
       "cash_rub": 48744.53,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-08 18:14:00",
-      "equity_rub": 58725.42,
+      "equity_rub": 48725.42,
       "cash_rub": 48725.42,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-11 11:34:00",
-      "equity_rub": 58724.16,
+      "equity_rub": 48724.16,
       "cash_rub": 48724.16,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-12 07:01:00",
-      "equity_rub": 58696.72,
+      "equity_rub": 48696.72,
       "cash_rub": 48696.72,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-14 07:06:00",
-      "equity_rub": 58681.01,
+      "equity_rub": 48681.01,
       "cash_rub": 48681.01,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-14 17:05:00",
-      "equity_rub": 58689.67,
+      "equity_rub": 48689.67,
       "cash_rub": 48689.67,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-15 10:04:00",
-      "equity_rub": 58677.61,
+      "equity_rub": 48677.61,
       "cash_rub": 48677.61,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-15 12:45:00",
-      "equity_rub": 58667.79,
+      "equity_rub": 48667.79,
       "cash_rub": 48667.79,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-15 23:36:00",
-      "equity_rub": 58667.9,
+      "equity_rub": 48667.9,
       "cash_rub": 48667.9,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-18 11:43:00",
-      "equity_rub": 58666.67,
+      "equity_rub": 48666.67,
       "cash_rub": 48666.67,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-18 16:55:00",
-      "equity_rub": 58665.19,
+      "equity_rub": 48665.19,
       "cash_rub": 48665.19,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-18 19:19:00",
-      "equity_rub": 58666.01,
+      "equity_rub": 48666.01,
       "cash_rub": 48666.01,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-20 14:35:00",
-      "equity_rub": 58668.87,
+      "equity_rub": 48668.87,
       "cash_rub": 38668.87,
-      "open_positions": 2
+      "open_positions": 1
     },
     {
       "ts": "2025-08-20 14:36:00",
-      "equity_rub": 68671.63,
+      "equity_rub": 48671.63,
       "cash_rub": 48671.63,
-      "open_positions": 2
+      "open_positions": 0
     },
     {
       "ts": "2025-08-21 16:25:00",
-      "equity_rub": 58668.66,
+      "equity_rub": 48668.66,
       "cash_rub": 48668.66,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-21 16:43:00",
-      "equity_rub": 58667.43,
+      "equity_rub": 48667.43,
       "cash_rub": 48667.43,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-21 19:21:00",
-      "equity_rub": 58668.23,
+      "equity_rub": 48668.23,
       "cash_rub": 48668.23,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-21 21:41:00",
-      "equity_rub": 58664.5,
+      "equity_rub": 48664.5,
       "cash_rub": 48664.5,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-22 10:09:00",
-      "equity_rub": 58683.48,
+      "equity_rub": 48683.48,
       "cash_rub": 48683.48,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-22 21:51:00",
-      "equity_rub": 58681.59,
+      "equity_rub": 48681.59,
       "cash_rub": 48681.59,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-24 10:13:00",
-      "equity_rub": 58670.74,
+      "equity_rub": 48670.74,
       "cash_rub": 48670.74,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-25 12:22:00",
-      "equity_rub": 58670.23,
+      "equity_rub": 48670.23,
       "cash_rub": 48670.23,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-25 13:24:00",
-      "equity_rub": 58668.75,
+      "equity_rub": 48668.75,
       "cash_rub": 48668.75,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-25 14:52:00",
-      "equity_rub": 58667.14,
+      "equity_rub": 48667.14,
       "cash_rub": 48667.14,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-27 09:39:00",
-      "equity_rub": 58664.86,
+      "equity_rub": 48664.86,
       "cash_rub": 48664.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-27 10:05:00",
-      "equity_rub": 58664.97,
+      "equity_rub": 48664.97,
       "cash_rub": 48664.97,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-28 20:10:00",
-      "equity_rub": 58647.74,
+      "equity_rub": 48647.74,
       "cash_rub": 48647.74,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-28 20:14:00",
-      "equity_rub": 58652.51,
+      "equity_rub": 48652.51,
       "cash_rub": 48652.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-29 09:49:00",
-      "equity_rub": 58651.96,
+      "equity_rub": 48651.96,
       "cash_rub": 48651.96,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-29 11:12:00",
-      "equity_rub": 58655.76,
+      "equity_rub": 48655.76,
       "cash_rub": 48655.76,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-29 12:46:00",
-      "equity_rub": 58641.88,
+      "equity_rub": 48641.88,
       "cash_rub": 48641.88,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-08-29 14:29:00",
-      "equity_rub": 58632.61,
+      "equity_rub": 48632.61,
       "cash_rub": 48632.61,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-02 08:44:00",
-      "equity_rub": 58629.88,
+      "equity_rub": 48629.88,
       "cash_rub": 48629.88,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-02 11:48:00",
-      "equity_rub": 58630.83,
+      "equity_rub": 48630.83,
       "cash_rub": 48630.83,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-02 15:30:00",
-      "equity_rub": 58633.46,
+      "equity_rub": 48633.46,
       "cash_rub": 48633.46,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-02 16:13:00",
-      "equity_rub": 58634.11,
+      "equity_rub": 48634.11,
       "cash_rub": 48634.11,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-02 17:52:00",
-      "equity_rub": 58624.37,
+      "equity_rub": 48624.37,
       "cash_rub": 48624.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-03 09:44:00",
-      "equity_rub": 58623.19,
+      "equity_rub": 48623.19,
       "cash_rub": 48623.19,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-04 17:26:00",
-      "equity_rub": 58626.79,
+      "equity_rub": 48626.79,
       "cash_rub": 48626.79,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-05 18:00:00",
-      "equity_rub": 58615.9,
+      "equity_rub": 48615.9,
       "cash_rub": 48615.9,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-08 13:39:00",
-      "equity_rub": 58615.9,
+      "equity_rub": 48615.9,
       "cash_rub": 48615.9,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-08 18:26:00",
-      "equity_rub": 58621.25,
+      "equity_rub": 48621.25,
       "cash_rub": 48621.25,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-09 15:06:00",
-      "equity_rub": 58612.61,
+      "equity_rub": 48612.61,
       "cash_rub": 48612.61,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-10 07:06:00",
-      "equity_rub": 58614.18,
+      "equity_rub": 48614.18,
       "cash_rub": 48614.18,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-10 08:01:00",
-      "equity_rub": 58601.24,
+      "equity_rub": 48601.24,
       "cash_rub": 48601.24,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-12 14:57:00",
-      "equity_rub": 58586.28,
+      "equity_rub": 48586.28,
       "cash_rub": 48586.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-12 17:41:00",
-      "equity_rub": 58587.74,
+      "equity_rub": 48587.74,
       "cash_rub": 48587.74,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-14 12:49:00",
-      "equity_rub": 58580.09,
+      "equity_rub": 48580.09,
       "cash_rub": 48580.09,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-16 10:05:00",
-      "equity_rub": 58565.85,
+      "equity_rub": 48565.85,
       "cash_rub": 48565.85,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-16 11:56:00",
-      "equity_rub": 58567.7,
+      "equity_rub": 48567.7,
       "cash_rub": 48567.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-16 11:59:00",
-      "equity_rub": 58545.31,
+      "equity_rub": 48545.31,
       "cash_rub": 48545.31,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-16 12:15:00",
-      "equity_rub": 58544.31,
+      "equity_rub": 48544.31,
       "cash_rub": 48544.31,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-17 10:49:00",
-      "equity_rub": 58531.09,
+      "equity_rub": 48531.09,
       "cash_rub": 48531.09,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-17 13:35:00",
-      "equity_rub": 58533.91,
+      "equity_rub": 48533.91,
       "cash_rub": 48533.91,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-17 14:51:00",
-      "equity_rub": 58520.58,
+      "equity_rub": 48520.58,
       "cash_rub": 48520.58,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-18 11:37:00",
-      "equity_rub": 58524.32,
+      "equity_rub": 48524.32,
       "cash_rub": 48524.32,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-18 12:23:00",
-      "equity_rub": 58507.37,
+      "equity_rub": 48507.37,
       "cash_rub": 48507.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-18 13:07:00",
-      "equity_rub": 58497.57,
+      "equity_rub": 48497.57,
       "cash_rub": 48497.57,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-18 20:53:00",
-      "equity_rub": 58485.74,
+      "equity_rub": 48485.74,
       "cash_rub": 48485.74,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-19 12:58:00",
-      "equity_rub": 58486.82,
+      "equity_rub": 48486.82,
       "cash_rub": 48486.82,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-22 10:42:00",
-      "equity_rub": 58490.5,
+      "equity_rub": 48490.5,
       "cash_rub": 48490.5,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-22 16:42:00",
-      "equity_rub": 58490.95,
+      "equity_rub": 48490.95,
       "cash_rub": 48490.95,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-23 10:03:00",
-      "equity_rub": 58477.91,
+      "equity_rub": 48477.91,
       "cash_rub": 48477.91,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-23 18:20:00",
-      "equity_rub": 58461.06,
+      "equity_rub": 48461.06,
       "cash_rub": 48461.06,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-23 22:09:00",
-      "equity_rub": 58475.83,
+      "equity_rub": 48475.83,
       "cash_rub": 48475.83,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-24 08:44:00",
-      "equity_rub": 58466.31,
+      "equity_rub": 48466.31,
       "cash_rub": 48466.31,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-24 17:13:00",
-      "equity_rub": 58469.26,
+      "equity_rub": 48469.26,
       "cash_rub": 48469.26,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-24 17:30:00",
-      "equity_rub": 58470.09,
+      "equity_rub": 48470.09,
       "cash_rub": 48470.09,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-26 07:52:00",
-      "equity_rub": 58448.73,
+      "equity_rub": 48448.73,
       "cash_rub": 48448.73,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-26 14:14:00",
-      "equity_rub": 58435.1,
+      "equity_rub": 48435.1,
       "cash_rub": 48435.1,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-26 15:14:00",
-      "equity_rub": 58423.15,
+      "equity_rub": 48423.15,
       "cash_rub": 48423.15,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-29 10:27:00",
-      "equity_rub": 58406.84,
+      "equity_rub": 48406.84,
       "cash_rub": 48406.84,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-29 13:08:00",
-      "equity_rub": 58396.1,
+      "equity_rub": 48396.1,
       "cash_rub": 48396.1,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-29 16:40:00",
-      "equity_rub": 58383.24,
+      "equity_rub": 48383.24,
       "cash_rub": 48383.24,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-09-29 17:05:00",
-      "equity_rub": 58370.04,
+      "equity_rub": 48370.04,
       "cash_rub": 48370.04,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-01 15:59:00",
-      "equity_rub": 58373.37,
+      "equity_rub": 48373.37,
       "cash_rub": 48373.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-01 16:34:00",
-      "equity_rub": 58376.99,
+      "equity_rub": 48376.99,
       "cash_rub": 48376.99,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-02 07:46:00",
-      "equity_rub": 58334.41,
+      "equity_rub": 48334.41,
       "cash_rub": 48334.41,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-02 09:38:00",
-      "equity_rub": 58321.05,
+      "equity_rub": 48321.05,
       "cash_rub": 48321.05,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-06 13:45:00",
-      "equity_rub": 58304.86,
+      "equity_rub": 48304.86,
       "cash_rub": 48304.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-06 13:55:00",
-      "equity_rub": 58308.86,
+      "equity_rub": 48308.86,
       "cash_rub": 48308.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-08 10:12:00",
-      "equity_rub": 58314.99,
+      "equity_rub": 48314.99,
       "cash_rub": 48314.99,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-08 10:19:00",
-      "equity_rub": 58297.55,
+      "equity_rub": 48297.55,
       "cash_rub": 48297.55,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-08 12:11:00",
-      "equity_rub": 58297.78,
+      "equity_rub": 48297.78,
       "cash_rub": 48297.78,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-08 14:57:00",
-      "equity_rub": 58285.7,
+      "equity_rub": 48285.7,
       "cash_rub": 48285.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-08 17:26:00",
-      "equity_rub": 58294.35,
+      "equity_rub": 48294.35,
       "cash_rub": 48294.35,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-09 11:31:00",
-      "equity_rub": 58270.27,
+      "equity_rub": 48270.27,
       "cash_rub": 48270.27,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-09 20:00:00",
-      "equity_rub": 58269.08,
+      "equity_rub": 48269.08,
       "cash_rub": 48269.08,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-09 20:41:00",
-      "equity_rub": 58267.38,
+      "equity_rub": 48267.38,
       "cash_rub": 48267.38,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-10 10:10:00",
-      "equity_rub": 58247.48,
+      "equity_rub": 48247.48,
       "cash_rub": 48247.48,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-10 12:07:00",
-      "equity_rub": 58249.43,
+      "equity_rub": 48249.43,
       "cash_rub": 48249.43,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-10 16:14:00",
-      "equity_rub": 58235.79,
+      "equity_rub": 48235.79,
       "cash_rub": 48235.79,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-10 18:05:00",
-      "equity_rub": 58246.32,
+      "equity_rub": 48246.32,
       "cash_rub": 48246.32,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-13 10:46:00",
-      "equity_rub": 58224.68,
+      "equity_rub": 48224.68,
       "cash_rub": 48224.68,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-13 10:47:00",
-      "equity_rub": 58226.44,
+      "equity_rub": 48226.44,
       "cash_rub": 48226.44,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-13 23:31:00",
-      "equity_rub": 58227.34,
+      "equity_rub": 48227.34,
       "cash_rub": 48227.34,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-15 09:11:00",
-      "equity_rub": 58216.24,
+      "equity_rub": 48216.24,
       "cash_rub": 48216.24,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-17 07:54:00",
-      "equity_rub": 58199.78,
+      "equity_rub": 48199.78,
       "cash_rub": 48199.78,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-17 11:54:00",
-      "equity_rub": 58203.64,
+      "equity_rub": 48203.64,
       "cash_rub": 48203.64,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-17 17:15:00",
-      "equity_rub": 58205.22,
+      "equity_rub": 48205.22,
       "cash_rub": 48205.22,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-17 20:58:00",
-      "equity_rub": 58223.45,
+      "equity_rub": 48223.45,
       "cash_rub": 48223.45,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-18 11:59:00",
-      "equity_rub": 58221.89,
+      "equity_rub": 48221.89,
       "cash_rub": 48221.89,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-18 16:34:00",
-      "equity_rub": 58208.48,
+      "equity_rub": 48208.48,
       "cash_rub": 48208.48,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-20 10:05:00",
-      "equity_rub": 58212.36,
+      "equity_rub": 48212.36,
       "cash_rub": 48212.36,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-20 12:46:00",
-      "equity_rub": 58197.71,
+      "equity_rub": 48197.71,
       "cash_rub": 48197.71,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-20 18:35:00",
-      "equity_rub": 58194.24,
+      "equity_rub": 48194.24,
       "cash_rub": 48194.24,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-21 07:07:00",
-      "equity_rub": 58175.93,
+      "equity_rub": 48175.93,
       "cash_rub": 48175.93,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-21 09:02:00",
-      "equity_rub": 58178.12,
+      "equity_rub": 48178.12,
       "cash_rub": 48178.12,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-21 10:42:00",
-      "equity_rub": 58161.38,
+      "equity_rub": 48161.38,
       "cash_rub": 48161.38,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-21 11:01:00",
-      "equity_rub": 58159.16,
+      "equity_rub": 48159.16,
       "cash_rub": 48159.16,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-21 16:53:00",
-      "equity_rub": 58138.57,
+      "equity_rub": 48138.57,
       "cash_rub": 48138.57,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-22 13:08:00",
-      "equity_rub": 58143.55,
+      "equity_rub": 48143.55,
       "cash_rub": 48143.55,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-22 22:23:00",
-      "equity_rub": 58112.89,
+      "equity_rub": 48112.89,
       "cash_rub": 48112.89,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-23 07:02:00",
-      "equity_rub": 58126.88,
+      "equity_rub": 48126.88,
       "cash_rub": 48126.88,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-23 08:15:00",
-      "equity_rub": 58173.6,
+      "equity_rub": 48173.6,
       "cash_rub": 48173.6,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-23 09:12:00",
-      "equity_rub": 58178.64,
+      "equity_rub": 48178.64,
       "cash_rub": 48178.64,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-23 16:47:00",
-      "equity_rub": 58155.32,
+      "equity_rub": 48155.32,
       "cash_rub": 48155.32,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-24 14:38:00",
-      "equity_rub": 58159.47,
+      "equity_rub": 48159.47,
       "cash_rub": 48159.47,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-24 15:02:00",
-      "equity_rub": 58146.35,
+      "equity_rub": 48146.35,
       "cash_rub": 48146.35,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-27 07:01:00",
-      "equity_rub": 58152.35,
+      "equity_rub": 48152.35,
       "cash_rub": 48152.35,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-27 07:03:00",
-      "equity_rub": 58133.18,
+      "equity_rub": 48133.18,
       "cash_rub": 48133.18,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-27 17:50:00",
-      "equity_rub": 58117.07,
+      "equity_rub": 48117.07,
       "cash_rub": 48117.07,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-28 12:36:00",
-      "equity_rub": 58117.91,
+      "equity_rub": 48117.91,
       "cash_rub": 48117.91,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-28 15:48:00",
-      "equity_rub": 58104.36,
+      "equity_rub": 48104.36,
       "cash_rub": 48104.36,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-30 12:57:00",
-      "equity_rub": 58104.24,
+      "equity_rub": 48104.24,
       "cash_rub": 48104.24,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-31 13:08:00",
-      "equity_rub": 58102.53,
+      "equity_rub": 48102.53,
       "cash_rub": 48102.53,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-31 19:09:00",
-      "equity_rub": 58107.33,
+      "equity_rub": 48107.33,
       "cash_rub": 48107.33,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-10-31 19:40:00",
-      "equity_rub": 58104.24,
+      "equity_rub": 48104.24,
       "cash_rub": 48104.24,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-01 09:18:00",
-      "equity_rub": 58103.36,
+      "equity_rub": 48103.36,
       "cash_rub": 48103.36,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-03 12:35:00",
-      "equity_rub": 58102.39,
+      "equity_rub": 48102.39,
       "cash_rub": 48102.39,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-05 17:00:00",
-      "equity_rub": 58086.83,
+      "equity_rub": 48086.83,
       "cash_rub": 48086.83,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-05 17:18:00",
-      "equity_rub": 58094.56,
+      "equity_rub": 48094.56,
       "cash_rub": 48094.56,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-06 16:08:00",
-      "equity_rub": 58091.63,
+      "equity_rub": 48091.63,
       "cash_rub": 48091.63,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-07 13:49:00",
-      "equity_rub": 58090.53,
+      "equity_rub": 48090.53,
       "cash_rub": 48090.53,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-07 16:10:00",
-      "equity_rub": 58087.87,
+      "equity_rub": 48087.87,
       "cash_rub": 48087.87,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-10 16:07:00",
-      "equity_rub": 58089.65,
+      "equity_rub": 48089.65,
       "cash_rub": 48089.65,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-10 17:33:00",
-      "equity_rub": 58090.09,
+      "equity_rub": 48090.09,
       "cash_rub": 48090.09,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-11 11:16:00",
-      "equity_rub": 58079.04,
+      "equity_rub": 48079.04,
       "cash_rub": 48079.04,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-13 11:45:00",
-      "equity_rub": 58064.36,
+      "equity_rub": 48064.36,
       "cash_rub": 48064.36,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-13 14:09:00",
-      "equity_rub": 58051.0,
+      "equity_rub": 48051.0,
       "cash_rub": 48051.0,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-14 11:56:00",
-      "equity_rub": 58058.72,
+      "equity_rub": 48058.72,
       "cash_rub": 48058.72,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-17 10:10:00",
-      "equity_rub": 58058.23,
+      "equity_rub": 48058.23,
       "cash_rub": 48058.23,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-17 12:39:00",
-      "equity_rub": 58058.15,
+      "equity_rub": 48058.15,
       "cash_rub": 48058.15,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-17 16:09:00",
-      "equity_rub": 58043.37,
+      "equity_rub": 48043.37,
       "cash_rub": 48043.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-17 21:42:00",
-      "equity_rub": 58053.83,
+      "equity_rub": 48053.83,
       "cash_rub": 48053.83,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-18 16:10:00",
-      "equity_rub": 58054.94,
+      "equity_rub": 48054.94,
       "cash_rub": 48054.94,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-18 17:38:00",
-      "equity_rub": 58040.37,
+      "equity_rub": 48040.37,
       "cash_rub": 48040.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-19 09:12:00",
-      "equity_rub": 58026.18,
+      "equity_rub": 48026.18,
       "cash_rub": 48026.18,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-19 12:15:00",
-      "equity_rub": 58012.74,
+      "equity_rub": 48012.74,
       "cash_rub": 48012.74,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-19 17:07:00",
-      "equity_rub": 58017.09,
+      "equity_rub": 48017.09,
       "cash_rub": 48017.09,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-19 17:15:00",
-      "equity_rub": 58026.42,
+      "equity_rub": 48026.42,
       "cash_rub": 48026.42,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-19 18:15:00",
-      "equity_rub": 58008.53,
+      "equity_rub": 48008.53,
       "cash_rub": 48008.53,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-20 09:05:00",
-      "equity_rub": 58010.66,
+      "equity_rub": 48010.66,
       "cash_rub": 48010.66,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-20 10:02:00",
-      "equity_rub": 57995.9,
+      "equity_rub": 47995.9,
       "cash_rub": 37995.9,
-      "open_positions": 2
+      "open_positions": 1
     },
     {
       "ts": "2025-11-20 10:04:00",
-      "equity_rub": 67981.07,
+      "equity_rub": 47981.07,
       "cash_rub": 47981.07,
-      "open_positions": 2
+      "open_positions": 0
     },
     {
       "ts": "2025-11-20 16:35:00",
-      "equity_rub": 57981.05,
+      "equity_rub": 47981.05,
       "cash_rub": 47981.05,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-20 16:36:00",
-      "equity_rub": 57986.46,
+      "equity_rub": 47986.46,
       "cash_rub": 47986.46,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-20 17:53:00",
-      "equity_rub": 57988.7,
+      "equity_rub": 47988.7,
       "cash_rub": 47988.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-20 21:24:00",
-      "equity_rub": 57954.28,
+      "equity_rub": 47954.28,
       "cash_rub": 47954.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-21 11:16:00",
-      "equity_rub": 57957.03,
+      "equity_rub": 47957.03,
       "cash_rub": 47957.03,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-21 13:33:00",
-      "equity_rub": 57945.55,
+      "equity_rub": 47945.55,
       "cash_rub": 47945.55,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-24 11:16:00",
-      "equity_rub": 57951.1,
+      "equity_rub": 47951.1,
       "cash_rub": 47951.1,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-24 11:40:00",
-      "equity_rub": 57954.18,
+      "equity_rub": 47954.18,
       "cash_rub": 47954.18,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-24 12:24:00",
-      "equity_rub": 57940.18,
+      "equity_rub": 47940.18,
       "cash_rub": 47940.18,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-25 14:39:00",
-      "equity_rub": 57928.7,
+      "equity_rub": 47928.7,
       "cash_rub": 47928.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-26 11:37:00",
-      "equity_rub": 57930.61,
+      "equity_rub": 47930.61,
       "cash_rub": 47930.61,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-26 14:42:00",
-      "equity_rub": 57928.48,
+      "equity_rub": 47928.48,
       "cash_rub": 47928.48,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-11-28 23:33:00",
-      "equity_rub": 57928.61,
+      "equity_rub": 47928.61,
       "cash_rub": 47928.61,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-01 09:07:00",
-      "equity_rub": 57917.08,
+      "equity_rub": 47917.08,
       "cash_rub": 47917.08,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-01 10:24:00",
-      "equity_rub": 57920.56,
+      "equity_rub": 47920.56,
       "cash_rub": 47920.56,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-01 14:19:00",
-      "equity_rub": 57904.43,
+      "equity_rub": 47904.43,
       "cash_rub": 47904.43,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-01 16:43:00",
-      "equity_rub": 57892.5,
+      "equity_rub": 47892.5,
       "cash_rub": 47892.5,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-01 20:54:00",
-      "equity_rub": 57882.33,
+      "equity_rub": 47882.33,
       "cash_rub": 47882.33,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-02 13:04:00",
-      "equity_rub": 57889.18,
+      "equity_rub": 47889.18,
       "cash_rub": 47889.18,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-03 07:04:00",
-      "equity_rub": 57900.95,
+      "equity_rub": 47900.95,
       "cash_rub": 47900.95,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-03 12:33:00",
-      "equity_rub": 57906.21,
+      "equity_rub": 47906.21,
       "cash_rub": 47906.21,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-03 15:44:00",
-      "equity_rub": 57903.45,
+      "equity_rub": 47903.45,
       "cash_rub": 47903.45,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-04 17:44:00",
-      "equity_rub": 57900.93,
+      "equity_rub": 47900.93,
       "cash_rub": 47900.93,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-08 09:02:00",
-      "equity_rub": 57902.3,
+      "equity_rub": 47902.3,
       "cash_rub": 47902.3,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-08 21:06:00",
-      "equity_rub": 57881.44,
+      "equity_rub": 47881.44,
       "cash_rub": 47881.44,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-08 21:12:00",
-      "equity_rub": 57879.33,
+      "equity_rub": 47879.33,
       "cash_rub": 47879.33,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-08 22:21:00",
-      "equity_rub": 57876.5,
+      "equity_rub": 47876.5,
       "cash_rub": 47876.5,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-09 07:14:00",
-      "equity_rub": 57856.84,
+      "equity_rub": 47856.84,
       "cash_rub": 47856.84,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-11 12:04:00",
-      "equity_rub": 57857.19,
+      "equity_rub": 47857.19,
       "cash_rub": 47857.19,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-11 14:21:00",
-      "equity_rub": 57854.45,
+      "equity_rub": 47854.45,
       "cash_rub": 47854.45,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-11 19:44:00",
-      "equity_rub": 57836.33,
+      "equity_rub": 47836.33,
       "cash_rub": 47836.33,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-12 21:00:00",
-      "equity_rub": 57835.18,
+      "equity_rub": 47835.18,
       "cash_rub": 47835.18,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-12 21:56:00",
-      "equity_rub": 57836.49,
+      "equity_rub": 47836.49,
       "cash_rub": 47836.49,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-15 15:28:00",
-      "equity_rub": 57823.27,
+      "equity_rub": 47823.27,
       "cash_rub": 47823.27,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-15 19:14:00",
-      "equity_rub": 57826.37,
+      "equity_rub": 47826.37,
       "cash_rub": 47826.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-16 07:58:00",
-      "equity_rub": 57816.59,
+      "equity_rub": 47816.59,
       "cash_rub": 47816.59,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-16 13:18:00",
-      "equity_rub": 57805.52,
+      "equity_rub": 47805.52,
       "cash_rub": 47805.52,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-16 14:25:00",
-      "equity_rub": 57805.97,
+      "equity_rub": 47805.97,
       "cash_rub": 47805.97,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-19 10:49:00",
-      "equity_rub": 57791.6,
+      "equity_rub": 47791.6,
       "cash_rub": 47791.6,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-19 11:34:00",
-      "equity_rub": 57792.42,
+      "equity_rub": 47792.42,
       "cash_rub": 47792.42,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-19 15:05:00",
-      "equity_rub": 57781.69,
+      "equity_rub": 47781.69,
       "cash_rub": 47781.69,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-19 16:05:00",
-      "equity_rub": 57782.5,
+      "equity_rub": 47782.5,
       "cash_rub": 47782.5,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-19 17:57:00",
-      "equity_rub": 57773.37,
+      "equity_rub": 47773.37,
       "cash_rub": 47773.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-22 18:45:00",
-      "equity_rub": 57770.46,
+      "equity_rub": 47770.46,
       "cash_rub": 47770.46,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-23 12:14:00",
-      "equity_rub": 57754.67,
+      "equity_rub": 47754.67,
       "cash_rub": 47754.67,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-24 10:54:00",
-      "equity_rub": 57753.63,
+      "equity_rub": 47753.63,
       "cash_rub": 47753.63,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-24 14:31:00",
-      "equity_rub": 57752.59,
+      "equity_rub": 47752.59,
       "cash_rub": 47752.59,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-25 11:59:00",
-      "equity_rub": 57735.6,
+      "equity_rub": 47735.6,
       "cash_rub": 47735.6,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-25 16:00:00",
-      "equity_rub": 57727.72,
+      "equity_rub": 47727.72,
       "cash_rub": 47727.72,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-26 11:41:00",
-      "equity_rub": 57725.84,
+      "equity_rub": 47725.84,
       "cash_rub": 47725.84,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-28 10:09:00",
-      "equity_rub": 57729.42,
+      "equity_rub": 47729.42,
       "cash_rub": 47729.42,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-28 12:19:00",
-      "equity_rub": 57720.28,
+      "equity_rub": 47720.28,
       "cash_rub": 47720.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-29 15:31:00",
-      "equity_rub": 57706.68,
+      "equity_rub": 47706.68,
       "cash_rub": 47706.68,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-29 16:25:00",
-      "equity_rub": 57695.45,
+      "equity_rub": 47695.45,
       "cash_rub": 47695.45,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-29 16:33:00",
-      "equity_rub": 57706.67,
+      "equity_rub": 47706.67,
       "cash_rub": 47706.67,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-29 16:38:00",
-      "equity_rub": 57709.97,
+      "equity_rub": 47709.97,
       "cash_rub": 47709.97,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-29 18:14:00",
-      "equity_rub": 57696.13,
+      "equity_rub": 47696.13,
       "cash_rub": 47696.13,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-29 19:50:00",
-      "equity_rub": 57695.05,
+      "equity_rub": 47695.05,
       "cash_rub": 47695.05,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-29 21:11:00",
-      "equity_rub": 57681.2,
+      "equity_rub": 47681.2,
       "cash_rub": 47681.2,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-30 12:35:00",
-      "equity_rub": 57686.23,
+      "equity_rub": 47686.23,
       "cash_rub": 47686.23,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-30 13:17:00",
-      "equity_rub": 57685.1,
+      "equity_rub": 47685.1,
       "cash_rub": 47685.1,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2025-12-30 17:42:00",
-      "equity_rub": 57687.53,
+      "equity_rub": 47687.53,
       "cash_rub": 47687.53,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-05 09:25:00",
-      "equity_rub": 57670.58,
+      "equity_rub": 47670.58,
       "cash_rub": 47670.58,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-05 14:46:00",
-      "equity_rub": 57669.34,
+      "equity_rub": 47669.34,
       "cash_rub": 47669.34,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-08 07:01:00",
-      "equity_rub": 57671.37,
+      "equity_rub": 47671.37,
       "cash_rub": 47671.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-08 14:47:00",
-      "equity_rub": 57668.86,
+      "equity_rub": 47668.86,
       "cash_rub": 47668.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-08 14:58:00",
-      "equity_rub": 57658.96,
+      "equity_rub": 47658.96,
       "cash_rub": 47658.96,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-13 08:58:00",
-      "equity_rub": 57661.64,
+      "equity_rub": 47661.64,
       "cash_rub": 47661.64,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-13 11:24:00",
-      "equity_rub": 57659.13,
+      "equity_rub": 47659.13,
       "cash_rub": 47659.13,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-14 14:32:00",
-      "equity_rub": 57647.62,
+      "equity_rub": 47647.62,
       "cash_rub": 47647.62,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-14 23:05:00",
-      "equity_rub": 57644.36,
+      "equity_rub": 47644.36,
       "cash_rub": 47644.36,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-19 14:29:00",
-      "equity_rub": 57624.04,
+      "equity_rub": 47624.04,
       "cash_rub": 47624.04,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-19 17:33:00",
-      "equity_rub": 57625.91,
+      "equity_rub": 47625.91,
       "cash_rub": 47625.91,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-20 12:18:00",
-      "equity_rub": 57624.35,
+      "equity_rub": 47624.35,
       "cash_rub": 47624.35,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-20 13:59:00",
-      "equity_rub": 57623.08,
+      "equity_rub": 47623.08,
       "cash_rub": 47623.08,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-20 14:05:00",
-      "equity_rub": 57610.29,
+      "equity_rub": 47610.29,
       "cash_rub": 47610.29,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-20 15:03:00",
-      "equity_rub": 57614.19,
+      "equity_rub": 47614.19,
       "cash_rub": 47614.19,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-22 08:04:00",
-      "equity_rub": 57603.83,
+      "equity_rub": 47603.83,
       "cash_rub": 47603.83,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-22 12:39:00",
-      "equity_rub": 57602.08,
+      "equity_rub": 47602.08,
       "cash_rub": 47602.08,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-22 17:21:00",
-      "equity_rub": 57581.02,
+      "equity_rub": 47581.02,
       "cash_rub": 47581.02,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-23 09:29:00",
-      "equity_rub": 57586.21,
+      "equity_rub": 47586.21,
       "cash_rub": 47586.21,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-23 19:32:00",
-      "equity_rub": 57581.84,
+      "equity_rub": 47581.84,
       "cash_rub": 47581.84,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-24 13:17:00",
-      "equity_rub": 57579.7,
+      "equity_rub": 47579.7,
       "cash_rub": 47579.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-26 14:58:00",
-      "equity_rub": 57585.19,
+      "equity_rub": 47585.19,
       "cash_rub": 47585.19,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-26 23:22:00",
-      "equity_rub": 57574.97,
+      "equity_rub": 47574.97,
       "cash_rub": 47574.97,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-27 10:34:00",
-      "equity_rub": 57558.84,
+      "equity_rub": 47558.84,
       "cash_rub": 47558.84,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-27 17:21:00",
-      "equity_rub": 57560.42,
+      "equity_rub": 47560.42,
       "cash_rub": 47560.42,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-27 17:31:00",
-      "equity_rub": 57562.0,
+      "equity_rub": 47562.0,
       "cash_rub": 47562.0,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-28 16:27:00",
-      "equity_rub": 57559.97,
+      "equity_rub": 47559.97,
       "cash_rub": 47559.97,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-29 08:12:00",
-      "equity_rub": 57557.98,
+      "equity_rub": 47557.98,
       "cash_rub": 47557.98,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-29 11:30:00",
-      "equity_rub": 57546.4,
+      "equity_rub": 47546.4,
       "cash_rub": 47546.4,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-29 18:31:00",
-      "equity_rub": 57559.74,
+      "equity_rub": 47559.74,
       "cash_rub": 47559.74,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-30 11:28:00",
-      "equity_rub": 57544.03,
+      "equity_rub": 47544.03,
       "cash_rub": 47544.03,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-30 19:12:00",
-      "equity_rub": 57546.51,
+      "equity_rub": 47546.51,
       "cash_rub": 47546.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-01-30 21:22:00",
-      "equity_rub": 57547.95,
+      "equity_rub": 47547.95,
       "cash_rub": 47547.95,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-02 07:02:00",
-      "equity_rub": 57550.6,
+      "equity_rub": 47550.6,
       "cash_rub": 47550.6,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-02 12:58:00",
-      "equity_rub": 57551.33,
+      "equity_rub": 47551.33,
       "cash_rub": 47551.33,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-02 16:13:00",
-      "equity_rub": 57554.14,
+      "equity_rub": 47554.14,
       "cash_rub": 47554.14,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-04 10:35:00",
-      "equity_rub": 57556.12,
+      "equity_rub": 47556.12,
       "cash_rub": 47556.12,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-04 16:11:00",
-      "equity_rub": 57554.44,
+      "equity_rub": 47554.44,
       "cash_rub": 47554.44,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-04 19:29:00",
-      "equity_rub": 57586.67,
+      "equity_rub": 47586.67,
       "cash_rub": 47586.67,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-04 23:30:00",
-      "equity_rub": 57575.7,
+      "equity_rub": 47575.7,
       "cash_rub": 47575.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-05 12:46:00",
-      "equity_rub": 57564.51,
+      "equity_rub": 47564.51,
       "cash_rub": 47564.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-05 17:39:00",
-      "equity_rub": 57565.21,
+      "equity_rub": 47565.21,
       "cash_rub": 47565.21,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-05 20:32:00",
-      "equity_rub": 57556.65,
+      "equity_rub": 47556.65,
       "cash_rub": 47556.65,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-06 12:59:00",
-      "equity_rub": 57554.7,
+      "equity_rub": 47554.7,
       "cash_rub": 47554.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-06 20:32:00",
-      "equity_rub": 57543.39,
+      "equity_rub": 47543.39,
       "cash_rub": 47543.39,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-09 07:05:00",
-      "equity_rub": 57526.73,
+      "equity_rub": 47526.73,
       "cash_rub": 37526.73,
-      "open_positions": 2
+      "open_positions": 1
     },
     {
       "ts": "2026-02-09 07:09:00",
-      "equity_rub": 67507.82,
+      "equity_rub": 47507.82,
       "cash_rub": 47507.82,
-      "open_positions": 2
+      "open_positions": 0
     },
     {
       "ts": "2026-02-09 07:17:00",
-      "equity_rub": 57478.0,
+      "equity_rub": 47478.0,
       "cash_rub": 47478.0,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-09 08:56:00",
-      "equity_rub": 57467.57,
+      "equity_rub": 47467.57,
       "cash_rub": 47467.57,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-09 09:59:00",
-      "equity_rub": 57456.19,
+      "equity_rub": 47456.19,
       "cash_rub": 47456.19,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-10 15:14:00",
-      "equity_rub": 57446.17,
+      "equity_rub": 47446.17,
       "cash_rub": 47446.17,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-10 23:21:00",
-      "equity_rub": 57441.47,
+      "equity_rub": 47441.47,
       "cash_rub": 47441.47,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-11 11:49:00",
-      "equity_rub": 57439.08,
+      "equity_rub": 47439.08,
       "cash_rub": 47439.08,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-11 23:04:00",
-      "equity_rub": 57428.78,
+      "equity_rub": 47428.78,
       "cash_rub": 47428.78,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-12 07:14:00",
-      "equity_rub": 57407.43,
+      "equity_rub": 47407.43,
       "cash_rub": 47407.43,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-12 19:46:00",
-      "equity_rub": 57406.32,
+      "equity_rub": 47406.32,
       "cash_rub": 47406.32,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-13 14:26:00",
-      "equity_rub": 57381.26,
+      "equity_rub": 47381.26,
       "cash_rub": 47381.26,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-13 14:34:00",
-      "equity_rub": 57386.28,
+      "equity_rub": 47386.28,
       "cash_rub": 47386.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-16 08:06:00",
-      "equity_rub": 57367.41,
+      "equity_rub": 47367.41,
       "cash_rub": 47367.41,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-16 13:02:00",
-      "equity_rub": 57354.3,
+      "equity_rub": 47354.3,
       "cash_rub": 47354.3,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-16 18:35:00",
-      "equity_rub": 57351.53,
+      "equity_rub": 47351.53,
       "cash_rub": 47351.53,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-17 10:41:00",
-      "equity_rub": 57352.13,
+      "equity_rub": 47352.13,
       "cash_rub": 47352.13,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-17 11:30:00",
-      "equity_rub": 57355.62,
+      "equity_rub": 47355.62,
       "cash_rub": 47355.62,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-17 22:17:00",
-      "equity_rub": 57345.75,
+      "equity_rub": 47345.75,
       "cash_rub": 47345.75,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-19 11:01:00",
-      "equity_rub": 57346.5,
+      "equity_rub": 47346.5,
       "cash_rub": 47346.5,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-19 12:25:00",
-      "equity_rub": 57348.0,
+      "equity_rub": 47348.0,
       "cash_rub": 47348.0,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-20 09:49:00",
-      "equity_rub": 57346.19,
+      "equity_rub": 47346.19,
       "cash_rub": 47346.19,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-21 11:35:00",
-      "equity_rub": 57329.33,
+      "equity_rub": 47329.33,
       "cash_rub": 47329.33,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-22 18:22:00",
-      "equity_rub": 57329.67,
+      "equity_rub": 47329.67,
       "cash_rub": 47329.67,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-24 09:55:00",
-      "equity_rub": 57328.51,
+      "equity_rub": 47328.51,
       "cash_rub": 47328.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-25 14:02:00",
-      "equity_rub": 57317.45,
+      "equity_rub": 47317.45,
       "cash_rub": 47317.45,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-26 10:39:00",
-      "equity_rub": 57315.05,
+      "equity_rub": 47315.05,
       "cash_rub": 47315.05,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-26 13:33:00",
-      "equity_rub": 57306.69,
+      "equity_rub": 47306.69,
       "cash_rub": 47306.69,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-26 16:20:00",
-      "equity_rub": 57306.49,
+      "equity_rub": 47306.49,
       "cash_rub": 47306.49,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-27 20:38:00",
-      "equity_rub": 57304.77,
+      "equity_rub": 47304.77,
       "cash_rub": 47304.77,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-27 21:04:00",
-      "equity_rub": 57301.56,
+      "equity_rub": 47301.56,
       "cash_rub": 47301.56,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-28 10:56:00",
-      "equity_rub": 57285.37,
+      "equity_rub": 47285.37,
       "cash_rub": 47285.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-02-28 17:41:00",
-      "equity_rub": 57282.49,
+      "equity_rub": 47282.49,
       "cash_rub": 47282.49,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-02 07:29:00",
-      "equity_rub": 57290.29,
+      "equity_rub": 47290.29,
       "cash_rub": 47290.29,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-02 11:10:00",
-      "equity_rub": 57292.18,
+      "equity_rub": 47292.18,
       "cash_rub": 47292.18,
+      "open_positions": 0
+    },
+    {
+      "ts": "2026-03-02 16:51:00",
+      "equity_rub": 47275.57,
+      "cash_rub": 37275.57,
       "open_positions": 1
     },
     {
       "ts": "2026-03-02 16:51:00",
-      "equity_rub": 57275.57,
-      "cash_rub": 37275.57,
-      "open_positions": 2
-    },
-    {
-      "ts": "2026-03-02 16:51:00",
-      "equity_rub": 67280.08,
+      "equity_rub": 47280.08,
       "cash_rub": 47280.08,
-      "open_positions": 2
+      "open_positions": 0
     },
     {
       "ts": "2026-03-02 22:07:00",
-      "equity_rub": 57277.62,
+      "equity_rub": 47277.62,
       "cash_rub": 47277.62,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-03 09:00:00",
-      "equity_rub": 57263.38,
+      "equity_rub": 47263.38,
       "cash_rub": 47263.38,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-03 10:13:00",
-      "equity_rub": 57267.14,
+      "equity_rub": 47267.14,
       "cash_rub": 47267.14,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-03 20:59:00",
-      "equity_rub": 57266.11,
+      "equity_rub": 47266.11,
       "cash_rub": 47266.11,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-04 18:18:00",
-      "equity_rub": 57247.44,
+      "equity_rub": 47247.44,
       "cash_rub": 47247.44,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-04 21:11:00",
-      "equity_rub": 57235.14,
+      "equity_rub": 47235.14,
       "cash_rub": 47235.14,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-05 09:02:00",
-      "equity_rub": 57234.06,
+      "equity_rub": 47234.06,
       "cash_rub": 47234.06,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-05 09:11:00",
-      "equity_rub": 57222.63,
+      "equity_rub": 47222.63,
       "cash_rub": 47222.63,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-05 11:28:00",
-      "equity_rub": 57210.37,
+      "equity_rub": 47210.37,
       "cash_rub": 47210.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-05 13:07:00",
-      "equity_rub": 57186.27,
+      "equity_rub": 47186.27,
       "cash_rub": 47186.27,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-05 16:12:00",
-      "equity_rub": 57186.09,
+      "equity_rub": 47186.09,
       "cash_rub": 47186.09,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-05 17:46:00",
-      "equity_rub": 57184.28,
+      "equity_rub": 47184.28,
       "cash_rub": 47184.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-05 19:00:00",
-      "equity_rub": 57188.02,
+      "equity_rub": 47188.02,
       "cash_rub": 47188.02,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-05 21:23:00",
-      "equity_rub": 57187.49,
+      "equity_rub": 47187.49,
       "cash_rub": 47187.49,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-06 13:47:00",
-      "equity_rub": 57188.46,
+      "equity_rub": 47188.46,
       "cash_rub": 47188.46,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-09 08:47:00",
-      "equity_rub": 57188.36,
+      "equity_rub": 47188.36,
       "cash_rub": 47188.36,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-09 09:08:00",
-      "equity_rub": 57165.39,
+      "equity_rub": 47165.39,
       "cash_rub": 47165.39,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-09 12:17:00",
-      "equity_rub": 57140.45,
+      "equity_rub": 47140.45,
       "cash_rub": 47140.45,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-09 22:38:00",
-      "equity_rub": 57124.8,
+      "equity_rub": 47124.8,
       "cash_rub": 47124.8,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-10 12:27:00",
-      "equity_rub": 57104.05,
+      "equity_rub": 47104.05,
       "cash_rub": 47104.05,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-11 16:25:00",
-      "equity_rub": 57094.18,
+      "equity_rub": 47094.18,
       "cash_rub": 47094.18,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-13 11:34:00",
-      "equity_rub": 57093.65,
+      "equity_rub": 47093.65,
       "cash_rub": 47093.65,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-16 08:59:00",
-      "equity_rub": 57080.32,
+      "equity_rub": 47080.32,
       "cash_rub": 47080.32,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-16 15:12:00",
-      "equity_rub": 57083.28,
+      "equity_rub": 47083.28,
       "cash_rub": 47083.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-17 07:54:00",
-      "equity_rub": 57081.63,
+      "equity_rub": 47081.63,
       "cash_rub": 47081.63,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-17 10:14:00",
-      "equity_rub": 57062.53,
+      "equity_rub": 47062.53,
       "cash_rub": 47062.53,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-17 11:22:00",
-      "equity_rub": 57048.15,
+      "equity_rub": 47048.15,
       "cash_rub": 47048.15,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-17 18:33:00",
-      "equity_rub": 57046.2,
+      "equity_rub": 47046.2,
       "cash_rub": 47046.2,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-18 10:49:00",
-      "equity_rub": 57033.35,
+      "equity_rub": 47033.35,
       "cash_rub": 47033.35,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-18 15:48:00",
-      "equity_rub": 57018.12,
+      "equity_rub": 47018.12,
       "cash_rub": 47018.12,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-18 20:44:00",
-      "equity_rub": 57018.67,
+      "equity_rub": 47018.67,
       "cash_rub": 47018.67,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-19 11:36:00",
-      "equity_rub": 57018.98,
+      "equity_rub": 47018.98,
       "cash_rub": 47018.98,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-19 11:41:00",
-      "equity_rub": 57008.95,
+      "equity_rub": 47008.95,
       "cash_rub": 47008.95,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-20 11:10:00",
-      "equity_rub": 56994.89,
+      "equity_rub": 46994.89,
       "cash_rub": 46994.89,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-20 13:21:00",
-      "equity_rub": 56995.03,
+      "equity_rub": 46995.03,
       "cash_rub": 46995.03,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-20 20:57:00",
-      "equity_rub": 56981.81,
+      "equity_rub": 46981.81,
       "cash_rub": 46981.81,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-23 09:02:00",
-      "equity_rub": 56971.6,
+      "equity_rub": 46971.6,
       "cash_rub": 46971.6,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-23 09:10:00",
-      "equity_rub": 56956.32,
+      "equity_rub": 46956.32,
       "cash_rub": 46956.32,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-23 09:32:00",
-      "equity_rub": 56959.58,
+      "equity_rub": 46959.58,
       "cash_rub": 46959.58,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-23 14:07:00",
-      "equity_rub": 56928.11,
+      "equity_rub": 46928.11,
       "cash_rub": 46928.11,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-24 13:41:00",
-      "equity_rub": 56929.26,
+      "equity_rub": 46929.26,
       "cash_rub": 46929.26,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-25 08:38:00",
-      "equity_rub": 56916.86,
+      "equity_rub": 46916.86,
       "cash_rub": 46916.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-25 09:05:00",
-      "equity_rub": 56915.42,
+      "equity_rub": 46915.42,
       "cash_rub": 46915.42,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-25 12:54:00",
-      "equity_rub": 56904.19,
+      "equity_rub": 46904.19,
       "cash_rub": 46904.19,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-25 20:31:00",
-      "equity_rub": 56902.86,
+      "equity_rub": 46902.86,
       "cash_rub": 46902.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-26 10:14:00",
-      "equity_rub": 56902.82,
+      "equity_rub": 46902.82,
       "cash_rub": 46902.82,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-26 10:43:00",
-      "equity_rub": 56887.2,
+      "equity_rub": 46887.2,
       "cash_rub": 46887.2,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-26 11:40:00",
-      "equity_rub": 56884.47,
+      "equity_rub": 46884.47,
       "cash_rub": 46884.47,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-27 11:02:00",
-      "equity_rub": 56884.76,
+      "equity_rub": 46884.76,
       "cash_rub": 46884.76,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-27 15:42:00",
-      "equity_rub": 56886.69,
+      "equity_rub": 46886.69,
       "cash_rub": 46886.69,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-27 17:32:00",
-      "equity_rub": 56872.96,
+      "equity_rub": 46872.96,
       "cash_rub": 46872.96,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-29 16:02:00",
-      "equity_rub": 56863.36,
+      "equity_rub": 46863.36,
       "cash_rub": 46863.36,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-30 07:22:00",
-      "equity_rub": 56868.69,
+      "equity_rub": 46868.69,
       "cash_rub": 46868.69,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-30 08:49:00",
-      "equity_rub": 56867.56,
+      "equity_rub": 46867.56,
       "cash_rub": 46867.56,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-30 13:50:00",
-      "equity_rub": 56865.9,
+      "equity_rub": 46865.9,
       "cash_rub": 46865.9,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-31 12:20:00",
-      "equity_rub": 56867.15,
+      "equity_rub": 46867.15,
       "cash_rub": 46867.15,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-31 13:09:00",
-      "equity_rub": 56864.33,
+      "equity_rub": 46864.33,
       "cash_rub": 46864.33,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-31 16:18:00",
-      "equity_rub": 56868.42,
+      "equity_rub": 46868.42,
       "cash_rub": 46868.42,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-31 17:01:00",
-      "equity_rub": 56866.77,
+      "equity_rub": 46866.77,
       "cash_rub": 46866.77,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-03-31 21:00:00",
-      "equity_rub": 56856.09,
+      "equity_rub": 46856.09,
       "cash_rub": 46856.09,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-01 07:32:00",
-      "equity_rub": 56840.39,
+      "equity_rub": 46840.39,
       "cash_rub": 46840.39,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-01 11:26:00",
-      "equity_rub": 56820.25,
+      "equity_rub": 46820.25,
       "cash_rub": 46820.25,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-03 09:00:00",
-      "equity_rub": 56809.38,
+      "equity_rub": 46809.38,
       "cash_rub": 46809.38,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-03 14:52:00",
-      "equity_rub": 56815.56,
+      "equity_rub": 46815.56,
       "cash_rub": 46815.56,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-03 15:32:00",
-      "equity_rub": 56790.29,
+      "equity_rub": 46790.29,
       "cash_rub": 46790.29,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-06 21:13:00",
-      "equity_rub": 56775.93,
+      "equity_rub": 46775.93,
       "cash_rub": 46775.93,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-07 07:25:00",
-      "equity_rub": 56761.85,
+      "equity_rub": 46761.85,
       "cash_rub": 46761.85,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-07 12:23:00",
-      "equity_rub": 56749.46,
+      "equity_rub": 46749.46,
       "cash_rub": 46749.46,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-07 16:19:00",
-      "equity_rub": 56757.34,
+      "equity_rub": 46757.34,
       "cash_rub": 46757.34,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-07 16:53:00",
-      "equity_rub": 56738.61,
+      "equity_rub": 46738.61,
       "cash_rub": 46738.61,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-08 11:33:00",
-      "equity_rub": 56742.46,
+      "equity_rub": 46742.46,
       "cash_rub": 46742.46,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-08 14:30:00",
-      "equity_rub": 56743.16,
+      "equity_rub": 46743.16,
       "cash_rub": 46743.16,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-09 11:11:00",
-      "equity_rub": 56742.36,
+      "equity_rub": 46742.36,
       "cash_rub": 46742.36,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-09 11:30:00",
-      "equity_rub": 56731.91,
+      "equity_rub": 46731.91,
       "cash_rub": 46731.91,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-09 21:23:00",
-      "equity_rub": 56731.24,
+      "equity_rub": 46731.24,
       "cash_rub": 46731.24,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-10 12:19:00",
-      "equity_rub": 56729.73,
+      "equity_rub": 46729.73,
       "cash_rub": 46729.73,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-11 17:25:00",
-      "equity_rub": 56718.25,
+      "equity_rub": 46718.25,
       "cash_rub": 46718.25,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-13 07:20:00",
-      "equity_rub": 56695.48,
+      "equity_rub": 46695.48,
       "cash_rub": 46695.48,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-13 14:19:00",
-      "equity_rub": 56684.13,
+      "equity_rub": 46684.13,
       "cash_rub": 46684.13,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-13 14:20:00",
-      "equity_rub": 56660.63,
+      "equity_rub": 46660.63,
       "cash_rub": 46660.63,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-13 16:28:00",
-      "equity_rub": 56662.11,
+      "equity_rub": 46662.11,
       "cash_rub": 46662.11,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-13 18:29:00",
-      "equity_rub": 56661.85,
+      "equity_rub": 46661.85,
       "cash_rub": 46661.85,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-13 20:46:00",
-      "equity_rub": 56651.78,
+      "equity_rub": 46651.78,
       "cash_rub": 46651.78,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-14 07:15:00",
-      "equity_rub": 56661.63,
+      "equity_rub": 46661.63,
       "cash_rub": 46661.63,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-14 12:14:00",
-      "equity_rub": 56663.15,
+      "equity_rub": 46663.15,
       "cash_rub": 46663.15,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-14 17:02:00",
-      "equity_rub": 56661.79,
+      "equity_rub": 46661.79,
       "cash_rub": 46661.79,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-14 23:30:00",
-      "equity_rub": 56652.26,
+      "equity_rub": 46652.26,
       "cash_rub": 46652.26,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-15 08:15:00",
-      "equity_rub": 56642.94,
+      "equity_rub": 46642.94,
       "cash_rub": 46642.94,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-15 10:11:00",
-      "equity_rub": 56648.9,
+      "equity_rub": 46648.9,
       "cash_rub": 46648.9,
+      "open_positions": 0
+    },
+    {
+      "ts": "2026-04-15 10:28:00",
+      "equity_rub": 46647.45,
+      "cash_rub": 36647.45,
       "open_positions": 1
     },
     {
       "ts": "2026-04-15 10:28:00",
-      "equity_rub": 56647.45,
-      "cash_rub": 36647.45,
-      "open_positions": 2
-    },
-    {
-      "ts": "2026-04-15 10:28:00",
-      "equity_rub": 66649.82,
+      "equity_rub": 46649.82,
       "cash_rub": 46649.82,
-      "open_positions": 2
+      "open_positions": 0
     },
     {
       "ts": "2026-04-15 10:45:00",
-      "equity_rub": 56648.51,
+      "equity_rub": 46648.51,
       "cash_rub": 46648.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-15 14:39:00",
-      "equity_rub": 56650.01,
+      "equity_rub": 46650.01,
       "cash_rub": 46650.01,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-16 17:51:00",
-      "equity_rub": 56639.89,
+      "equity_rub": 46639.89,
       "cash_rub": 46639.89,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-16 19:47:00",
-      "equity_rub": 56636.68,
+      "equity_rub": 46636.68,
       "cash_rub": 46636.68,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-16 23:32:00",
-      "equity_rub": 56633.68,
+      "equity_rub": 46633.68,
       "cash_rub": 46633.68,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-17 07:20:00",
-      "equity_rub": 56637.07,
+      "equity_rub": 46637.07,
       "cash_rub": 46637.07,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-17 13:09:00",
-      "equity_rub": 56638.53,
+      "equity_rub": 46638.53,
       "cash_rub": 46638.53,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-17 15:36:00",
-      "equity_rub": 56625.75,
+      "equity_rub": 46625.75,
       "cash_rub": 46625.75,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-19 17:45:00",
-      "equity_rub": 56622.55,
+      "equity_rub": 46622.55,
       "cash_rub": 46622.55,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-20 12:29:00",
-      "equity_rub": 56609.66,
+      "equity_rub": 46609.66,
       "cash_rub": 46609.66,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-20 17:02:00",
-      "equity_rub": 56586.17,
+      "equity_rub": 46586.17,
       "cash_rub": 46586.17,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-21 09:51:00",
-      "equity_rub": 56705.86,
+      "equity_rub": 46705.86,
       "cash_rub": 46705.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-21 10:57:00",
-      "equity_rub": 56694.76,
+      "equity_rub": 46694.76,
       "cash_rub": 46694.76,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-22 07:01:00",
-      "equity_rub": 56728.95,
+      "equity_rub": 46728.95,
       "cash_rub": 46728.95,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-22 12:21:00",
-      "equity_rub": 56687.61,
+      "equity_rub": 46687.61,
       "cash_rub": 46687.61,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-22 20:38:00",
-      "equity_rub": 56689.74,
+      "equity_rub": 46689.74,
       "cash_rub": 46689.74,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-23 13:36:00",
-      "equity_rub": 56694.67,
+      "equity_rub": 46694.67,
       "cash_rub": 46694.67,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-24 07:05:00",
-      "equity_rub": 56702.02,
+      "equity_rub": 46702.02,
       "cash_rub": 46702.02,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-24 18:57:00",
-      "equity_rub": 56687.6,
+      "equity_rub": 46687.6,
       "cash_rub": 46687.6,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-24 19:00:00",
-      "equity_rub": 56687.4,
+      "equity_rub": 46687.4,
       "cash_rub": 46687.4,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-27 10:00:00",
-      "equity_rub": 56687.73,
+      "equity_rub": 46687.73,
       "cash_rub": 46687.73,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-27 11:27:00",
-      "equity_rub": 56686.2,
+      "equity_rub": 46686.2,
       "cash_rub": 46686.2,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-27 18:14:00",
-      "equity_rub": 56674.65,
+      "equity_rub": 46674.65,
       "cash_rub": 46674.65,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-27 21:24:00",
-      "equity_rub": 56670.14,
+      "equity_rub": 46670.14,
       "cash_rub": 46670.14,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-27 22:13:00",
-      "equity_rub": 56669.69,
+      "equity_rub": 46669.69,
       "cash_rub": 46669.69,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-28 07:13:00",
-      "equity_rub": 56654.37,
+      "equity_rub": 46654.37,
       "cash_rub": 46654.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-28 08:30:00",
-      "equity_rub": 56656.75,
+      "equity_rub": 46656.75,
       "cash_rub": 46656.75,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-28 08:37:00",
-      "equity_rub": 56656.0,
+      "equity_rub": 46656.0,
       "cash_rub": 46656.0,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-28 09:29:00",
-      "equity_rub": 56655.77,
+      "equity_rub": 46655.77,
       "cash_rub": 46655.77,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-28 10:09:00",
-      "equity_rub": 56653.31,
+      "equity_rub": 46653.31,
       "cash_rub": 46653.31,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-28 14:12:00",
-      "equity_rub": 56652.97,
+      "equity_rub": 46652.97,
       "cash_rub": 46652.97,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-28 16:00:00",
-      "equity_rub": 56630.94,
+      "equity_rub": 46630.94,
       "cash_rub": 46630.94,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-28 17:56:00",
-      "equity_rub": 56614.94,
+      "equity_rub": 46614.94,
       "cash_rub": 46614.94,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-29 09:46:00",
-      "equity_rub": 56613.12,
+      "equity_rub": 46613.12,
       "cash_rub": 46613.12,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-29 17:59:00",
-      "equity_rub": 56600.75,
+      "equity_rub": 46600.75,
       "cash_rub": 46600.75,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-29 18:15:00",
-      "equity_rub": 56608.13,
+      "equity_rub": 46608.13,
       "cash_rub": 46608.13,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-29 23:32:00",
-      "equity_rub": 56595.13,
+      "equity_rub": 46595.13,
       "cash_rub": 46595.13,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-29 23:39:00",
-      "equity_rub": 56592.58,
+      "equity_rub": 46592.58,
       "cash_rub": 46592.58,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-04-30 09:16:00",
-      "equity_rub": 56601.11,
+      "equity_rub": 46601.11,
       "cash_rub": 46601.11,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-04 07:03:00",
-      "equity_rub": 56603.74,
+      "equity_rub": 46603.74,
       "cash_rub": 36603.74,
-      "open_positions": 2
-    },
-    {
-      "ts": "2026-05-04 08:49:00",
-      "equity_rub": 56639.34,
-      "cash_rub": 36639.34,
-      "open_positions": 2
+      "open_positions": 1
     },
     {
       "ts": "2026-05-04 07:59:00",
-      "equity_rub": 66638.71,
+      "equity_rub": 46603.1,
+      "cash_rub": 36603.1,
+      "open_positions": 1
+    },
+    {
+      "ts": "2026-05-04 08:49:00",
+      "equity_rub": 46638.71,
       "cash_rub": 46638.71,
-      "open_positions": 2
+      "open_positions": 0
     },
     {
       "ts": "2026-05-04 14:44:00",
-      "equity_rub": 56644.45,
+      "equity_rub": 46644.45,
       "cash_rub": 46644.45,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-04 18:08:00",
-      "equity_rub": 56632.98,
+      "equity_rub": 46632.98,
       "cash_rub": 46632.98,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-05 10:58:00",
-      "equity_rub": 56617.2,
+      "equity_rub": 46617.2,
       "cash_rub": 46617.2,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-05 11:11:00",
-      "equity_rub": 56622.19,
+      "equity_rub": 46622.19,
       "cash_rub": 46622.19,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-06 12:46:00",
-      "equity_rub": 56607.55,
+      "equity_rub": 46607.55,
       "cash_rub": 46607.55,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-06 13:06:00",
-      "equity_rub": 56605.68,
+      "equity_rub": 46605.68,
       "cash_rub": 46605.68,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-06 15:46:00",
-      "equity_rub": 56604.22,
+      "equity_rub": 46604.22,
       "cash_rub": 46604.22,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-07 11:40:00",
-      "equity_rub": 56590.17,
+      "equity_rub": 46590.17,
       "cash_rub": 36590.17,
-      "open_positions": 2
+      "open_positions": 1
     },
     {
       "ts": "2026-05-07 11:42:00",
-      "equity_rub": 66580.34,
+      "equity_rub": 46580.34,
       "cash_rub": 46580.34,
-      "open_positions": 2
+      "open_positions": 0
     },
     {
       "ts": "2026-05-07 13:17:00",
-      "equity_rub": 56563.84,
+      "equity_rub": 46563.84,
       "cash_rub": 46563.84,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-07 15:33:00",
-      "equity_rub": 56562.43,
+      "equity_rub": 46562.43,
       "cash_rub": 46562.43,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-07 16:07:00",
-      "equity_rub": 56562.66,
+      "equity_rub": 46562.66,
       "cash_rub": 46562.66,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-07 23:36:00",
-      "equity_rub": 56561.28,
+      "equity_rub": 46561.28,
       "cash_rub": 46561.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-08 09:08:00",
-      "equity_rub": 56559.88,
+      "equity_rub": 46559.88,
       "cash_rub": 46559.88,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-08 10:43:00",
-      "equity_rub": 56547.85,
+      "equity_rub": 46547.85,
       "cash_rub": 46547.85,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-08 16:44:00",
-      "equity_rub": 56532.52,
+      "equity_rub": 46532.52,
       "cash_rub": 46532.52,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-11 16:27:00",
-      "equity_rub": 56532.09,
+      "equity_rub": 46532.09,
       "cash_rub": 46532.09,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-12 15:28:00",
-      "equity_rub": 56530.04,
+      "equity_rub": 46530.04,
       "cash_rub": 46530.04,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-12 19:36:00",
-      "equity_rub": 56530.64,
+      "equity_rub": 46530.64,
       "cash_rub": 46530.64,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-12 21:58:00",
-      "equity_rub": 56530.36,
+      "equity_rub": 46530.36,
       "cash_rub": 46530.36,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-13 13:52:00",
-      "equity_rub": 56529.52,
+      "equity_rub": 46529.52,
       "cash_rub": 46529.52,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-13 14:23:00",
-      "equity_rub": 56518.51,
+      "equity_rub": 46518.51,
       "cash_rub": 46518.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-14 09:06:00",
-      "equity_rub": 56518.15,
+      "equity_rub": 46518.15,
       "cash_rub": 46518.15,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-14 15:04:00",
-      "equity_rub": 56521.5,
+      "equity_rub": 46521.5,
       "cash_rub": 46521.5,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-15 17:42:00",
-      "equity_rub": 56533.93,
+      "equity_rub": 46533.93,
       "cash_rub": 46533.93,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-15 23:44:00",
-      "equity_rub": 56531.49,
+      "equity_rub": 46531.49,
       "cash_rub": 46531.49,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-18 16:00:00",
-      "equity_rub": 56530.89,
+      "equity_rub": 46530.89,
       "cash_rub": 46530.89,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-18 21:53:00",
-      "equity_rub": 56529.2,
+      "equity_rub": 46529.2,
       "cash_rub": 46529.2,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-19 07:00:00",
-      "equity_rub": 56529.22,
+      "equity_rub": 46529.22,
       "cash_rub": 46529.22,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-19 07:11:00",
-      "equity_rub": 56513.86,
+      "equity_rub": 46513.86,
       "cash_rub": 46513.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-19 13:37:00",
-      "equity_rub": 56512.44,
+      "equity_rub": 46512.44,
       "cash_rub": 46512.44,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-20 07:43:00",
-      "equity_rub": 56512.09,
+      "equity_rub": 46512.09,
       "cash_rub": 46512.09,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-20 11:15:00",
-      "equity_rub": 56500.7,
+      "equity_rub": 46500.7,
       "cash_rub": 46500.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-20 17:38:00",
-      "equity_rub": 56481.81,
+      "equity_rub": 46481.81,
       "cash_rub": 46481.81,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-21 09:13:00",
-      "equity_rub": 56468.34,
+      "equity_rub": 46468.34,
       "cash_rub": 46468.34,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-21 10:18:00",
-      "equity_rub": 56452.43,
+      "equity_rub": 46452.43,
       "cash_rub": 46452.43,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-21 10:30:00",
-      "equity_rub": 56395.96,
+      "equity_rub": 46395.96,
       "cash_rub": 46395.96,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-22 15:30:00",
-      "equity_rub": 56398.64,
+      "equity_rub": 46398.64,
       "cash_rub": 46398.64,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-22 18:04:00",
-      "equity_rub": 56386.43,
+      "equity_rub": 46386.43,
       "cash_rub": 46386.43,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-22 18:18:00",
-      "equity_rub": 56363.05,
+      "equity_rub": 46363.05,
       "cash_rub": 46363.05,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-22 18:42:00",
-      "equity_rub": 56374.29,
+      "equity_rub": 46374.29,
       "cash_rub": 46374.29,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-25 10:08:00",
-      "equity_rub": 56361.13,
+      "equity_rub": 46361.13,
       "cash_rub": 46361.13,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-25 14:51:00",
-      "equity_rub": 56361.24,
+      "equity_rub": 46361.24,
       "cash_rub": 46361.24,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-25 17:23:00",
-      "equity_rub": 56348.28,
+      "equity_rub": 46348.28,
       "cash_rub": 46348.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-25 18:14:00",
-      "equity_rub": 56348.43,
+      "equity_rub": 46348.43,
       "cash_rub": 46348.43,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-26 10:33:00",
-      "equity_rub": 56353.41,
+      "equity_rub": 46353.41,
       "cash_rub": 46353.41,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-26 13:17:00",
-      "equity_rub": 56339.63,
+      "equity_rub": 46339.63,
       "cash_rub": 46339.63,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-26 15:09:00",
-      "equity_rub": 56326.85,
+      "equity_rub": 46326.85,
       "cash_rub": 46326.85,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-26 17:57:00",
-      "equity_rub": 56345.02,
+      "equity_rub": 46345.02,
       "cash_rub": 46345.02,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-26 18:16:00",
-      "equity_rub": 56330.04,
+      "equity_rub": 46330.04,
       "cash_rub": 46330.04,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-27 08:57:00",
-      "equity_rub": 56311.12,
+      "equity_rub": 46311.12,
       "cash_rub": 46311.12,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-28 16:23:00",
-      "equity_rub": 56309.01,
+      "equity_rub": 46309.01,
       "cash_rub": 46309.01,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-29 09:58:00",
-      "equity_rub": 56293.61,
+      "equity_rub": 46293.61,
       "cash_rub": 46293.61,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-29 11:03:00",
-      "equity_rub": 56292.12,
+      "equity_rub": 46292.12,
       "cash_rub": 46292.12,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-05-30 12:03:00",
-      "equity_rub": 56280.64,
+      "equity_rub": 46280.64,
       "cash_rub": 46280.64,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-01 08:18:00",
-      "equity_rub": 56281.01,
+      "equity_rub": 46281.01,
       "cash_rub": 46281.01,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-01 09:06:00",
-      "equity_rub": 56278.69,
+      "equity_rub": 46278.69,
       "cash_rub": 46278.69,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-01 14:19:00",
-      "equity_rub": 56275.59,
+      "equity_rub": 46275.59,
       "cash_rub": 46275.59,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-01 23:32:00",
-      "equity_rub": 56267.34,
+      "equity_rub": 46267.34,
       "cash_rub": 46267.34,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-02 10:15:00",
-      "equity_rub": 56294.21,
+      "equity_rub": 46294.21,
       "cash_rub": 36294.21,
-      "open_positions": 2
+      "open_positions": 1
     },
     {
       "ts": "2026-06-02 10:17:00",
-      "equity_rub": 66293.6,
+      "equity_rub": 46293.6,
       "cash_rub": 46293.6,
-      "open_positions": 2
+      "open_positions": 0
     },
     {
       "ts": "2026-06-02 21:55:00",
-      "equity_rub": 56290.6,
+      "equity_rub": 46290.6,
       "cash_rub": 46290.6,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-02 21:58:00",
-      "equity_rub": 56287.07,
+      "equity_rub": 46287.07,
       "cash_rub": 46287.07,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-03 07:04:00",
-      "equity_rub": 56298.91,
+      "equity_rub": 46298.91,
       "cash_rub": 46298.91,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-03 09:02:00",
-      "equity_rub": 56286.59,
+      "equity_rub": 46286.59,
       "cash_rub": 46286.59,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-03 10:27:00",
-      "equity_rub": 56287.01,
+      "equity_rub": 46287.01,
       "cash_rub": 46287.01,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-03 10:55:00",
-      "equity_rub": 56287.64,
+      "equity_rub": 46287.64,
       "cash_rub": 46287.64,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-03 14:06:00",
-      "equity_rub": 56286.47,
+      "equity_rub": 46286.47,
       "cash_rub": 46286.47,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-03 15:54:00",
-      "equity_rub": 56293.21,
+      "equity_rub": 46293.21,
       "cash_rub": 46293.21,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-03 22:02:00",
-      "equity_rub": 56282.84,
+      "equity_rub": 46282.84,
       "cash_rub": 46282.84,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-03 22:11:00",
-      "equity_rub": 56267.95,
+      "equity_rub": 46267.95,
       "cash_rub": 46267.95,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-04 14:35:00",
-      "equity_rub": 56252.5,
+      "equity_rub": 46252.5,
       "cash_rub": 46252.5,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-05 17:34:00",
-      "equity_rub": 56251.44,
+      "equity_rub": 46251.44,
       "cash_rub": 46251.44,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-07 18:44:00",
-      "equity_rub": 56249.49,
+      "equity_rub": 46249.49,
       "cash_rub": 46249.49,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-08 10:34:00",
-      "equity_rub": 56230.08,
+      "equity_rub": 46230.08,
       "cash_rub": 46230.08,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-08 15:28:00",
-      "equity_rub": 56236.96,
+      "equity_rub": 46236.96,
       "cash_rub": 46236.96,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-09 08:13:00",
-      "equity_rub": 56243.8,
+      "equity_rub": 46243.8,
       "cash_rub": 46243.8,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-09 09:51:00",
-      "equity_rub": 56242.01,
+      "equity_rub": 46242.01,
       "cash_rub": 46242.01,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-09 09:55:00",
-      "equity_rub": 56229.89,
+      "equity_rub": 46229.89,
       "cash_rub": 46229.89,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-09 12:09:00",
-      "equity_rub": 56239.27,
+      "equity_rub": 46239.27,
       "cash_rub": 46239.27,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-09 13:41:00",
-      "equity_rub": 56223.23,
+      "equity_rub": 46223.23,
       "cash_rub": 46223.23,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-09 17:41:00",
-      "equity_rub": 56212.14,
+      "equity_rub": 46212.14,
       "cash_rub": 46212.14,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-10 11:07:00",
-      "equity_rub": 56193.32,
+      "equity_rub": 46193.32,
       "cash_rub": 46193.32,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-14 12:44:00",
-      "equity_rub": 56185.42,
+      "equity_rub": 46185.42,
       "cash_rub": 46185.42,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-14 16:48:00",
-      "equity_rub": 56176.02,
+      "equity_rub": 46176.02,
       "cash_rub": 46176.02,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-15 10:53:00",
-      "equity_rub": 56174.57,
+      "equity_rub": 46174.57,
       "cash_rub": 46174.57,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-15 13:15:00",
-      "equity_rub": 56160.98,
+      "equity_rub": 46160.98,
       "cash_rub": 46160.98,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-15 16:20:00",
-      "equity_rub": 56158.24,
+      "equity_rub": 46158.24,
       "cash_rub": 46158.24,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-16 10:14:00",
-      "equity_rub": 56160.65,
+      "equity_rub": 46160.65,
       "cash_rub": 46160.65,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-16 15:00:00",
-      "equity_rub": 56132.86,
+      "equity_rub": 46132.86,
       "cash_rub": 46132.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-16 15:39:00",
-      "equity_rub": 56112.54,
+      "equity_rub": 46112.54,
       "cash_rub": 46112.54,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-17 18:02:00",
-      "equity_rub": 56116.69,
+      "equity_rub": 46116.69,
       "cash_rub": 46116.69,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-17 18:09:00",
-      "equity_rub": 56119.66,
+      "equity_rub": 46119.66,
       "cash_rub": 46119.66,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-17 18:25:00",
-      "equity_rub": 56114.89,
+      "equity_rub": 46114.89,
       "cash_rub": 46114.89,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-17 18:41:00",
-      "equity_rub": 56105.58,
+      "equity_rub": 46105.58,
       "cash_rub": 46105.58,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-18 07:04:00",
-      "equity_rub": 56085.69,
+      "equity_rub": 46085.69,
       "cash_rub": 46085.69,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-18 08:00:00",
-      "equity_rub": 56064.7,
+      "equity_rub": 46064.7,
       "cash_rub": 46064.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-18 14:27:00",
-      "equity_rub": 56063.13,
+      "equity_rub": 46063.13,
       "cash_rub": 46063.13,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-19 07:15:00",
-      "equity_rub": 56037.02,
+      "equity_rub": 46037.02,
       "cash_rub": 46037.02,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-19 12:51:00",
-      "equity_rub": 56023.93,
+      "equity_rub": 46023.93,
       "cash_rub": 46023.93,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-19 13:32:00",
-      "equity_rub": 56046.51,
+      "equity_rub": 46046.51,
       "cash_rub": 46046.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-22 10:18:00",
-      "equity_rub": 56051.51,
+      "equity_rub": 46051.51,
       "cash_rub": 46051.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-22 12:53:00",
-      "equity_rub": 56036.83,
+      "equity_rub": 46036.83,
       "cash_rub": 46036.83,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-22 14:37:00",
-      "equity_rub": 56021.65,
+      "equity_rub": 46021.65,
       "cash_rub": 46021.65,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-22 14:55:00",
-      "equity_rub": 55994.06,
+      "equity_rub": 45994.06,
       "cash_rub": 45994.06,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-22 16:28:00",
-      "equity_rub": 55999.66,
+      "equity_rub": 45999.66,
       "cash_rub": 45999.66,
+      "open_positions": 0
+    },
+    {
+      "ts": "2026-06-22 16:45:00",
+      "equity_rub": 46009.19,
+      "cash_rub": 36009.19,
       "open_positions": 1
     },
     {
       "ts": "2026-06-22 16:47:00",
-      "equity_rub": 55983.44,
-      "cash_rub": 35983.44,
-      "open_positions": 2
-    },
-    {
-      "ts": "2026-06-22 16:45:00",
-      "equity_rub": 65992.97,
+      "equity_rub": 45992.97,
       "cash_rub": 45992.97,
-      "open_positions": 2
+      "open_positions": 0
     },
     {
       "ts": "2026-06-22 17:25:00",
-      "equity_rub": 56010.83,
+      "equity_rub": 46010.83,
       "cash_rub": 46010.83,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-22 19:46:00",
-      "equity_rub": 55995.28,
+      "equity_rub": 45995.28,
       "cash_rub": 45995.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-22 21:48:00",
-      "equity_rub": 55981.84,
+      "equity_rub": 45981.84,
       "cash_rub": 45981.84,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-23 07:05:00",
-      "equity_rub": 55999.86,
+      "equity_rub": 45999.86,
       "cash_rub": 45999.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-23 11:20:00",
-      "equity_rub": 56008.39,
+      "equity_rub": 46008.39,
       "cash_rub": 46008.39,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-23 14:26:00",
-      "equity_rub": 55982.48,
+      "equity_rub": 45982.48,
       "cash_rub": 45982.48,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-24 09:54:00",
-      "equity_rub": 55939.72,
+      "equity_rub": 45939.72,
       "cash_rub": 45939.72,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-25 19:19:00",
-      "equity_rub": 55917.27,
+      "equity_rub": 45917.27,
       "cash_rub": 45917.27,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-26 08:47:00",
-      "equity_rub": 55900.8,
+      "equity_rub": 45900.8,
       "cash_rub": 45900.8,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-26 13:00:00",
-      "equity_rub": 55886.4,
+      "equity_rub": 45886.4,
       "cash_rub": 45886.4,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-26 17:07:00",
-      "equity_rub": 55904.25,
+      "equity_rub": 45904.25,
       "cash_rub": 45904.25,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-26 17:55:00",
-      "equity_rub": 55907.74,
+      "equity_rub": 45907.74,
       "cash_rub": 45907.74,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-26 18:25:00",
-      "equity_rub": 55912.07,
+      "equity_rub": 45912.07,
       "cash_rub": 45912.07,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-27 10:03:00",
-      "equity_rub": 55926.05,
+      "equity_rub": 45926.05,
       "cash_rub": 45926.05,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-27 12:34:00",
-      "equity_rub": 55924.28,
+      "equity_rub": 45924.28,
       "cash_rub": 45924.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-29 10:31:00",
-      "equity_rub": 55934.25,
+      "equity_rub": 45934.25,
       "cash_rub": 45934.25,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-29 16:23:00",
-      "equity_rub": 55942.83,
+      "equity_rub": 45942.83,
       "cash_rub": 45942.83,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-29 17:40:00",
-      "equity_rub": 55962.95,
+      "equity_rub": 45962.95,
       "cash_rub": 45962.95,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-29 23:16:00",
-      "equity_rub": 55949.4,
+      "equity_rub": 45949.4,
       "cash_rub": 45949.4,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-30 08:58:00",
-      "equity_rub": 55951.22,
+      "equity_rub": 45951.22,
       "cash_rub": 45951.22,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-30 12:57:00",
-      "equity_rub": 55962.76,
+      "equity_rub": 45962.76,
       "cash_rub": 35962.76,
-      "open_positions": 2
+      "open_positions": 1
     },
     {
       "ts": "2026-06-30 13:08:00",
-      "equity_rub": 65934.45,
+      "equity_rub": 45934.45,
       "cash_rub": 45934.45,
-      "open_positions": 2
+      "open_positions": 0
     },
     {
       "ts": "2026-06-30 16:31:00",
-      "equity_rub": 55937.29,
+      "equity_rub": 45937.29,
       "cash_rub": 45937.29,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-06-30 16:55:00",
-      "equity_rub": 55903.59,
+      "equity_rub": 45903.59,
       "cash_rub": 45903.59,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-01 09:57:00",
-      "equity_rub": 55909.22,
+      "equity_rub": 45909.22,
       "cash_rub": 45909.22,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-01 16:06:00",
-      "equity_rub": 55894.16,
+      "equity_rub": 45894.16,
       "cash_rub": 45894.16,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-01 17:03:00",
-      "equity_rub": 55900.33,
+      "equity_rub": 45900.33,
       "cash_rub": 45900.33,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-02 11:00:00",
-      "equity_rub": 55884.05,
+      "equity_rub": 45884.05,
       "cash_rub": 45884.05,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-02 11:30:00",
-      "equity_rub": 55891.35,
+      "equity_rub": 45891.35,
       "cash_rub": 45891.35,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-02 11:59:00",
-      "equity_rub": 55891.6,
+      "equity_rub": 45891.6,
       "cash_rub": 45891.6,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-02 14:05:00",
-      "equity_rub": 55898.09,
+      "equity_rub": 45898.09,
       "cash_rub": 45898.09,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-02 15:32:00",
-      "equity_rub": 55873.94,
+      "equity_rub": 45873.94,
       "cash_rub": 45873.94,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-03 10:45:00",
-      "equity_rub": 55853.86,
+      "equity_rub": 45853.86,
       "cash_rub": 45853.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-03 13:02:00",
-      "equity_rub": 55858.2,
+      "equity_rub": 45858.2,
       "cash_rub": 45858.2,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-03 15:08:00",
-      "equity_rub": 55834.08,
+      "equity_rub": 45834.08,
       "cash_rub": 45834.08,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-06 09:47:00",
-      "equity_rub": 55849.14,
+      "equity_rub": 45849.14,
       "cash_rub": 45849.14,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-06 15:34:00",
-      "equity_rub": 55852.27,
+      "equity_rub": 45852.27,
       "cash_rub": 45852.27,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-06 16:43:00",
-      "equity_rub": 55830.96,
+      "equity_rub": 45830.96,
       "cash_rub": 45830.96,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-07 07:16:00",
-      "equity_rub": 55800.17,
+      "equity_rub": 45800.17,
       "cash_rub": 45800.17,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-07 09:55:00",
-      "equity_rub": 55811.59,
+      "equity_rub": 45811.59,
       "cash_rub": 45811.59,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-07 10:36:00",
-      "equity_rub": 55821.35,
+      "equity_rub": 45821.35,
       "cash_rub": 45821.35,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-07 14:11:00",
-      "equity_rub": 55833.81,
+      "equity_rub": 45833.81,
       "cash_rub": 45833.81,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-07 15:34:00",
-      "equity_rub": 55815.08,
+      "equity_rub": 45815.08,
       "cash_rub": 45815.08,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-08 13:15:00",
-      "equity_rub": 55827.8,
+      "equity_rub": 45827.8,
       "cash_rub": 45827.8,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-08 14:19:00",
-      "equity_rub": 55831.49,
+      "equity_rub": 45831.49,
       "cash_rub": 45831.49,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-08 14:50:00",
-      "equity_rub": 55831.83,
+      "equity_rub": 45831.83,
       "cash_rub": 45831.83,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-08 16:04:00",
-      "equity_rub": 55850.43,
+      "equity_rub": 45850.43,
       "cash_rub": 45850.43,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-09 13:07:00",
-      "equity_rub": 55835.19,
+      "equity_rub": 45835.19,
       "cash_rub": 45835.19,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-09 20:56:00",
-      "equity_rub": 55835.07,
+      "equity_rub": 45835.07,
       "cash_rub": 45835.07,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-10 17:56:00",
-      "equity_rub": 55820.89,
+      "equity_rub": 45820.89,
       "cash_rub": 45820.89,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-12 11:37:00",
-      "equity_rub": 55811.34,
+      "equity_rub": 45811.34,
       "cash_rub": 45811.34,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-12 14:05:00",
-      "equity_rub": 55809.92,
+      "equity_rub": 45809.92,
       "cash_rub": 45809.92,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-13 08:06:00",
-      "equity_rub": 55808.97,
+      "equity_rub": 45808.97,
       "cash_rub": 45808.97,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-13 18:11:00",
-      "equity_rub": 55789.66,
+      "equity_rub": 45789.66,
       "cash_rub": 45789.66,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-13 19:23:00",
-      "equity_rub": 55790.93,
+      "equity_rub": 45790.93,
       "cash_rub": 45790.93,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-13 22:33:00",
-      "equity_rub": 55777.34,
+      "equity_rub": 45777.34,
       "cash_rub": 45777.34,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-14 13:12:00",
-      "equity_rub": 55779.78,
+      "equity_rub": 45779.78,
       "cash_rub": 45779.78,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-15 08:30:00",
-      "equity_rub": 55778.79,
+      "equity_rub": 45778.79,
       "cash_rub": 45778.79,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-15 10:55:00",
-      "equity_rub": 55781.52,
+      "equity_rub": 45781.52,
       "cash_rub": 45781.52,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-15 11:55:00",
-      "equity_rub": 55787.08,
+      "equity_rub": 45787.08,
       "cash_rub": 45787.08,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-15 18:08:00",
-      "equity_rub": 55763.15,
+      "equity_rub": 45763.15,
       "cash_rub": 45763.15,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-16 07:49:00",
-      "equity_rub": 55767.2,
+      "equity_rub": 45767.2,
       "cash_rub": 45767.2,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-16 10:23:00",
-      "equity_rub": 55784.06,
+      "equity_rub": 45784.06,
       "cash_rub": 45784.06,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-17 16:01:00",
-      "equity_rub": 55781.54,
+      "equity_rub": 45781.54,
       "cash_rub": 45781.54,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-17 18:29:00",
-      "equity_rub": 55762.02,
+      "equity_rub": 45762.02,
       "cash_rub": 45762.02,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-20 07:00:00",
-      "equity_rub": 55857.25,
+      "equity_rub": 45857.25,
       "cash_rub": 45857.25,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-20 08:50:00",
-      "equity_rub": 55834.06,
+      "equity_rub": 45834.06,
       "cash_rub": 45834.06,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-20 19:54:00",
-      "equity_rub": 55797.78,
+      "equity_rub": 45797.78,
       "cash_rub": 45797.78,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-21 10:58:00",
-      "equity_rub": 55764.28,
+      "equity_rub": 45764.28,
       "cash_rub": 35764.28,
-      "open_positions": 2
+      "open_positions": 1
     },
     {
       "ts": "2026-07-21 11:00:00",
-      "equity_rub": 65779.8,
+      "equity_rub": 45779.8,
       "cash_rub": 45779.8,
-      "open_positions": 2
+      "open_positions": 0
     },
     {
       "ts": "2026-07-21 18:19:00",
-      "equity_rub": 55789.32,
+      "equity_rub": 45789.32,
       "cash_rub": 45789.32,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-22 07:14:00",
-      "equity_rub": 55800.42,
+      "equity_rub": 45800.42,
       "cash_rub": 45800.42,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-22 07:32:00",
-      "equity_rub": 55819.44,
+      "equity_rub": 45819.44,
       "cash_rub": 45819.44,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-23 10:59:00",
-      "equity_rub": 55829.31,
+      "equity_rub": 45829.31,
       "cash_rub": 45829.31,
+      "open_positions": 0
+    },
+    {
+      "ts": "2026-07-23 11:29:00",
+      "equity_rub": 45843.56,
+      "cash_rub": 35843.56,
       "open_positions": 1
     },
     {
       "ts": "2026-07-23 11:29:00",
-      "equity_rub": 55843.56,
-      "cash_rub": 35843.56,
-      "open_positions": 2
-    },
-    {
-      "ts": "2026-07-23 11:29:00",
-      "equity_rub": 65855.7,
+      "equity_rub": 45855.7,
       "cash_rub": 45855.7,
-      "open_positions": 2
+      "open_positions": 0
     },
     {
       "ts": "2026-07-23 18:03:00",
-      "equity_rub": 55832.14,
+      "equity_rub": 45832.14,
       "cash_rub": 45832.14,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-23 18:26:00",
-      "equity_rub": 55817.96,
+      "equity_rub": 45817.96,
       "cash_rub": 45817.96,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-23 18:57:00",
-      "equity_rub": 55827.91,
+      "equity_rub": 45827.91,
       "cash_rub": 45827.91,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-24 18:13:00",
-      "equity_rub": 55808.3,
+      "equity_rub": 45808.3,
       "cash_rub": 45808.3,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-24 18:20:00",
-      "equity_rub": 55823.15,
+      "equity_rub": 45823.15,
       "cash_rub": 45823.15,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-25 17:44:00",
-      "equity_rub": 55805.02,
+      "equity_rub": 45805.02,
       "cash_rub": 45805.02,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-28 08:40:00",
-      "equity_rub": 55803.09,
+      "equity_rub": 45803.09,
       "cash_rub": 45803.09,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-28 08:55:00",
-      "equity_rub": 55787.54,
+      "equity_rub": 45787.54,
       "cash_rub": 45787.54,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-28 20:39:00",
-      "equity_rub": 55787.51,
+      "equity_rub": 45787.51,
       "cash_rub": 45787.51,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-29 10:12:00",
-      "equity_rub": 55773.34,
+      "equity_rub": 45773.34,
       "cash_rub": 45773.34,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-29 15:00:00",
-      "equity_rub": 55781.21,
+      "equity_rub": 45781.21,
       "cash_rub": 45781.21,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-29 22:40:00",
-      "equity_rub": 55777.7,
+      "equity_rub": 45777.7,
       "cash_rub": 45777.7,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-30 07:05:00",
-      "equity_rub": 55790.48,
+      "equity_rub": 45790.48,
       "cash_rub": 45790.48,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-30 14:00:00",
-      "equity_rub": 55774.61,
+      "equity_rub": 45774.61,
       "cash_rub": 45774.61,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-07-31 16:09:00",
-      "equity_rub": 55782.12,
+      "equity_rub": 45782.12,
       "cash_rub": 45782.12,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-03 09:39:00",
-      "equity_rub": 55786.62,
+      "equity_rub": 45786.62,
       "cash_rub": 45786.62,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-03 13:40:00",
-      "equity_rub": 55794.66,
+      "equity_rub": 45794.66,
       "cash_rub": 45794.66,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-03 21:23:00",
-      "equity_rub": 55784.86,
+      "equity_rub": 45784.86,
       "cash_rub": 45784.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-04 16:41:00",
-      "equity_rub": 55768.73,
+      "equity_rub": 45768.73,
       "cash_rub": 45768.73,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-05 11:38:00",
-      "equity_rub": 55754.08,
+      "equity_rub": 45754.08,
       "cash_rub": 45754.08,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-05 12:40:00",
-      "equity_rub": 55760.83,
+      "equity_rub": 45760.83,
       "cash_rub": 45760.83,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-06 08:26:00",
-      "equity_rub": 55744.82,
+      "equity_rub": 45744.82,
       "cash_rub": 45744.82,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-06 11:27:00",
-      "equity_rub": 55726.84,
+      "equity_rub": 45726.84,
       "cash_rub": 45726.84,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-06 12:39:00",
-      "equity_rub": 55739.37,
+      "equity_rub": 45739.37,
       "cash_rub": 45739.37,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-06 14:58:00",
-      "equity_rub": 55726.17,
+      "equity_rub": 45726.17,
       "cash_rub": 45726.17,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-07 07:10:00",
-      "equity_rub": 55697.97,
+      "equity_rub": 45697.97,
       "cash_rub": 45697.97,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-07 12:57:00",
-      "equity_rub": 55683.06,
+      "equity_rub": 45683.06,
       "cash_rub": 45683.06,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-07 22:27:00",
-      "equity_rub": 55688.26,
+      "equity_rub": 45688.26,
       "cash_rub": 45688.26,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-10 10:19:00",
-      "equity_rub": 55673.18,
+      "equity_rub": 45673.18,
       "cash_rub": 45673.18,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-11 11:18:00",
-      "equity_rub": 55673.77,
+      "equity_rub": 45673.77,
       "cash_rub": 45673.77,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-12 11:50:00",
-      "equity_rub": 55675.96,
+      "equity_rub": 45675.96,
       "cash_rub": 45675.96,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-12 21:35:00",
-      "equity_rub": 55679.86,
+      "equity_rub": 45679.86,
       "cash_rub": 45679.86,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-13 10:40:00",
-      "equity_rub": 55659.65,
+      "equity_rub": 45659.65,
       "cash_rub": 45659.65,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-13 10:51:00",
-      "equity_rub": 55636.56,
+      "equity_rub": 45636.56,
       "cash_rub": 45636.56,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-13 13:04:00",
-      "equity_rub": 55639.28,
+      "equity_rub": 45639.28,
       "cash_rub": 45639.28,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-13 13:13:00",
-      "equity_rub": 55649.68,
+      "equity_rub": 45649.68,
       "cash_rub": 45649.68,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-13 14:32:00",
-      "equity_rub": 55625.47,
+      "equity_rub": 45625.47,
       "cash_rub": 45625.47,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-13 17:08:00",
-      "equity_rub": 55632.29,
+      "equity_rub": 45632.29,
       "cash_rub": 45632.29,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-13 17:39:00",
-      "equity_rub": 55617.31,
+      "equity_rub": 45617.31,
       "cash_rub": 45617.31,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-14 11:26:00",
-      "equity_rub": 55594.78,
+      "equity_rub": 45594.78,
       "cash_rub": 45594.78,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-14 11:57:00",
-      "equity_rub": 55615.06,
+      "equity_rub": 45615.06,
       "cash_rub": 45615.06,
-      "open_positions": 1
+      "open_positions": 0
     },
     {
       "ts": "2026-08-14 12:29:00",

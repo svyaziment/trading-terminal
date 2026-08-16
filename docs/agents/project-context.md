@@ -87,6 +87,8 @@ trading-terminal/
 │ │ ├── types.ts # TypeScript types
 │ │ └── index.css / main.tsx
 │ └── package.json / tailwind.config.js / vite.config.js
+├── analytics/ # Git-tracked, published analytical results
+│ └── issue-44-strategy-comparison/ # Notebook, report, metrics, and plots
 ├── docs/
 │ ├── agents/ # project-context.md, handover.md (+ .ru versions), documentation-policy.md
 │ ├── strategy/ # levels-reversal-strategy.md, paper-trading.md, testing-rules.md, backtest-report.md (+ .ru)
