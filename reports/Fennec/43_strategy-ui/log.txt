@@ -1,0 +1,12 @@
+Task: task-43-18-fix-gitignore-commit-reports — исправление .gitignore + коммит отчётов (issue #43)
+branch: feature/issue-43-strategy-ui
+gh CLI: OK
+=== Исправление .gitignore ===
+удаление 'reports/' из .gitignore
+добавление 'reports/*/_tmp/' в .gitignore
+обновлённый .gitignore: 406 bytes
+=== Коммит .gitignore ===
+[feature/issue-43-strategy-ui 2bf964d] chore: remove reports/ from .gitignore, add _tmp/ exclusion (SOP compliance)
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+commit: 2bf964d
+=== Коммит отчётов ===
