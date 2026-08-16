@@ -10,17 +10,21 @@ import pytest
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
+ANALYSIS_CANDIDATES = (
+    BACKEND_ROOT.parent
+    / "analytics/issue-44-strategy-comparison/analysis.py",
+    BACKEND_ROOT
+    / "analytics-results/issue-44-strategy-comparison/analysis.py",
+)
 ANALYSIS_PATH = next(
-    path
-    for path in (
-        BACKEND_ROOT.parent / "reports/Vulpec/44_strategy-analysis/analysis.py",
-        BACKEND_ROOT / "reports/Vulpec/44_strategy-analysis/analysis.py",
-    )
-    if path.exists()
+    (path for path in ANALYSIS_CANDIDATES if path.exists()),
+    None,
 )
 
 
 def _load_analysis_module():
+    if ANALYSIS_PATH is None:
+        pytest.skip("published analytics directory is not mounted")
     spec = importlib.util.spec_from_file_location("issue44_analysis", ANALYSIS_PATH)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -93,6 +97,12 @@ def test_run_analysis_builds_report_and_plots(tmp_path, monkeypatch):
     output = analysis.run_analysis(inputs)
 
     assert output["metrics"].loc["levels_reversal", "pnl_rub"] == 50.0
+    assert output["metrics"].loc[
+        "levels_reversal", "event_max_drawdown_pct"
+    ] == 0.2
+    assert output["metrics"].loc[
+        "levels_reversal", "max_drawdown_pct"
+    ] == 0.1
     assert (tmp_path / "report.md").exists()
     assert (tmp_path / "summary.json").exists()
     assert len(list((tmp_path / "plots").glob("*.png"))) == 4

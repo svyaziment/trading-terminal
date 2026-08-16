@@ -31,7 +31,8 @@ def build() -> Path:
             "from IPython.display import display, Markdown, Image\n\n"
             "ANALYSIS_DIR = Path.cwd()\n"
             "if not (ANALYSIS_DIR / 'analysis.py').exists():\n"
-            "    ANALYSIS_DIR = Path('reports/Vulpec/44_strategy-analysis').resolve()\n"
+            "    ANALYSIS_DIR = Path("
+            "'analytics/issue-44-strategy-comparison').resolve()\n"
             "sys.path.insert(0, str(ANALYSIS_DIR))\n"
             "from analysis import run_analysis, DISPLAY_NAMES"
         ),

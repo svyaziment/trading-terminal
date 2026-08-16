@@ -13,16 +13,23 @@
 - Комиссия включена в `net_return_pct` симулятора.
 - Equity по дням реконструирована по закрытым сделкам (realized PnL), без mark-to-market
   открытых позиций.
+- Max DD в сравнительной таблице рассчитан по equity на конец дня. Event-based
+  просадка симулятора приведена отдельно.
 - Одинаковый порядок тикеров и правила конкуренции за слот применены к обеим стратегиям.
 
 ## Сравнительные метрики
 
 | Стратегия | Итоговый equity, RUB | PnL, RUB | PnL, % | Сделки | Win rate | Profit factor | Max DD | GAME OVER |
 |---|---:|---:|---:|---:|---:|---:|---:|:---:|
-| Levels reversal | 96,343.49 | +46,343.49 | +92.69% | 3500 | 28.3% | 1.31 | 41.21% | нет |
-| ATR reversal | 45,587.14 | -4,412.86 | -8.83% | 912 | 38.8% | 0.36 | 34.50% | нет |
+| Levels reversal | 96,343.49 | +46,343.49 | +92.69% | 3500 | 28.3% | 1.31 | 5.47% | нет |
+| ATR reversal | 45,587.14 | -4,412.86 | -8.83% | 912 | 38.8% | 0.36 | 8.93% | нет |
 
 ![Equity curves](plots/equity_curves.png)
+
+### Максимальная просадка
+
+- **Levels reversal:** 5.47% с 2025-02-17 по 2025-03-13; equity снизилась с 69,462.03 до 65,663.24 RUB (−3,798.79 RUB). Event-based Max DD симулятора: 5.93%.
+- **ATR reversal:** 8.93% с 2024-09-27 по 2026-08-14; equity снизилась с 50,058.00 до 45,587.00 RUB (−4,471.00 RUB). Event-based Max DD симулятора: 8.95%.
 
 ## Анализ сделок и тикеров
 
@@ -51,7 +58,7 @@
 
 ## Рекомендации
 
-- **Levels reversal:** допустим только ограниченный forward paper trading; реальный капитал не рекомендован при историческом max DD 41.21%.
+- **Levels reversal:** допустим только ограниченный forward paper trading; переход к реальному капиталу возможен лишь после положительных walk-forward и forward-результатов (daily Max DD 5.47%).
 - **ATR reversal:** запуск не рекомендован до положительного walk-forward результата.
 
 1. Для paper trading использовать только стратегию с положительным PnL, PF > 1,
@@ -67,8 +74,8 @@
 
 ## Воспроизводимость
 
-- `levels_reversal` SHA-256: `757f80ed7825d097f5a19c04f31a33b8ca2e4cdc174b7cf89c07a322493d6004`
-- `atr_reversal` SHA-256: `dc2a67c5ac6c5f88c7f2c6630e62d95441ddc54dd2fcba126e6fd9a912156b44`
+- `levels_reversal` SHA-256: `c1c0a576eefdfcb3b90e53b397f652d2d0f4a3375bfc2ee0834fcb23800723c3`
+- `atr_reversal` SHA-256: `ac7905c6a2636d71b1156f4a1eb5e8b856f791d2982bbc8df98818a020269aa5`
 - Код расчётов: `analysis.py`; интерактивный walkthrough: `analysis.ipynb`.
 
 ![Metrics comparison](plots/metrics_comparison.png)

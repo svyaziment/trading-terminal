@@ -18,7 +18,7 @@ from typing import Any
 
 
 ANALYSIS_DIR = Path(__file__).resolve().parent
-REPO_ROOT = ANALYSIS_DIR.parents[2]
+REPO_ROOT = ANALYSIS_DIR.parents[1]
 BACKEND_ROOT = REPO_ROOT / "backend"
 sys.path.insert(0, str(BACKEND_ROOT))
 

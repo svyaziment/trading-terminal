@@ -186,18 +186,25 @@ def _replay_portfolio_trades(
         _record(pd.Timestamp.utcnow())
 
     for ts in entry_times:
-        remaining: List[Dict[str, Any]] = []
-        for pos in active:
-            if pd.Timestamp(pos["exit_ts"]) <= ts:
-                _settle(pos)
-                _record(pd.Timestamp(pos["exit_ts"]))
-                if cash <= 0:
-                    game_over = True
-                    game_over_ts = str(pos["exit_ts"])
-                    break
-            else:
-                remaining.append(pos)
-        active = remaining
+        closing = sorted(
+            (
+                pos
+                for pos in active
+                if pd.Timestamp(pos["exit_ts"]) <= ts
+            ),
+            key=lambda pos: pd.Timestamp(pos["exit_ts"]),
+        )
+        for pos in closing:
+            # Remove the allocation before crediting it back to cash. Otherwise
+            # _record() counts the same principal in both cash and active.
+            active.remove(pos)
+            exit_ts = pd.Timestamp(pos["exit_ts"])
+            _settle(pos)
+            _record(exit_ts)
+            if cash <= 0:
+                game_over = True
+                game_over_ts = str(pos["exit_ts"])
+                break
         if game_over:
             break
 
@@ -224,7 +231,8 @@ def _replay_portfolio_trades(
 
     if not game_over:
         while active and not game_over:
-            pos = active.pop(0)
+            pos = min(active, key=lambda item: pd.Timestamp(item["exit_ts"]))
+            active.remove(pos)
             _settle(pos)
             _record(pd.Timestamp(pos["exit_ts"]))
             if cash <= 0:

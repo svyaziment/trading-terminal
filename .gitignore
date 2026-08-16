@@ -17,6 +17,7 @@ build/
 # Logs and reports
 logs/
 reports/
+# Published, reviewable analysis artifacts live in analytics/ and stay tracked.
 
 # OS
 .DS_Store

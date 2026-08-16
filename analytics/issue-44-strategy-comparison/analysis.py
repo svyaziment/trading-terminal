@@ -1,7 +1,7 @@
 """Reproducible comparison for Issue #44.
 
 Run from the repository root:
-    python reports/Vulpec/44_strategy-analysis/analysis.py
+    python analytics/issue-44-strategy-comparison/analysis.py
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ DISPLAY_NAMES = {
     "atr_reversal": "ATR reversal",
 }
 ANALYSIS_DIR = Path(__file__).resolve().parent
-REPO_ROOT = ANALYSIS_DIR.parents[2]
+REPO_ROOT = ANALYSIS_DIR.parents[1]
 DEFAULT_INPUTS = {
     "levels_reversal": REPO_ROOT
     / "reports/Arctic/37_portfolio-backtest/full_run.json",
@@ -118,11 +118,32 @@ def trades_frame(result: dict[str, Any], strategy: str) -> pd.DataFrame:
     return frame.reindex(columns=columns)
 
 
-def metrics_frame(results: dict[str, dict[str, Any]]) -> pd.DataFrame:
+def _drawdown_stats(equity: pd.Series) -> dict[str, Any]:
+    running_peak = equity.cummax()
+    drawdown = (running_peak - equity) / running_peak * 100.0
+    trough_ts = drawdown.idxmax()
+    peak_ts = equity.loc[:trough_ts].idxmax()
+    return {
+        "max_drawdown_pct": round(float(drawdown.loc[trough_ts]), 2),
+        "max_drawdown_peak_date": str(pd.Timestamp(peak_ts).date()),
+        "max_drawdown_trough_date": str(pd.Timestamp(trough_ts).date()),
+        "max_drawdown_peak_equity_rub": round(float(equity.loc[peak_ts]), 2),
+        "max_drawdown_trough_equity_rub": round(float(equity.loc[trough_ts]), 2),
+        "max_drawdown_rub": round(
+            float(equity.loc[peak_ts] - equity.loc[trough_ts]), 2
+        ),
+    }
+
+
+def metrics_frame(
+    results: dict[str, dict[str, Any]],
+    equity: dict[str, pd.Series],
+) -> pd.DataFrame:
     rows = []
     for strategy in STRATEGIES:
         result = results[strategy]
         metrics = result["metrics"]
+        drawdown = _drawdown_stats(equity[strategy])
         rows.append(
             {
                 "strategy": strategy,
@@ -132,9 +153,10 @@ def metrics_frame(results: dict[str, dict[str, Any]]) -> pd.DataFrame:
                 "n_trades": int(metrics["n_trades"]),
                 "win_rate_pct": metrics["win_rate"],
                 "profit_factor": metrics["profit_factor"],
-                "max_drawdown_pct": float(metrics["max_drawdown_pct"]),
+                "event_max_drawdown_pct": float(metrics["max_drawdown_pct"]),
                 "game_over": bool(result.get("game_over")),
                 "skipped_entries": int(result.get("skipped_entries_no_slot", 0)),
+                **drawdown,
             }
         )
     return pd.DataFrame(rows).set_index("strategy")
@@ -395,13 +417,26 @@ def build_report(
     for strategy in STRATEGIES:
         if paper_candidate[strategy]:
             verdict = (
-                "допустим только ограниченный forward paper trading; реальный капитал "
-                f"не рекомендован при историческом max DD "
-                f"{metrics.loc[strategy, 'max_drawdown_pct']:.2f}%"
+                "допустим только ограниченный forward paper trading; переход к "
+                "реальному капиталу возможен лишь после положительных walk-forward "
+                f"и forward-результатов (daily Max DD "
+                f"{metrics.loc[strategy, 'max_drawdown_pct']:.2f}%)"
             )
         else:
             verdict = "запуск не рекомендован до положительного walk-forward результата"
         readiness.append(f"- **{DISPLAY_NAMES[strategy]}:** {verdict}.")
+
+    drawdown_lines = []
+    for strategy in STRATEGIES:
+        row = metrics.loc[strategy]
+        drawdown_lines.append(
+            f"- **{DISPLAY_NAMES[strategy]}:** {row.max_drawdown_pct:.2f}% "
+            f"с {row.max_drawdown_peak_date} по {row.max_drawdown_trough_date}; "
+            f"equity снизилась с {row.max_drawdown_peak_equity_rub:,.2f} до "
+            f"{row.max_drawdown_trough_equity_rub:,.2f} RUB "
+            f"(−{row.max_drawdown_rub:,.2f} RUB). Event-based Max DD симулятора: "
+            f"{row.event_max_drawdown_pct:.2f}%."
+        )
 
     return f"""# Issue #44: levels_reversal vs ATR reversal
 
@@ -418,6 +453,8 @@ def build_report(
 - Комиссия включена в `net_return_pct` симулятора.
 - Equity по дням реконструирована по закрытым сделкам (realized PnL), без mark-to-market
   открытых позиций.
+- Max DD в сравнительной таблице рассчитан по equity на конец дня. Event-based
+  просадка симулятора приведена отдельно.
 - Одинаковый порядок тикеров и правила конкуренции за слот применены к обеим стратегиям.
 
 ## Сравнительные метрики
@@ -427,6 +464,10 @@ def build_report(
 {chr(10).join(metric_lines)}
 
 ![Equity curves](plots/equity_curves.png)
+
+### Максимальная просадка
+
+{chr(10).join(drawdown_lines)}
 
 ## Анализ сделок и тикеров
 
@@ -485,13 +526,13 @@ def run_analysis(
         strategy: trades_frame(results[strategy], strategy) for strategy in STRATEGIES
     }
     all_trades = pd.concat(trades.values(), ignore_index=True)
-    metrics = metrics_frame(results)
-    tickers = ticker_summary(all_trades)
-    monthly = monthly_summary(all_trades)
     equity = {
         strategy: daily_equity(results[strategy], trades[strategy])
         for strategy in STRATEGIES
     }
+    metrics = metrics_frame(results, equity)
+    tickers = ticker_summary(all_trades)
+    monthly = monthly_summary(all_trades)
 
     for strategy in STRATEGIES:
         expected = float(metrics.loc[strategy, "final_equity_rub"])
