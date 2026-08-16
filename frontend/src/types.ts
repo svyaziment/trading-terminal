@@ -109,6 +109,7 @@ export interface StrategyConfig {
   slippage_pct: number;
   risk_reward: { risk: number; reward: number } | null;
   n_runs: number;
+  strategy_name?: string;
 }
 export interface Strategy {
   id: number;

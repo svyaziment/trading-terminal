@@ -13,6 +13,7 @@ import {
   getBigTickers,
   getStrategyDataRange,
   getPatterns,
+  getStrategyPlugins,
 } from "../api";
 import type {
   Strategy,
@@ -321,6 +322,8 @@ export default function StrategyLab() {
     signal_4h_buy: {},
   });
   const [settingsTarget, setSettingsTarget] = useState<string | null>(null);
+  const [strategyName, setStrategyName] = useState<string>("levels_reversal");
+  const [availablePlugins, setAvailablePlugins] = useState<string[]>([]);
   const [commission, setCommission] = useState("0.06");
   const [slippage, setSlippage] = useState("0");
   const [rrOn, setRrOn] = useState(true);
@@ -399,8 +402,9 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
         ? { risk: parseFloat(rrRisk) || 1, reward: parseFloat(rrReward) || 2 }
         : null,
       n_runs: 1,
+      strategy_name: strategyName,
     };
-  }, [patternConfigs, registry, windows, commission, slippage, rrOn, rrRisk, rrReward]);
+  }, [patternConfigs, registry, windows, commission, slippage, rrOn, rrRisk, rrReward, strategyName]);
 
   const selectedStrategy = strategies.find((s) => s.id === selectedId) ?? null;
   const isLocked = selectedStrategy?.locked === true;
@@ -423,6 +427,10 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
       try {
         const pt = await getPatterns();
         setRegistry(pt.patterns);
+      } catch { /* transient */ }
+      try {
+        const sp = await getStrategyPlugins();
+        setAvailablePlugins(sp.plugins);
       } catch { /* transient */ }
       try {
         const bt = await getBigTickers();
@@ -544,6 +552,7 @@ function toggleTicker(t: string) {
     } else {
       setPatternConfigs((rawPatterns as Record<string, Record<string, unknown>> | null) ?? {});
     }
+    setStrategyName(c.strategy_name ?? "levels_reversal");
     setCommission(String(c.commission_pct ?? 0.06));
     setSlippage(String(c.slippage_pct ?? 0));
     setRrOn(c.risk_reward !== null && c.risk_reward !== undefined);
@@ -964,6 +973,19 @@ const progressPct =
               }
             />
             <p className="mt-1 text-[10px] text-slate-600">латиница, цифры, «_», «-»</p>
+            <label className="mt-2 block">
+              <span className="mb-1 block text-[10px] uppercase tracking-wider text-slate-500">стратегия (плагин)</span>
+              <select
+                value={strategyName}
+                disabled={isLocked}
+                onChange={(e) => setStrategyName(e.target.value)}
+                className="w-full rounded border border-slate-700 bg-slate-950 px-2.5 py-1.5 font-mono text-sm text-slate-100 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed"
+              >
+                {(availablePlugins.length > 0 ? availablePlugins : ["levels_reversal"]).map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </label>
             {selectedStrategy?.description && (
               <p className="mt-1.5 rounded border border-slate-800 bg-slate-950/60 px-2 py-1.5 text-[10px] leading-relaxed text-slate-400">
                 {selectedStrategy.description}
