@@ -1,0 +1,923 @@
+{
+  "status": "success",
+  "mode": "dev",
+  "strategy": "levels_reversal",
+  "strategy_config_name": "test_20260731",
+  "strategy_config": {
+    "n_runs": 1,
+    "patterns": {
+      "levels_reversal": {
+        "level_timeframe": "4h",
+        "level_method": [
+          "swing",
+          "impulse"
+        ],
+        "swing_window": 10,
+        "impulse_body_ratio": 0.7,
+        "impulse_atr_mult": 1.5,
+        "zone_atr_mult": 0.5,
+        "confirm_windows": [
+          10
+        ]
+      },
+      "signal_4h_buy": {}
+    },
+    "run_params": {
+      "depth": "express",
+      "date_to": "2026-07-31",
+      "tickers": [
+        "AFKS",
+        "ALRS",
+        "CBOM",
+        "CHMF",
+        "FEES",
+        "FLOT",
+        "GAZP",
+        "GMKN",
+        "IRAO",
+        "LKOH",
+        "MGNT",
+        "MOEX",
+        "MTLR",
+        "MTSS",
+        "NLMK",
+        "NVTK",
+        "PHOR",
+        "PIKK",
+        "PLZL",
+        "ROSN",
+        "RTKM",
+        "RUAL",
+        "SBER",
+        "SIBN",
+        "SNGS",
+        "TATN",
+        "TRNFP",
+        "VTBR"
+      ],
+      "date_from": "2026-07-01",
+      "test_types": [
+        "full_sample"
+      ]
+    },
+    "risk_reward": {
+      "risk": 1,
+      "reward": 2
+    },
+    "max_rr_ratio": 10.0,
+    "slippage_pct": 0,
+    "commission_pct": 0.06,
+    "confirm_windows": [
+      10
+    ],
+    "imbalance_threshold": 1.0,
+    "reentry_cooldown_min": 30
+  },
+  "initial_capital_rub": 50000.0,
+  "slot_size_rub": 10000.0,
+  "max_positions": 5,
+  "date_from": "2026-07-01",
+  "date_to": "2026-08-01",
+  "tickers": [
+    "FEES",
+    "IRAO",
+    "AFKS",
+    "VTBR",
+    "ALRS"
+  ],
+  "tickers_loaded": 5,
+  "candidate_trades": 45,
+  "failed_tickers": [],
+  "game_over": false,
+  "game_over_ts": null,
+  "skipped_entries_no_slot": 0,
+  "metrics": {
+    "n_trades": 45,
+    "win_rate": 40.0,
+    "profit_factor": 2.55,
+    "max_drawdown_pct": 44.54,
+    "final_equity_rub": 54526.09,
+    "pnl_rub": 4526.09,
+    "pnl_pct": 9.05
+  },
+  "trades": [
+    {
+      "ticker": "VTBR",
+      "entry_ts": "2026-07-01 09:23:00",
+      "exit_ts": "2026-07-01 14:04:00",
+      "entry_price": 74.35,
+      "exit_price": 73.72,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -0.90734,
+      "pnl_rub": -90.73,
+      "bars_held": 281
+    },
+    {
+      "ticker": "VTBR",
+      "entry_ts": "2026-07-01 14:54:00",
+      "exit_ts": "2026-07-01 15:12:00",
+      "entry_price": 73.73,
+      "exit_price": 73.72,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -0.07356,
+      "pnl_rub": -7.36,
+      "bars_held": 18
+    },
+    {
+      "ticker": "VTBR",
+      "entry_ts": "2026-07-01 16:06:00",
+      "exit_ts": "2026-07-01 16:56:00",
+      "entry_price": 73.535,
+      "exit_price": 73.4,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -0.24359,
+      "pnl_rub": -24.36,
+      "bars_held": 50
+    },
+    {
+      "ticker": "VTBR",
+      "entry_ts": "2026-07-01 16:57:00",
+      "exit_ts": "2026-07-01 17:00:00",
+      "entry_price": 73.41,
+      "exit_price": 73.4,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -0.07362,
+      "pnl_rub": -7.36,
+      "bars_held": 3
+    },
+    {
+      "ticker": "VTBR",
+      "entry_ts": "2026-07-03 14:41:00",
+      "exit_ts": "2026-07-03 15:05:00",
+      "entry_price": 70.855,
+      "exit_price": 70.62,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -0.39166,
+      "pnl_rub": -39.17,
+      "bars_held": 24
+    },
+    {
+      "ticker": "VTBR",
+      "entry_ts": "2026-07-03 15:09:00",
+      "exit_ts": "2026-07-03 15:18:00",
+      "entry_price": 70.575,
+      "exit_price": 70.78,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 0.23047,
+      "pnl_rub": 23.05,
+      "bars_held": 9
+    },
+    {
+      "ticker": "VTBR",
+      "entry_ts": "2026-07-03 15:46:00",
+      "exit_ts": "2026-07-03 15:55:00",
+      "entry_price": 70.585,
+      "exit_price": 70.78,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 0.21626,
+      "pnl_rub": 21.63,
+      "bars_held": 9
+    },
+    {
+      "ticker": "FEES",
+      "entry_ts": "2026-07-03 12:00:00",
+      "exit_ts": "2026-07-06 15:57:00",
+      "entry_price": 0.0452,
+      "exit_price": 0.04412,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -2.44938,
+      "pnl_rub": -244.94,
+      "bars_held": 1304
+    },
+    {
+      "ticker": "ALRS",
+      "entry_ts": "2026-07-03 14:40:00",
+      "exit_ts": "2026-07-06 15:45:00",
+      "entry_price": 20.46,
+      "exit_price": 20.0,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -2.30829,
+      "pnl_rub": -230.83,
+      "bars_held": 1977
+    },
+    {
+      "ticker": "AFKS",
+      "entry_ts": "2026-07-05 10:01:00",
+      "exit_ts": "2026-07-06 07:03:00",
+      "entry_price": 10.893,
+      "exit_price": 10.854,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -0.41803,
+      "pnl_rub": -41.8,
+      "bars_held": 386
+    },
+    {
+      "ticker": "VTBR",
+      "entry_ts": "2026-07-07 12:10:00",
+      "exit_ts": "2026-07-15 13:54:00",
+      "entry_price": 63.295,
+      "exit_price": 61.975,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -2.14547,
+      "pnl_rub": -214.55,
+      "bars_held": 7240
+    },
+    {
+      "ticker": "IRAO",
+      "entry_ts": "2026-07-12 09:59:00",
+      "exit_ts": "2026-07-14 16:40:00",
+      "entry_price": 2.349,
+      "exit_price": 2.3255,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -1.06043,
+      "pnl_rub": -106.04,
+      "bars_held": 2106
+    },
+    {
+      "ticker": "AFKS",
+      "entry_ts": "2026-07-12 10:51:00",
+      "exit_ts": "2026-07-15 10:10:00",
+      "entry_price": 9.326,
+      "exit_price": 9.2,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -1.41106,
+      "pnl_rub": -141.11,
+      "bars_held": 2465
+    },
+    {
+      "ticker": "FEES",
+      "entry_ts": "2026-07-13 17:52:00",
+      "exit_ts": "2026-07-14 08:06:00",
+      "entry_price": 0.04496,
+      "exit_price": 0.0457,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 1.58591,
+      "pnl_rub": 158.59,
+      "bars_held": 272
+    },
+    {
+      "ticker": "ALRS",
+      "entry_ts": "2026-07-14 08:00:00",
+      "exit_ts": "2026-07-14 15:25:00",
+      "entry_price": 18.19,
+      "exit_price": 18.0,
+      "exit_reason": "stop",
+      "allocated_rub": 9358.13,
+      "net_return_pct": -1.10453,
+      "pnl_rub": -103.36,
+      "bars_held": 445
+    },
+    {
+      "ticker": "FEES",
+      "entry_ts": "2026-07-17 12:20:00",
+      "exit_ts": "2026-07-17 16:34:00",
+      "entry_price": 0.04126,
+      "exit_price": 0.0407,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -1.41725,
+      "pnl_rub": -141.72,
+      "bars_held": 213
+    },
+    {
+      "ticker": "VTBR",
+      "entry_ts": "2026-07-17 12:20:00",
+      "exit_ts": "2026-07-18 09:59:00",
+      "entry_price": 58.7,
+      "exit_price": 57.77,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -1.64433,
+      "pnl_rub": -164.43,
+      "bars_held": 688
+    },
+    {
+      "ticker": "ALRS",
+      "entry_ts": "2026-07-20 15:00:00",
+      "exit_ts": "2026-07-20 16:06:00",
+      "entry_price": 16.82,
+      "exit_price": 17.68,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 5.05296,
+      "pnl_rub": 505.3,
+      "bars_held": 66
+    },
+    {
+      "ticker": "AFKS",
+      "entry_ts": "2026-07-20 15:00:00",
+      "exit_ts": "2026-07-21 07:00:00",
+      "entry_price": 7.571,
+      "exit_price": 8.628,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 13.90117,
+      "pnl_rub": 1390.12,
+      "bars_held": 499
+    },
+    {
+      "ticker": "FEES",
+      "entry_ts": "2026-07-20 16:10:00",
+      "exit_ts": "2026-07-21 17:20:00",
+      "entry_price": 0.04128,
+      "exit_price": 0.04524,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 9.53302,
+      "pnl_rub": 953.3,
+      "bars_held": 1015
+    },
+    {
+      "ticker": "IRAO",
+      "entry_ts": "2026-07-21 09:00:00",
+      "exit_ts": "2026-07-23 19:54:00",
+      "entry_price": 2.295,
+      "exit_price": 2.399,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 4.47159,
+      "pnl_rub": 447.16,
+      "bars_held": 2665
+    },
+    {
+      "ticker": "ALRS",
+      "entry_ts": "2026-07-23 07:39:00",
+      "exit_ts": "2026-07-23 10:04:00",
+      "entry_price": 20.27,
+      "exit_price": 20.01,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -1.34268,
+      "pnl_rub": -134.27,
+      "bars_held": 145
+    },
+    {
+      "ticker": "ALRS",
+      "entry_ts": "2026-07-24 09:09:00",
+      "exit_ts": "2026-07-24 09:44:00",
+      "entry_price": 19.01,
+      "exit_price": 18.8,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -1.16468,
+      "pnl_rub": -116.47,
+      "bars_held": 35
+    },
+    {
+      "ticker": "IRAO",
+      "entry_ts": "2026-07-24 11:00:00",
+      "exit_ts": "2026-07-24 13:31:00",
+      "entry_price": 2.344,
+      "exit_price": 2.399,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 2.28642,
+      "pnl_rub": 228.64,
+      "bars_held": 151
+    },
+    {
+      "ticker": "ALRS",
+      "entry_ts": "2026-07-24 14:08:00",
+      "exit_ts": "2026-07-24 14:39:00",
+      "entry_price": 19.0,
+      "exit_price": 18.8,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -1.11263,
+      "pnl_rub": -111.26,
+      "bars_held": 31
+    },
+    {
+      "ticker": "IRAO",
+      "entry_ts": "2026-07-24 14:45:00",
+      "exit_ts": "2026-07-24 15:37:00",
+      "entry_price": 2.3485,
+      "exit_price": 2.399,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 2.09031,
+      "pnl_rub": 209.03,
+      "bars_held": 52
+    },
+    {
+      "ticker": "ALRS",
+      "entry_ts": "2026-07-24 15:40:00",
+      "exit_ts": "2026-07-24 16:23:00",
+      "entry_price": 19.0,
+      "exit_price": 19.46,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 2.36105,
+      "pnl_rub": 236.1,
+      "bars_held": 43
+    },
+    {
+      "ticker": "IRAO",
+      "entry_ts": "2026-07-25 10:27:00",
+      "exit_ts": "2026-07-25 13:45:00",
+      "entry_price": 2.573,
+      "exit_price": 2.545,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -1.14822,
+      "pnl_rub": -114.82,
+      "bars_held": 198
+    },
+    {
+      "ticker": "FEES",
+      "entry_ts": "2026-07-24 16:30:00",
+      "exit_ts": "2026-07-27 11:52:00",
+      "entry_price": 0.0484,
+      "exit_price": 0.05274,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 8.90694,
+      "pnl_rub": 890.69,
+      "bars_held": 1293
+    },
+    {
+      "ticker": "ALRS",
+      "entry_ts": "2026-07-27 08:10:00",
+      "exit_ts": "2026-07-28 07:59:00",
+      "entry_price": 19.89,
+      "exit_price": 20.9,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 5.01793,
+      "pnl_rub": 501.79,
+      "bars_held": 996
+    },
+    {
+      "ticker": "ALRS",
+      "entry_ts": "2026-07-28 10:57:00",
+      "exit_ts": "2026-07-28 11:06:00",
+      "entry_price": 20.3,
+      "exit_price": 20.01,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -1.48857,
+      "pnl_rub": -148.86,
+      "bars_held": 9
+    },
+    {
+      "ticker": "FEES",
+      "entry_ts": "2026-07-28 11:06:00",
+      "exit_ts": "2026-07-28 11:16:00",
+      "entry_price": 0.05136,
+      "exit_price": 0.051,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -0.76093,
+      "pnl_rub": -76.09,
+      "bars_held": 10
+    },
+    {
+      "ticker": "FEES",
+      "entry_ts": "2026-07-28 11:17:00",
+      "exit_ts": "2026-07-28 13:05:00",
+      "entry_price": 0.05098,
+      "exit_price": 0.05052,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -0.96231,
+      "pnl_rub": -96.23,
+      "bars_held": 108
+    },
+    {
+      "ticker": "FEES",
+      "entry_ts": "2026-07-28 13:06:00",
+      "exit_ts": "2026-07-28 16:55:00",
+      "entry_price": 0.05044,
+      "exit_price": 0.0502,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -0.53581,
+      "pnl_rub": -53.58,
+      "bars_held": 229
+    },
+    {
+      "ticker": "AFKS",
+      "entry_ts": "2026-07-29 12:36:00",
+      "exit_ts": "2026-07-29 14:59:00",
+      "entry_price": 8.971,
+      "exit_price": 8.923,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -0.59506,
+      "pnl_rub": -59.51,
+      "bars_held": 142
+    },
+    {
+      "ticker": "ALRS",
+      "entry_ts": "2026-07-28 11:07:00",
+      "exit_ts": "2026-07-30 07:15:00",
+      "entry_price": 19.89,
+      "exit_price": 20.9,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 5.01793,
+      "pnl_rub": 501.79,
+      "bars_held": 1775
+    },
+    {
+      "ticker": "IRAO",
+      "entry_ts": "2026-07-29 08:00:00",
+      "exit_ts": "2026-07-29 21:06:00",
+      "entry_price": 2.502,
+      "exit_price": 2.584,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 3.21738,
+      "pnl_rub": 321.74,
+      "bars_held": 783
+    },
+    {
+      "ticker": "AFKS",
+      "entry_ts": "2026-07-29 18:45:00",
+      "exit_ts": "2026-07-29 19:09:00",
+      "entry_price": 8.98,
+      "exit_price": 9.109,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 1.37653,
+      "pnl_rub": 137.65,
+      "bars_held": 21
+    },
+    {
+      "ticker": "FEES",
+      "entry_ts": "2026-07-29 10:07:00",
+      "exit_ts": "2026-07-30 08:42:00",
+      "entry_price": 0.0505,
+      "exit_price": 0.05274,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 4.37564,
+      "pnl_rub": 437.56,
+      "bars_held": 764
+    },
+    {
+      "ticker": "AFKS",
+      "entry_ts": "2026-07-30 09:48:00",
+      "exit_ts": "2026-07-30 10:34:00",
+      "entry_price": 9.23,
+      "exit_price": 9.396,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 1.73848,
+      "pnl_rub": 173.85,
+      "bars_held": 46
+    },
+    {
+      "ticker": "AFKS",
+      "entry_ts": "2026-07-30 10:38:00",
+      "exit_ts": "2026-07-30 11:11:00",
+      "entry_price": 9.398,
+      "exit_price": 9.253,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -1.60288,
+      "pnl_rub": -160.29,
+      "bars_held": 33
+    },
+    {
+      "ticker": "IRAO",
+      "entry_ts": "2026-07-30 07:30:00",
+      "exit_ts": "2026-07-30 16:44:00",
+      "entry_price": 2.5985,
+      "exit_price": 2.576,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -0.92588,
+      "pnl_rub": -92.59,
+      "bars_held": 554
+    },
+    {
+      "ticker": "FEES",
+      "entry_ts": "2026-07-30 12:39:00",
+      "exit_ts": "2026-07-31 07:55:00",
+      "entry_price": 0.05094,
+      "exit_price": 0.05052,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -0.8845,
+      "pnl_rub": -88.45,
+      "bars_held": 592
+    },
+    {
+      "ticker": "IRAO",
+      "entry_ts": "2026-07-30 17:20:00",
+      "exit_ts": "2026-07-30 18:15:00",
+      "entry_price": 2.6035,
+      "exit_price": 2.576,
+      "exit_reason": "stop",
+      "allocated_rub": 10000.0,
+      "net_return_pct": -1.11627,
+      "pnl_rub": -111.63,
+      "bars_held": 55
+    },
+    {
+      "ticker": "ALRS",
+      "entry_ts": "2026-07-31 08:27:00",
+      "exit_ts": "2026-07-31 14:22:00",
+      "entry_price": 20.26,
+      "exit_price": 20.9,
+      "exit_reason": "take",
+      "allocated_rub": 10000.0,
+      "net_return_pct": 3.09893,
+      "pnl_rub": 309.89,
+      "bars_held": 355
+    }
+  ],
+  "equity_curve": [
+    {
+      "ts": "2026-07-01 09:23:00",
+      "equity_rub": 50000.0,
+      "cash_rub": 50000.0,
+      "open_positions": 0
+    },
+    {
+      "ts": "2026-07-01 14:04:00",
+      "equity_rub": 59909.27,
+      "cash_rub": 49909.27,
+      "open_positions": 1
+    },
+    {
+      "ts": "2026-07-01 15:12:00",
+      "equity_rub": 59901.91,
+      "cash_rub": 49901.91,
+      "open_positions": 1
+    },
+    {
+      "ts": "2026-07-01 16:56:00",
+      "equity_rub": 59877.55,
+      "cash_rub": 49877.55,
+      "open_positions": 1
+    },
+    {
+      "ts": "2026-07-01 17:00:00",
+      "equity_rub": 59870.19,
+      "cash_rub": 49870.19,
+      "open_positions": 1
+    },
+    {
+      "ts": "2026-07-03 15:05:00",
+      "equity_rub": 59831.02,
+      "cash_rub": 29831.02,
+      "open_positions": 3
+    },
+    {
+      "ts": "2026-07-03 15:18:00",
+      "equity_rub": 59854.07,
+      "cash_rub": 29854.07,
+      "open_positions": 3
+    },
+    {
+      "ts": "2026-07-03 15:55:00",
+      "equity_rub": 59875.7,
+      "cash_rub": 29875.7,
+      "open_positions": 3
+    },
+    {
+      "ts": "2026-07-06 15:57:00",
+      "equity_rub": 59630.76,
+      "cash_rub": 29630.76,
+      "open_positions": 3
+    },
+    {
+      "ts": "2026-07-06 15:45:00",
+      "equity_rub": 69399.93,
+      "cash_rub": 39399.93,
+      "open_positions": 3
+    },
+    {
+      "ts": "2026-07-06 07:03:00",
+      "equity_rub": 79358.13,
+      "cash_rub": 49358.13,
+      "open_positions": 3
+    },
+    {
+      "ts": "2026-07-15 13:54:00",
+      "equity_rub": 59143.58,
+      "cash_rub": 9785.45,
+      "open_positions": 5
+    },
+    {
+      "ts": "2026-07-14 16:40:00",
+      "equity_rub": 69037.54,
+      "cash_rub": 19679.41,
+      "open_positions": 5
+    },
+    {
+      "ts": "2026-07-15 10:10:00",
+      "equity_rub": 78896.43,
+      "cash_rub": 29538.3,
+      "open_positions": 5
+    },
+    {
+      "ts": "2026-07-14 08:06:00",
+      "equity_rub": 89055.02,
+      "cash_rub": 39696.9,
+      "open_positions": 5
+    },
+    {
+      "ts": "2026-07-14 15:25:00",
+      "equity_rub": 98309.78,
+      "cash_rub": 48951.66,
+      "open_positions": 5
+    },
+    {
+      "ts": "2026-07-17 16:34:00",
+      "equity_rub": 58809.93,
+      "cash_rub": 38809.93,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-18 09:59:00",
+      "equity_rub": 68645.5,
+      "cash_rub": 48645.5,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-20 16:06:00",
+      "equity_rub": 59150.8,
+      "cash_rub": 39150.8,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-21 07:00:00",
+      "equity_rub": 60540.91,
+      "cash_rub": 40540.91,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-21 17:20:00",
+      "equity_rub": 61494.21,
+      "cash_rub": 41494.21,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-23 19:54:00",
+      "equity_rub": 61941.37,
+      "cash_rub": 41941.37,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-23 10:04:00",
+      "equity_rub": 71807.11,
+      "cash_rub": 51807.11,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-24 09:44:00",
+      "equity_rub": 61690.64,
+      "cash_rub": 51690.64,
+      "open_positions": 1
+    },
+    {
+      "ts": "2026-07-24 13:31:00",
+      "equity_rub": 61919.28,
+      "cash_rub": 51919.28,
+      "open_positions": 1
+    },
+    {
+      "ts": "2026-07-24 14:39:00",
+      "equity_rub": 61808.02,
+      "cash_rub": 51808.02,
+      "open_positions": 1
+    },
+    {
+      "ts": "2026-07-24 15:37:00",
+      "equity_rub": 62017.05,
+      "cash_rub": 52017.05,
+      "open_positions": 1
+    },
+    {
+      "ts": "2026-07-24 16:23:00",
+      "equity_rub": 62253.15,
+      "cash_rub": 52253.15,
+      "open_positions": 1
+    },
+    {
+      "ts": "2026-07-25 13:45:00",
+      "equity_rub": 62138.33,
+      "cash_rub": 42138.33,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-27 11:52:00",
+      "equity_rub": 63029.02,
+      "cash_rub": 43029.02,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-28 07:59:00",
+      "equity_rub": 73530.82,
+      "cash_rub": 53530.82,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-28 11:06:00",
+      "equity_rub": 63381.96,
+      "cash_rub": 53381.96,
+      "open_positions": 1
+    },
+    {
+      "ts": "2026-07-28 11:16:00",
+      "equity_rub": 63305.87,
+      "cash_rub": 43305.87,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-28 13:05:00",
+      "equity_rub": 63209.64,
+      "cash_rub": 43209.64,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-28 16:55:00",
+      "equity_rub": 63156.06,
+      "cash_rub": 43156.06,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-29 14:59:00",
+      "equity_rub": 63096.55,
+      "cash_rub": 23096.55,
+      "open_positions": 4
+    },
+    {
+      "ts": "2026-07-30 07:15:00",
+      "equity_rub": 63598.34,
+      "cash_rub": 23598.34,
+      "open_positions": 4
+    },
+    {
+      "ts": "2026-07-29 21:06:00",
+      "equity_rub": 73920.08,
+      "cash_rub": 33920.08,
+      "open_positions": 4
+    },
+    {
+      "ts": "2026-07-29 19:09:00",
+      "equity_rub": 84057.73,
+      "cash_rub": 44057.73,
+      "open_positions": 4
+    },
+    {
+      "ts": "2026-07-30 08:42:00",
+      "equity_rub": 64495.3,
+      "cash_rub": 44495.3,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-30 10:34:00",
+      "equity_rub": 64669.15,
+      "cash_rub": 44669.15,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-30 11:11:00",
+      "equity_rub": 64508.86,
+      "cash_rub": 44508.86,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-30 16:44:00",
+      "equity_rub": 64416.27,
+      "cash_rub": 44416.27,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-31 07:55:00",
+      "equity_rub": 64327.82,
+      "cash_rub": 44327.82,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-30 18:15:00",
+      "equity_rub": 74216.19,
+      "cash_rub": 54216.19,
+      "open_positions": 2
+    },
+    {
+      "ts": "2026-07-31 14:22:00",
+      "equity_rub": 54526.09,
+      "cash_rub": 54526.09,
+      "open_positions": 0
+    }
+  ]
+}

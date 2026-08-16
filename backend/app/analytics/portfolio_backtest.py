@@ -22,6 +22,7 @@ from app.db.db_manager import DBManager
 from app.analytics.strategies.base import EntrySignal, ExitSignal, Position, PositionAction
 from app.analytics.strategies.context import MarketContext
 from app.analytics.strategies.registry import get_registry
+from app.analytics.levels_backtest import compute_atr
 from app.analytics.strategy_backtest import compute_indicators_1min, _bootstrap_metrics
 
 logger = logging.getLogger(__name__)
@@ -86,7 +87,7 @@ def _backtest_ticker_plugin(
     slip = float(config.get('slippage_pct', 0.0)) / 100.0
 
     # 1min candles (date-filtered) - SAME order as strategy_backtest
-    q = "SELECT timestamp, open, high, low, close FROM trading.candles_1min_raw WHERE ticker=%s"
+    q = "SELECT timestamp, open, high, low, close, volume FROM trading.candles_1min_raw WHERE ticker=%s"
     params = [ticker]
     if date_from is not None:
         q += " AND timestamp >= %s"; params.append(date_from)
@@ -98,8 +99,12 @@ def _backtest_ticker_plugin(
     if df_1m.empty:
         return {'ticker': ticker, 'status': 'failed', 'error': 'no 1min candles'}
 
-    for c in ['open', 'high', 'low', 'close']:
+    for c in ['open', 'high', 'low', 'close', 'volume']:
         df_1m[c] = pd.to_numeric(df_1m[c], errors='coerce')
+
+    atr_period = int(config.get('atr_period', 14))
+    df_1m['_atr'] = compute_atr(df_1m, period=atr_period)
+    df_1m['_volume_sma_20'] = df_1m['volume'].rolling(20).mean()
 
     if use_rsi or use_macd or use_bb:
         df_1m = compute_indicators_1min(df_1m)
@@ -113,11 +118,17 @@ def _backtest_ticker_plugin(
     first_context = MarketContext(
         timestamp=df_1m.iloc[0]['timestamp'],
         candles_1min=df_1m.iloc[:1],
+        atr_by_period={atr_period: float(df_1m.iloc[0]['_atr'])}
+        if pd.notna(df_1m.iloc[0]['_atr']) else {},
         levels=ctx['levels'],
         ts_4h=ctx['ts_htf'],
         atr_by_ts=ctx['atr_by_ts'],
         buy_ts=ctx['buy_ts'],
         confirm_series=ctx['confirm_series'],
+        volume_current=float(df_1m.iloc[0]['volume'])
+        if pd.notna(df_1m.iloc[0]['volume']) else None,
+        volume_sma_20=float(df_1m.iloc[0]['_volume_sma_20'])
+        if pd.notna(df_1m.iloc[0]['_volume_sma_20']) else None,
     )
     if hasattr(plugin, 'load_market_context'):
         plugin.load_market_context(first_context)
@@ -133,11 +144,16 @@ def _backtest_ticker_plugin(
         context = MarketContext(
             timestamp=ts,
             candles_1min=df_1m.iloc[:i + 1],
+            atr_by_period={atr_period: float(row['_atr'])}
+            if pd.notna(row['_atr']) else {},
             levels=ctx['levels'],
             ts_4h=ctx['ts_htf'],
             atr_by_ts=ctx['atr_by_ts'],
             buy_ts=ctx['buy_ts'],
             confirm_series=ctx['confirm_series'],
+            volume_current=float(row['volume']) if pd.notna(row['volume']) else None,
+            volume_sma_20=float(row['_volume_sma_20'])
+            if pd.notna(row['_volume_sma_20']) else None,
         )
 
         # --- exit branch (mirrors on_bar: exit checked first) ---

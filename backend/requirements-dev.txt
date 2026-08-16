@@ -1,3 +1,8 @@
 -r requirements.txt
 pytest
 httpx
+httpx2
+matplotlib
+nbclient
+nbformat
+ipykernel

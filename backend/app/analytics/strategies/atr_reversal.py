@@ -57,15 +57,16 @@ class AtrReversalStrategy(StrategyPlugin):
         if context.candles_1min is None or len(context.candles_1min) < self.atr_period + 10:
             return None
 
-        candles = context.candles_1min.copy()
-        
-        # Compute ATR on 1min candles
-        candles['atr'] = compute_atr(candles, period=self.atr_period)
-        if candles['atr'].isna().all():
-            return None
-        
+        candles = context.candles_1min
         current_bar = candles.iloc[-1]
-        current_atr = current_bar['atr']
+        current_atr = context.get_atr(self.atr_period)
+
+        # Standalone callers may not precompute ATR in MarketContext.
+        if current_atr <= 0:
+            computed_atr = compute_atr(candles, period=self.atr_period)
+            if computed_atr.isna().all():
+                return None
+            current_atr = computed_atr.iloc[-1]
         
         if pd.isna(current_atr) or current_atr <= 0:
             return None
