@@ -4,7 +4,8 @@ Central trading configuration - SINGLE SOURCE OF TRUTH for:
   2) strategy definitions (name -> params) - so backtest and paper trading never diverge;
   3) T-Bank sandbox execution and retry policy;
   4) live order-book imbalance defaults;
-  5) live position-sizing risk limits.
+  5) live position-sizing risk limits;
+  6) live sandbox executor policy.
 
 Every module (data_refresher, online_data, online_signals, paper_trader, strategy_backtest)
 must import get_trading_universe() / get_strategy() from here instead of hardcoding
@@ -38,6 +39,28 @@ POSITION_SIZING: Dict[str, float] = {
 def get_position_sizing_config() -> Dict[str, float]:
     """Return an isolated copy of the live position-sizing policy."""
     return dict(POSITION_SIZING)
+
+
+# Sandbox-only live execution policy. Risk limits are composed from
+# POSITION_SIZING by the getter to avoid two independently editable defaults.
+LIVE_TRADING: Dict[str, Any] = {
+    'enabled': True,
+    'max_open_positions': 5,
+    'imbalance_threshold': 1.0,
+    'api_rate_limit': 10.0,
+    'close_positions_on_shutdown': False,
+    'check_interval_seconds': 30,
+    'context_refresh_seconds': 900,
+}
+
+
+def get_live_trading_config() -> Dict[str, Any]:
+    """Return the complete sandbox live-executor policy."""
+    return {
+        'risk_per_trade_pct': POSITION_SIZING['risk_per_trade_pct'],
+        'max_position_pct': POSITION_SIZING['max_position_pct'],
+        **LIVE_TRADING,
+    }
 
 
 # Secrets and the sandbox account id are intentionally loaded by config_manager from

@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-17 (Issues #59-#61 Live Trading Infrastructure). Companion to project-context.md.
+Last refreshed: 2026-08-17 (Issues #59-#62 Live Trading Infrastructure). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -12,20 +12,21 @@ Operational knowledge to work on this project safely: structure, DB schema, pipe
 See project-context.md section 2 for the full tree. Key operational entry points:
 - `backend/app/main.py` - FastAPI app + route registration.
 - `backend/app/analytics/trading_config.py` - trading universe + strategy registry (single source of truth).
-- `start_processes.sh` / `stop_processes.sh` - paper trading processes.
+- `start_processes.sh` / `stop_processes.sh` - paper trading and opt-in sandbox execution processes.
 - `docs/refresh/context_collector.py` - context collector for agent tasks.
 
 ## 3. Database Schema
 
-See project-context.md section 3. New tables (Strategy Lab + paper trading): `strategies`, `backtest_results`, `paper_positions`, `paper_equity`, `trading_universe`, `alerts`. All in schema `trading`.
+See project-context.md section 3. New tables include `strategies`, `backtest_results`, `paper_positions`, `paper_equity`, `live_positions`, `trading_universe`, and `alerts`. All are in schema `trading`.
 
 ## 4. Data Pipeline
 
-See project-context.md section 4. Four background processes (started by start_processes.sh):
+See project-context.md section 4. Four paper processes are started by default:
 1. `data_refresher` - MOEX 1min + aggregation + indicators + signals (every 15 min, top-15).
 2. `online_data` - streaming 1min candles + order book.
 3. `live_engine` - reads active strategy from DB (`paper_strategy.get_active_paper_strategy`), builds 4h context via `build_strategy_context`, feeds live 1min bars into per-ticker `StrategyEvaluator` instances (unified entry logic, same as backtest), emits signals to `trading.alerts`.
 4. `paper_trader` - reads strategy config from DB (RR from `config.risk_reward`), alerts -> market positions (open at best_ask, single arm) -> monitor stop/take -> write equity. Records `strategy_name` in `paper_positions`.
+- Optional: `LiveExecutor` provides sandbox broker execution and starts only with `START_LIVE_EXECUTOR=1`.
 On startup: `position_catchup` resolves pending/open positions against historical candles.
 
 ## 5. API Endpoints
@@ -106,3 +107,15 @@ python docs/refresh/context_collector.py
 - Use `size_lots` as the broker order quantity. `size_rub` is the pre-rounding budget, not a fractional-lot instruction.
 - `invalid_stop` and `insufficient_capital` are rejection results (`size_lots == 0`) and must not reach the broker. `min_lot` is executable because the calculator has already confirmed that free capital covers one full lot.
 - Unit test: `cd backend && python -m pytest -q tests/test_position_sizer.py`.
+
+## 15. Operating the Sandbox Live Executor
+
+- Prerequisites: backend rebuilt, streaming online data running, one active locked strategy, a funded sandbox account, and `LIVE_TRADING.enabled=true`.
+- Apply the migration explicitly when provisioning a database: `psql ... -f backend/migrations/20260817_01_live_positions.sql`. `LiveExecutor.initialize()` also applies the same idempotent schema automatically.
+- Safe start: `START_LIVE_EXECUTOR=1 ./start_processes.sh`. This additional opt-in prevents the normal paper workflow from placing sandbox broker orders. Logs: `reports/live-executor/executor.log`.
+- Processing order is fixed: `StrategyEvaluator` BUY -> fresh imbalance -> free RUB -> position sizing -> market BUY -> take sell-limit -> DB record/reconciliation.
+- Stop protection is synthetic. Never place the stop sell-limit at entry: a sell-limit below the market executes immediately. The monitor waits for `current_price <= stop_price`, cancels take, then submits a sell-limit at the observed price.
+- Every broker call shares one token bucket (`api_rate_limit`, maximum 10/sec). Do not add independent broker calls outside `_broker_call`.
+- SIGTERM/SIGINT requests cleanup. Pending entry and protection orders are cancelled; open holdings are flattened only when `close_positions_on_shutdown=true`. With the default false value, holdings remain open and their protection IDs are cleared in DB.
+- Diagnostics: `SELECT * FROM trading.live_positions WHERE status IN ('pending','open') ORDER BY id;`.
+- Tests: `cd backend && python -m pytest -q tests/test_live_executor.py`.
