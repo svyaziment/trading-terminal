@@ -79,7 +79,7 @@ python docs/refresh/context_collector.py
 ## 12. Работа с клиентом T-Bank Sandbox
 
 - Точка входа: `app.broker.tinkoff_sandbox.TinkoffSandboxClient`. Всё исполнение брокерских ордеров должно оставаться за этим классом; downstream executor не должен создавать или вызывать production-сервис `orders`.
-- Обязательное окружение: `TINVEST_TOKEN`. `TINVEST_ACC` рекомендуется; если он отсутствует или отклонён как не-sandbox счёт (`50004`), клиент находит первый открытый sandbox-счёт. Обнаружение счёта не открывает и не пополняет его.
+- Обязательное окружение: отдельный sandbox-токен `TINVEST_SANDBOX`. Необязательный `TINVEST_SANDBOX_ACC` фиксирует sandbox-счёт; иначе выбирается первый открытый. Клиент намеренно никогда не использует реквизиты рыночных данных `TINVEST_TOKEN` / `TINVEST_ACC`. Обнаружение счёта не открывает и не пополняет его.
 - Read-only smoke check:
   `cd backend && python -c "from app.broker.tinkoff_sandbox import TinkoffSandboxClient; print(TinkoffSandboxClient().check_balance())"`
 - Market-ордер: передайте `instrument_id`, положительный целый `quantity` в лотах и при необходимости `direction` (`buy`/`sell`). `price` передавать нельзя.

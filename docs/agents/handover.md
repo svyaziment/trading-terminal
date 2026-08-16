@@ -79,7 +79,7 @@ python docs/refresh/context_collector.py
 ## 12. Operating the T-Bank Sandbox Client
 
 - Entry point: `app.broker.tinkoff_sandbox.TinkoffSandboxClient`. Keep all broker order execution behind this class; downstream executors must not instantiate or call the production `orders` service.
-- Required environment: `TINVEST_TOKEN`. `TINVEST_ACC` is recommended; when absent or rejected as a non-sandbox account (`50004`), the client discovers the first open sandbox account. Account discovery never opens or funds an account.
+- Required environment: dedicated sandbox token `TINVEST_SANDBOX`. Optional `TINVEST_SANDBOX_ACC` pins the sandbox account; otherwise the first open account is discovered. The client deliberately never falls back to market-data credentials `TINVEST_TOKEN` / `TINVEST_ACC`. Account discovery never opens or funds an account.
 - Read-only smoke check:
   `cd backend && python -c "from app.broker.tinkoff_sandbox import TinkoffSandboxClient; print(TinkoffSandboxClient().check_balance())"`
 - Market order: pass `instrument_id`, a positive integer `quantity` in lots, and optionally `direction` (`buy`/`sell`). Do not pass `price`.

@@ -126,9 +126,13 @@ class TinkoffSandboxClient:
 
         settings = load_settings()
         policy = get_sandbox_trading_config()
-        self.token = (token if token is not None else settings.api.token).strip()
+        self.sandbox_token = (
+            token if token is not None else settings.api.sandbox_token
+        ).strip()
         self.account_id = (
-            account_id if account_id is not None else settings.api.account_id
+            account_id
+            if account_id is not None
+            else settings.api.sandbox_account_id
         ).strip()
         self.retry_attempts = max(1, int(policy["retry_attempts"]))
         self.retry_base_delay = max(
@@ -144,11 +148,11 @@ class TinkoffSandboxClient:
             raise SandboxConfigurationError(
                 "Unsafe configuration: allow_real_trading must remain false"
             )
-        if not self.token:
-            raise SandboxConfigurationError("TINVEST_TOKEN is empty")
+        if not self.sandbox_token:
+            raise SandboxConfigurationError("TINVEST_SANDBOX is empty")
         if not self.account_id and not self.discover_account:
             raise SandboxConfigurationError(
-                "TINVEST_ACC is empty and account discovery is disabled"
+                "TINVEST_SANDBOX_ACC is empty and account discovery is disabled"
             )
 
     def execute_order(
@@ -340,7 +344,8 @@ class TinkoffSandboxClient:
         ]
         if not accounts:
             raise SandboxConfigurationError(
-                "No open sandbox account found; set TINVEST_ACC or open an account"
+                "No open sandbox account found; set TINVEST_SANDBOX_ACC "
+                "or open an account"
             )
         self.account_id = str(accounts[0].id)
         logger.info(
@@ -353,9 +358,9 @@ class TinkoffSandboxClient:
         for attempt in range(1, self.retry_attempts + 1):
             try:
                 with self._client_factory(
-                    self.token,
+                    self.sandbox_token,
                     target=INVEST_GRPC_API_SANDBOX,
-                    sandbox_token=self.token,
+                    sandbox_token=self.sandbox_token,
                 ) as services:
                     return request(services.sandbox)
             except SandboxClientError:

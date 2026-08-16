@@ -12,7 +12,9 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 # Secrets and the sandbox account id are intentionally loaded by config_manager from
-# TINVEST_TOKEN / TINVEST_ACC. Only non-secret execution policy lives here.
+# TINVEST_SANDBOX / TINVEST_SANDBOX_ACC. TINVEST_TOKEN / TINVEST_ACC remain
+# market-data-only.
+# Only non-secret execution policy lives here.
 SANDBOX_TRADING: Dict[str, Any] = {
     'enabled': True,
     'allow_real_trading': False,

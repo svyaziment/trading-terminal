@@ -225,7 +225,7 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 ## 9. Important Notes
 
 - **Sandbox mode**: no real trading. T-Bank API sandbox tokens.
-- **Secrets**: .env (TINVEST_TOKEN, TINVEST_ACC, PSTGRS_PWD). Never log secrets.
+- **Secrets**: .env (`TINVEST_TOKEN` / `TINVEST_ACC` for market data, `TINVEST_SANDBOX` / optional `TINVEST_SANDBOX_ACC` for sandbox execution, `PSTGRS_PWD`). Never log secrets or reuse market-data credentials for trading.
 - **Docker**: rebuild backend image after code changes (`docker compose up -d --build backend`). Backend mounts `./reports` (for last_run.json).
 - **Single source of truth**: trading universe + strategy definitions live in `trading_config.py` / `trading.trading_universe`. Do not hardcode ticker lists or strategy params in modules.
 - **Locked strategy**: the strategy under paper test has `locked=true`; the API rejects overwriting it (409). Unlock only after the test period.
@@ -239,6 +239,8 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 - `get_positions` for non-zero open portfolio positions;
 - `cancel_order` for active sandbox orders.
 
-Operational policy is centralized in `analytics/trading_config.py` (`SANDBOX_TRADING`): sandbox enablement, hard prohibition of real trading, initial capital reference, default currency, retry count/backoff, and account discovery. Secrets are not stored there: `TINVEST_TOKEN` and optional `TINVEST_ACC` continue to be loaded through `core/config_manager.py`.
+Operational policy is centralized in `analytics/trading_config.py` (`SANDBOX_TRADING`): sandbox enablement, hard prohibition of real trading, initial capital reference, default currency, retry count/backoff, and account discovery. Secrets are not stored there: dedicated `TINVEST_SANDBOX` / `TINVEST_SANDBOX_ACC` credentials are loaded through `core/config_manager.py`; `TINVEST_TOKEN` / `TINVEST_ACC` are reserved for market data.
 
-Transient gRPC failures (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`, `INTERNAL`) use exponential backoff. Order retries reuse the same idempotency `order_id`, preventing duplicate execution after an uncertain response. If `TINVEST_ACC` is empty or points to a non-sandbox account (`50004`), the client falls back to the first open sandbox account and caches its id; it does not create or fund accounts automatically.
+Transient gRPC failures (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`, `INTERNAL`) use exponential backoff. Order retries reuse the same idempotency `order_id`, preventing duplicate execution after an uncertain response. If `TINVEST_SANDBOX_ACC` is empty or invalid (`50004`), the client falls back to the first open sandbox account and caches its id; it does not create or fund accounts automatically.
+
+Live verification on 2026-08-16: an operator opened a sandbox account and funded it with 50,000 RUB. `TinkoffSandboxClient` successfully read the balance and positions, submitted a one-lot SBER limit order, and cancelled that order.

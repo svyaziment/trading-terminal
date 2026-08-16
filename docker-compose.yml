@@ -27,7 +27,9 @@ services:
     environment:
       ENVIRONMENT: dev
       TINVEST_TOKEN: ${TINVEST_TOKEN:-}
+      TINVEST_SANDBOX: ${TINVEST_SANDBOX:-}
       TINVEST_ACC: ${TINVEST_ACC:-}
+      TINVEST_SANDBOX_ACC: ${TINVEST_SANDBOX_ACC:-}
       PSTGRS_PWD: ${PSTGRS_PWD:-}
       POSTGRES_HOST: ${POSTGRES_HOST:-host.docker.internal}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}

@@ -225,7 +225,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 ## 9. Важные замечания
 
 - **Песочница**: реальной торговли нет. Используются sandbox-токены T-Bank API.
-- **Секреты**: .env (TINVEST_TOKEN, TINVEST_ACC, PSTGRS_PWD). Никогда не логировать секреты.
+- **Секреты**: .env (`TINVEST_TOKEN` / `TINVEST_ACC` для рыночных данных, `TINVEST_SANDBOX` / необязательный `TINVEST_SANDBOX_ACC` для sandbox-исполнения, `PSTGRS_PWD`). Никогда не логировать секреты и не использовать реквизиты рыночных данных для торговли.
 - **Docker**: после изменений кода пересоберите backend image (`docker compose up -d --build backend`). Backend монтирует `./reports` (для last_run.json).
 - **Единый источник истины**: торговая вселенная + определения стратегий живут в `trading_config.py` / `trading.trading_universe`. Не хардкодьте списки тикеров или параметры стратегий в модулях.
 - **Заблокированная стратегия**: стратегия в paper test имеет `locked=true`; API отклоняет её перезапись (409). Разблокировать только после тестового периода.
@@ -239,6 +239,8 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 - `get_positions` для получения ненулевых открытых позиций портфеля;
 - `cancel_order` для отмены активного sandbox-ордера.
 
-Операционная политика централизована в `analytics/trading_config.py` (`SANDBOX_TRADING`): включение sandbox, жёсткий запрет реальной торговли, справочный начальный капитал, валюта по умолчанию, число retry/backoff и обнаружение счёта. Секреты там не хранятся: `TINVEST_TOKEN` и необязательный `TINVEST_ACC` по-прежнему загружаются через `core/config_manager.py`.
+Операционная политика централизована в `analytics/trading_config.py` (`SANDBOX_TRADING`): включение sandbox, жёсткий запрет реальной торговли, справочный начальный капитал, валюта по умолчанию, число retry/backoff и обнаружение счёта. Секреты там не хранятся: отдельные реквизиты `TINVEST_SANDBOX` / `TINVEST_SANDBOX_ACC` загружаются через `core/config_manager.py`; `TINVEST_TOKEN` / `TINVEST_ACC` используются только для рыночных данных.
 
-При временных gRPC-ошибках (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`, `INTERNAL`) используется экспоненциальная задержка. Повтор ордера сохраняет один idempotency `order_id`, поэтому неопределённый ответ не приводит к дублирующему ордеру. Если `TINVEST_ACC` пуст или указывает не на sandbox-счёт (`50004`), клиент выбирает первый открытый sandbox-счёт и кеширует его id; счета и деньги автоматически не создаются.
+При временных gRPC-ошибках (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`, `DEADLINE_EXCEEDED`, `INTERNAL`) используется экспоненциальная задержка. Повтор ордера сохраняет один idempotency `order_id`, поэтому неопределённый ответ не приводит к дублирующему ордеру. Если `TINVEST_SANDBOX_ACC` пуст или некорректен (`50004`), клиент выбирает первый открытый sandbox-счёт и кеширует его id; счета и деньги автоматически не создаются.
+
+Live-проверка 2026-08-16: оператор открыл sandbox-счёт и пополнил его на 50 000 RUB. `TinkoffSandboxClient` успешно прочитал баланс и позиции, выставил limit-ордер SBER на один лот и отменил его.

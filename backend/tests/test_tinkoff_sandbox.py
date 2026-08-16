@@ -6,6 +6,7 @@ import pytest
 from app.broker import tinkoff_sandbox as module
 from app.broker.tinkoff_sandbox import (
     SandboxAPIError,
+    SandboxConfigurationError,
     TinkoffSandboxClient,
 )
 
@@ -118,6 +119,24 @@ def test_client_uses_dedicated_sandbox_endpoint():
     client.check_balance()
 
     assert captured["target"] == module.INVEST_GRPC_API_SANDBOX
+
+
+def test_client_never_falls_back_to_market_data_token(monkeypatch):
+    monkeypatch.setattr(
+        module,
+        "load_settings",
+        lambda: SimpleNamespace(
+            api=SimpleNamespace(
+                token="market-data-token",
+                sandbox_token="",
+                account_id="",
+                sandbox_account_id="",
+            )
+        ),
+    )
+
+    with pytest.raises(SandboxConfigurationError, match="TINVEST_SANDBOX"):
+        TinkoffSandboxClient()
 
 
 def test_get_positions_discovers_open_account_and_skips_zero_positions():

@@ -9,6 +9,8 @@ def test_load_settings_returns_settings_object() -> None:
     assert isinstance(settings.db.user, str)
     assert isinstance(settings.db.password, str)
     assert isinstance(settings.db.port, int)
+    assert isinstance(settings.api.sandbox_token, str)
+    assert isinstance(settings.api.sandbox_account_id, str)
 
 
 def test_terminal_and_risk_defaults_are_loaded() -> None:
@@ -18,3 +20,17 @@ def test_terminal_and_risk_defaults_are_loaded() -> None:
     assert isinstance(settings.terminal.refresh_rate_sec, int)
     assert isinstance(settings.risk.max_daily_loss_pct, float)
     assert isinstance(settings.risk.max_position_size, int)
+
+
+def test_sandbox_token_uses_dedicated_environment_variable(monkeypatch) -> None:
+    monkeypatch.setenv("TINVEST_TOKEN", "market-data-token")
+    monkeypatch.setenv("TINVEST_SANDBOX", "sandbox-only-token")
+    monkeypatch.setenv("TINVEST_ACC", "market-data-account")
+    monkeypatch.setenv("TINVEST_SANDBOX_ACC", "sandbox-only-account")
+
+    settings = load_settings()
+
+    assert settings.api.token == "market-data-token"
+    assert settings.api.sandbox_token == "sandbox-only-token"
+    assert settings.api.account_id == "market-data-account"
+    assert settings.api.sandbox_account_id == "sandbox-only-account"

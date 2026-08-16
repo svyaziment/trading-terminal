@@ -1,6 +1,8 @@
 api:
   token: ""
+  sandbox_token: ""
   account_id: ""
+  sandbox_account_id: ""
 
 terminal:
   theme: "dark"
