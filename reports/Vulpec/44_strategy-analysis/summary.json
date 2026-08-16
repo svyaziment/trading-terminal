@@ -1,0 +1,38 @@
+{
+  "metrics": [
+    {
+      "strategy": "levels_reversal",
+      "final_equity_rub": 96343.49,
+      "pnl_rub": 46343.49,
+      "pnl_pct": 92.69,
+      "n_trades": 3500,
+      "win_rate_pct": 28.3,
+      "profit_factor": 1.31,
+      "max_drawdown_pct": 41.21,
+      "game_over": false,
+      "skipped_entries": 1452
+    },
+    {
+      "strategy": "atr_reversal",
+      "final_equity_rub": 45587.14,
+      "pnl_rub": -4412.86,
+      "pnl_pct": -8.83,
+      "n_trades": 912,
+      "win_rate_pct": 38.8,
+      "profit_factor": 0.36,
+      "max_drawdown_pct": 34.5,
+      "game_over": false,
+      "skipped_entries": 0
+    }
+  ],
+  "input_sha256": {
+    "levels_reversal": "757f80ed7825d097f5a19c04f31a33b8ca2e4cdc174b7cf89c07a322493d6004",
+    "atr_reversal": "dc2a67c5ac6c5f88c7f2c6630e62d95441ddc54dd2fcba126e6fd9a912156b44"
+  },
+  "plot_files": [
+    "equity_curves.png",
+    "metrics_comparison.png",
+    "ticker_pnl_heatmap.png",
+    "trade_pnl_distribution.png"
+  ]
+}
