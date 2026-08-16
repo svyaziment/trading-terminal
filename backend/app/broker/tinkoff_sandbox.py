@@ -120,6 +120,7 @@ class TinkoffSandboxClient:
         account_id: Optional[str] = None,
         client_factory: Optional[Callable[..., Any]] = None,
         sleep_fn: Callable[[float], None] = time.sleep,
+        before_request: Optional[Callable[[], None]] = None,
     ) -> None:
         if not IS_SDK_AVAILABLE:
             raise SandboxConfigurationError("t-tech-investments SDK is not available")
@@ -141,6 +142,7 @@ class TinkoffSandboxClient:
         self.discover_account = bool(policy["discover_account_when_missing"])
         self._client_factory = client_factory or Client
         self._sleep = sleep_fn
+        self._before_request = before_request or (lambda: None)
 
         if not policy.get("enabled"):
             raise SandboxConfigurationError("Sandbox trading is disabled")
@@ -335,6 +337,7 @@ class TinkoffSandboxClient:
         if not self.discover_account:
             raise SandboxConfigurationError("Sandbox account id is not configured")
 
+        self._before_request()
         response = sandbox.get_sandbox_accounts()
         open_status = AccountStatus.ACCOUNT_STATUS_OPEN
         accounts = [
@@ -357,6 +360,7 @@ class TinkoffSandboxClient:
     def _call(self, operation: str, request: Callable[[Any], Any]) -> Any:
         for attempt in range(1, self.retry_attempts + 1):
             try:
+                self._before_request()
                 with self._client_factory(
                     self.sandbox_token,
                     target=INVEST_GRPC_API_SANDBOX,

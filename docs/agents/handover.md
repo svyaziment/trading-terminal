@@ -115,7 +115,7 @@ python docs/refresh/context_collector.py
 - Safe start: `START_LIVE_EXECUTOR=1 ./start_processes.sh`. This additional opt-in prevents the normal paper workflow from placing sandbox broker orders. Logs: `reports/live-executor/executor.log`.
 - Processing order is fixed: `StrategyEvaluator` BUY -> fresh imbalance -> free RUB -> position sizing -> market BUY -> take sell-limit -> DB record/reconciliation.
 - Stop protection is synthetic. Never place the stop sell-limit at entry: a sell-limit below the market executes immediately. The monitor waits for `current_price <= stop_price`, cancels take, then submits a sell-limit at the observed price.
-- Every broker call shares one token bucket (`api_rate_limit`, maximum 10/sec). Do not add independent broker calls outside `_broker_call`.
+- Every physical broker attempt, including SDK retries and account discovery, shares one token bucket (`api_rate_limit`, maximum 10/sec). Do not add independent broker calls outside `_broker_call` or bypass the client's `before_request` hook.
 - SIGTERM/SIGINT requests cleanup. Pending entry and protection orders are cancelled; open holdings are flattened only when `close_positions_on_shutdown=true`. With the default false value, holdings remain open and their protection IDs are cleared in DB.
 - Diagnostics: `SELECT * FROM trading.live_positions WHERE status IN ('pending','open') ORDER BY id;`.
 - Tests: `cd backend && python -m pytest -q tests/test_live_executor.py`.

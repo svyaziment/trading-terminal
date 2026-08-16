@@ -139,13 +139,16 @@ class LiveExecutor:
         sleep_fn: Callable[[float], None] = time.sleep,
     ) -> None:
         self.db = db or DBManager()
-        self.broker = broker or TinkoffSandboxClient()
         self.config = {**get_live_trading_config(), **(config or {})}
         self._validate_config()
         self.rate_limiter = TokenBucket(
             float(self.config["api_rate_limit"]),
             clock=clock,
             sleep_fn=sleep_fn,
+        )
+        self._broker_limits_attempts = broker is None
+        self.broker = broker or TinkoffSandboxClient(
+            before_request=self.rate_limiter.acquire
         )
         self.evaluator_factory = evaluator_factory
         self.clock = clock
@@ -169,7 +172,8 @@ class LiveExecutor:
                 raise ValueError(f"{key} cannot be negative")
 
     def _broker_call(self, method: str, *args: Any, **kwargs: Any) -> Any:
-        self.rate_limiter.acquire()
+        if not self._broker_limits_attempts:
+            self.rate_limiter.acquire()
         return getattr(self.broker, method)(*args, **kwargs)
 
     def initialize(self) -> None:
@@ -727,8 +731,13 @@ class LiveExecutor:
                     last_check = now
                 self.sleep_fn(min(1.0, check_interval))
         finally:
-            self.shutdown()
-            logger.info("Sandbox LiveExecutor stopped cleanly")
+            try:
+                self.shutdown()
+            finally:
+                close_pool = getattr(self.db, "close_pool", None)
+                if callable(close_pool):
+                    close_pool()
+                logger.info("Sandbox LiveExecutor stopped cleanly")
 
 
 if __name__ == "__main__":
