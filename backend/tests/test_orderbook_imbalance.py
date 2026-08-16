@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from app.analytics import online_signals
 from app.analytics.online_data import ORDERBOOK_DEPTH, save_orderbook_aggregate
 from app.analytics.orderbook_imbalance import (
     calculate_volume_imbalance,
@@ -137,3 +138,92 @@ def test_zero_ask_depth_is_persisted_as_missing_imbalance():
 
     _, params = db.executions[0]
     assert params[9] is None
+
+
+@pytest.mark.parametrize(
+    ("imbalance", "expected_signals"),
+    [
+        (None, 0),
+        (0.9, 0),
+        (1.1, 1),
+    ],
+)
+def test_legacy_signal_loop_cannot_bypass_mandatory_filter(
+    monkeypatch,
+    imbalance,
+    expected_signals,
+):
+    class LoopDB:
+        def close_pool(self):
+            pass
+
+    class Evaluator:
+        def __init__(self, _config):
+            pass
+
+        def load_context(self, *_args):
+            pass
+
+        def update_context(self, **_kwargs):
+            pass
+
+        def check_entry(self, _bar):
+            return {"entry_price": 100.0, "stop": 95.0, "take": 110.0}
+
+    saved = []
+    time_values = iter([0.0, 0.0, 0.01, 0.01, 1.0])
+    monkeypatch.setattr(online_signals, "DBManager", LoopDB)
+    monkeypatch.setattr(
+        online_signals,
+        "get_active_paper_strategy",
+        lambda _db: {
+            "name": "test",
+            "config": {
+                "patterns": ["levels_reversal"],
+                "imbalance_threshold": 1.0,
+            },
+        },
+    )
+    monkeypatch.setattr(
+        online_signals,
+        "build_strategy_context",
+        lambda *_args: {
+            "status": "ok",
+            "levels": [],
+            "ts_htf": [],
+            "atr_by_ts": {},
+            "buy_ts": [],
+        },
+    )
+    monkeypatch.setattr(online_signals, "StrategyEvaluator", Evaluator)
+    monkeypatch.setattr(
+        online_signals,
+        "_build_1m_context_for_signals",
+        lambda *_args: (
+            pd.DataFrame([{"timestamp": pd.Timestamp("2026-08-16 12:00:00")}]),
+            [([pd.Timestamp("2026-08-16 12:00:00")], [100.0])],
+        ),
+    )
+    monkeypatch.setattr(
+        online_signals,
+        "get_recent_imbalance",
+        lambda *_args: imbalance,
+    )
+    monkeypatch.setattr(
+        online_signals,
+        "save_signal",
+        lambda _db, signal: saved.append(signal),
+    )
+    monkeypatch.setattr(online_signals.time, "time", lambda: next(time_values))
+    monkeypatch.setattr(online_signals.time, "sleep", lambda _seconds: None)
+
+    emitted = online_signals.run_signal_engine(
+        tickers=["SBER"],
+        duration_minutes=0.001,
+        check_interval_sec=0,
+    )
+
+    assert emitted == expected_signals
+    assert len(saved) == expected_signals
+    if saved:
+        assert saved[0]["imbalance"] == imbalance

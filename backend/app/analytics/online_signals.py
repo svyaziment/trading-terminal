@@ -30,6 +30,8 @@ from app.analytics.trading_config import get_trading_universe
 from app.analytics.paper_strategy import get_active_paper_strategy, PaperStrategyNotFoundError, PaperStrategyAmbiguousError
 from app.analytics.orderbook_imbalance import (
     calculate_volume_imbalance,
+    get_imbalance_threshold,
+    get_recent_imbalance,
     passes_imbalance_filter,
 )
 from app.analytics.strategy_context import build_strategy_context
@@ -340,6 +342,7 @@ def run_signal_engine(tickers: List[str] = None, duration_minutes: int = 60,
 
     config = strategy['config']
     strat_name = strategy['name']
+    imbalance_threshold = get_imbalance_threshold(config)
 
     if tickers is None:
         rp = config.get('run_params') or {}
@@ -347,7 +350,11 @@ def run_signal_engine(tickers: List[str] = None, duration_minutes: int = 60,
         if not tickers:
             tickers = get_trading_universe(db)
 
-    logger.info(f"Signal engine: strategy '{strat_name}', {len(tickers)} tickers, duration {duration_minutes} min")
+    logger.info(
+        f"Signal engine: strategy '{strat_name}', {len(tickers)} tickers, "
+        f"mandatory imbalance_threshold={imbalance_threshold}, "
+        f"duration {duration_minutes} min"
+    )
 
     evaluators: Dict[str, StrategyEvaluator] = {}
     last_processed: Dict[str, object] = {}
@@ -408,6 +415,16 @@ def run_signal_engine(tickers: List[str] = None, duration_minutes: int = 60,
                 if dec is None:
                     continue
 
+                imbalance = get_recent_imbalance(db, tk)
+                if not passes_imbalance_filter(imbalance, config):
+                    logger.info(
+                        "SKIP signal: %s imbalance=%s threshold=%s",
+                        tk,
+                        imbalance,
+                        imbalance_threshold,
+                    )
+                    continue
+
                 price = dec['entry_price']
                 stop = dec['stop']
                 take = dec['take']
@@ -425,6 +442,7 @@ def run_signal_engine(tickers: List[str] = None, duration_minutes: int = 60,
                     'window_mode': window_mode,
                     'rr_mode': rr_mode,
                     'strategy_name': strat_name,
+                    'imbalance': imbalance,
                     'timestamp': now_msk.isoformat(),
                 }
 
