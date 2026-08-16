@@ -28,6 +28,10 @@ from app.analytics.levels_backtest import compute_atr, aggregate_1min_to, build_
 logger = logging.getLogger(__name__)
 from app.analytics.trading_config import get_trading_universe
 from app.analytics.paper_strategy import get_active_paper_strategy, PaperStrategyNotFoundError, PaperStrategyAmbiguousError
+from app.analytics.orderbook_imbalance import (
+    calculate_volume_imbalance,
+    passes_imbalance_filter,
+)
 from app.analytics.strategy_context import build_strategy_context
 from app.analytics.strategy_engine import StrategyEvaluator
 from app.analytics.strategy_backtest import compute_indicators_1min
@@ -38,7 +42,6 @@ ZONE_ATR = 0.5
 SWING_WINDOW = 10
 ENTRY_WINDOW_START = 7
 ENTRY_WINDOW_END = 19
-IMBALANCE_THRESHOLD = 1.0
 RISK_REWARD_THRESHOLD = 2.0  # rr_mode='rr2' requires reward >= 2 * risk
 RISK_REWARD_THRESHOLD_15 = 1.5  # rr_mode='rr15' requires reward >= 1.5 * risk
 
@@ -141,7 +144,13 @@ def _4h_buy_active(buy_ts, a4, now_naive):
     return a4 is not None and sig_ts <= now_naive and sig_ts >= a4
 
 
-def check_signal(db: DBManager, ticker: str, levels, mode: str = 'base') -> Optional[Dict]:
+def check_signal(
+    db: DBManager,
+    ticker: str,
+    levels,
+    mode: str = 'base',
+    config: Optional[Dict] = None,
+) -> Optional[Dict]:
     """BUY signal: price in support zone + last CLOSED 10min candle above zone (+ optional imbalance).
     Generated 24/7. Returns base signal dict; window_mode and rr_mode applied by caller."""
     now_msk = _now_msk()
@@ -182,8 +191,11 @@ def check_signal(db: DBManager, ticker: str, levels, mode: str = 'base') -> Opti
         ob = get_recent_orderbook(db, ticker, minutes=5)
         if ob is None:
             return None
-        imbalance = float(ob.get('volume_imbalance', 0) or 0)
-        if imbalance <= IMBALANCE_THRESHOLD:
+        imbalance = calculate_volume_imbalance(
+            ob.get('bid_depth'),
+            ob.get('ask_depth'),
+        )
+        if not passes_imbalance_filter(imbalance, config):
             return None
     res = nearest_level_at(levels, a4, price, 'resistance')
     take_level = float(res['level_price']) if res is not None else None

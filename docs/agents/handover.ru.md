@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-14 (task-181; синхронизировано с английской версией task-179). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-16 (задача #60, realtime imbalance стакана; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -75,3 +75,13 @@ python docs/refresh/context_collector.py
 - **Скрипты задач живут в `scripts/`** (gitignored). Каждая задача пишет отчёты в `reports/<AGENT_NAME>/<ISSUE_NUMBER>_<ISSUE_NAME>/` (см. developer-sop.md для конвенций именования).
 - **Проверяйте после записи**: всегда проверяйте размеры файлов (`wc -c`) и выполняйте build/health check после изменений.
 - **Документация двуязычная**: держите `*.md` и `*.ru.md` синхронно (project-context, handover, strategy docs).
+
+## 12. Эксплуатация фильтра imbalance стакана
+
+- Точки входа: `online_data.save_orderbook_aggregate` рассчитывает и сохраняет каждое streaming-обновление; `orderbook_imbalance.get_recent_imbalance` читает свежий агрегат; `passes_imbalance_filter` служит обязательным шлюзом сигнала.
+- Инфраструктурная политика находится в `ORDERBOOK_IMBALANCE` файла `trading_config.py`: глубина 10, максимальный возраст 5 минут, порог по умолчанию 1.0. Переопределение стратегией: верхнеуровневый `config.imbalance_threshold`.
+- Условие прохождения строгое: `volume_imbalance > imbalance_threshold`. Отсутствующие, устаревшие, null, NaN/бесконечные данные и нулевая ask depth всегда отклоняют сигнал.
+- Быстрая диагностика БД:
+  `SELECT ticker, timestamp, bid_depth, ask_depth, volume_imbalance FROM trading.online_orderbook_aggregates ORDER BY timestamp DESC LIMIT 20;`
+- Если все live-сигналы пропускаются, сначала убедитесь, что `online_data` запущен, а последняя строка моложе 5 минут. Не ослабляйте защиту от отсутствующих данных.
+- Unit-тест: `cd backend && python -m pytest -q tests/test_orderbook_imbalance.py`.

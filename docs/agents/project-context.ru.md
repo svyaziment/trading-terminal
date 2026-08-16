@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-16 (Эпик #39 Strategy Plugin System; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-16 (задача #60, realtime imbalance стакана; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -46,6 +46,7 @@ trading-terminal/
 │   │   ├── strategy_context.py      # Построение контекста стратегии (уровни, ATR, BUY-сигналы)
 │ │ │ ├── trading_config.py # ЕДИНЫЙ ИСТОЧНИК ИСТИНЫ: торговая вселенная + реестр стратегий
 │ │ │ ├── online_data.py # Стриминг: 1min свечи + стакан -> online_* таблицы
+│ │ │ ├── orderbook_imbalance.py # Отношение bid/ask depth + обязательный live-фильтр
 │ │ │ ├── online_signals.py # Движок онлайн-сигналов (paper trading, A/B arms)
 │   │   ├── pattern_registry.py      # Реестр паттернов + normalize_patterns (Эпик #11)
 │ │ │ ├── paper_trader.py # Движок paper trading (market+limit, stop/take, equity)
@@ -217,6 +218,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | I | ML (CatBoost/LightGBM) | Не начато |
 | J | Отчёт анализа A/B теста (signal_source x window x rr x entry) | Ожидает (накопить закрытые сделки) |
 | O | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Готово (Эпик #39) |
+| P | Live Trading Infrastructure | В работе: realtime imbalance стакана готов (#60) |
 
 ## 9. Важные замечания
 
@@ -226,3 +228,13 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 - **Единый источник истины**: торговая вселенная + определения стратегий живут в `trading_config.py` / `trading.trading_universe`. Не хардкодьте списки тикеров или параметры стратегий в модулях.
 - **Заблокированная стратегия**: стратегия в paper test имеет `locked=true`; API отклоняет её перезапись (409). Разблокировать только после тестового периода.
 - **Логирование**: DBManager по умолчанию пишет в stdout. В скриптах, которые парсят JSON из stdout, перенаправьте логи в stderr. Фоновые процессы (start_processes.sh) используют `python -u` + `logging.basicConfig(level=INFO, stream=sys.stdout)` для немедленной записи логов в файлы.
+
+## 10. Imbalance стакана в реальном времени
+
+`backend/app/analytics/orderbook_imbalance.py` — общий калькулятор и обязательный фильтр live-входа для задачи #60. При каждом streaming-обновлении стакана `online_data.py` суммирует объёмы первых 10 уровней bid и ask из конфига и сохраняет:
+
+`volume_imbalance = bid_depth / ask_depth`
+
+Инфраструктурные значения находятся в `trading_config.py` (`ORDERBOOK_IMBALANCE`): глубина 10, максимальный возраст агрегата 5 минут и порог по умолчанию 1.0. Активная стратегия может переопределить только верхнеуровневый `imbalance_threshold`; live-вход проходит, когда конечное значение imbalance строго больше порога.
+
+Перед генерацией каждого сигнала `live_engine.py` заново рассчитывает отношение из `bid_depth` и `ask_depth` последней свежей строки `trading.online_orderbook_aggregates`. Отсутствующая или устаревшая строка, null/нечисловые значения и нулевая ask depth дают `None`, поэтому обязательный фильтр отклоняет сигнал, а не использует ноль или старые данные. Legacy online signal path использует тот же калькулятор.

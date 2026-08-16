@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-14 (task-181). Companion to project-context.md.
+Last refreshed: 2026-08-16 (Issue #60 real-time order-book imbalance). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -75,3 +75,13 @@ python docs/refresh/context_collector.py
 - **Task scripts live in `scripts/`** (gitignored). Each task writes reports to `reports/<AGENT_NAME>/<ISSUE_NUMBER>_<ISSUE_NAME>/` (see developer-sop.md for naming conventions).
 - **Verify after write**: always check file sizes (`wc -c`) and run a build/health check after changes.
 - **Docs are bilingual**: keep `*.md` and `*.ru.md` in sync (project-context, handover, strategy docs).
+
+## 12. Operating the Order-book Imbalance Filter
+
+- Entry points: `online_data.save_orderbook_aggregate` calculates and stores each stream update; `orderbook_imbalance.get_recent_imbalance` reads a fresh aggregate; `passes_imbalance_filter` is the mandatory signal gate.
+- Infrastructure policy is `ORDERBOOK_IMBALANCE` in `trading_config.py`: depth 10, maximum age 5 minutes, default threshold 1.0. Strategy override: top-level `config.imbalance_threshold`.
+- Passing condition is strict: `volume_imbalance > imbalance_threshold`. Missing, stale, null, NaN/infinite data, or zero ask depth always rejects the signal.
+- Quick DB diagnostic:
+  `SELECT ticker, timestamp, bid_depth, ask_depth, volume_imbalance FROM trading.online_orderbook_aggregates ORDER BY timestamp DESC LIMIT 20;`
+- If all live signals are skipped, first confirm that `online_data` is running and the latest row is less than 5 minutes old. Do not weaken the missing-data guard.
+- Unit test: `cd backend && python -m pytest -q tests/test_orderbook_imbalance.py`.
