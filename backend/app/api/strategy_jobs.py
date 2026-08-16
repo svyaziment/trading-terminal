@@ -113,6 +113,8 @@ def _write_report(data: Dict[str, Any]) -> None:
 def _run_job(strategy_id: int, tickers: List[str], test_types: List[str], depth: str, date_from=None, date_to=None) -> None:
     try:
         from app.analytics.strategy_backtest import run_strategy_backtest, run_walkforward, DEPTH_PRESETS
+        from app.analytics.portfolio_backtest import run_portfolio_backtest
+        from app.analytics.strategies.registry import register_default_strategies
         import pandas as pd
         db = _get_db()
         srow = db.select("SELECT name, config FROM trading.strategies WHERE id=%s", (strategy_id,)).to_dataframe()
@@ -121,6 +123,7 @@ def _run_job(strategy_id: int, tickers: List[str], test_types: List[str], depth:
         name = srow.iloc[0]['name']
         config = _to_dict(srow.iloc[0]['config'])
         config = normalize_patterns(config or {})
+        strategy_name = config.get('strategy_name') or None
         _write_report({"strategy_name": name, "config": config})
         custom_period = bool(date_from and date_to)
         if custom_period:
@@ -138,7 +141,16 @@ def _run_job(strategy_id: int, tickers: List[str], test_types: List[str], depth:
         for i, tk in enumerate(tickers, 1):
             jobs_state.update(JOB, current_ticker=tk)
             if "full_sample" in test_types:
-                r = run_strategy_backtest(db, tk, config, date_from=df_from, date_to=df_to)
+                if strategy_name:
+                    register_default_strategies()
+                    pr = run_portfolio_backtest(db, strategy_name, config, [tk], date_from=df_from, date_to=df_to)
+                    tr = (pr.get('results') or [{}])[0]
+                    if tr.get('status') == 'success':
+                        r = {'status': 'success', 'metrics': tr.get('metrics'), 'trades': tr.get('trades', [])}
+                    else:
+                        r = {'status': 'failed', 'error': tr.get('error') or pr.get('error') or 'failed'}
+                else:
+                    r = run_strategy_backtest(db, tk, config, date_from=df_from, date_to=df_to)
                 if r.get('status') == 'success':
                     m = dict(r.get('metrics') or {})
                     m['trades'] = r.get('trades', [])
@@ -178,6 +190,12 @@ def register_routes(app: FastAPI) -> None:
 
     def get_patterns():
         return {"patterns": list_patterns()}
+    @app.get("/api/strategies/plugins")
+    def strategy_plugins():
+        from app.analytics.strategies.registry import get_registry, register_default_strategies
+        register_default_strategies()
+        return {"plugins": get_registry().list_plugins()}
+
     _ensure_schema(_get_db())
 
     @app.post("/api/strategies")

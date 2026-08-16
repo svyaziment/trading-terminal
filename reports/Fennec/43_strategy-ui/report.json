@@ -1,0 +1,10 @@
+{
+  "task_id": "task-43-17-check-gitignore",
+  "issue": 43,
+  "status": "needs_human",
+  "started_at": "2026-08-16T08:29:12Z",
+  "finished_at": "2026-08-16T08:29:12Z",
+  "changes": ["проверка .gitignore"],
+  "note": "Директория reports/ в .gitignore — отчёты не коммитятся. Требуется решение.",
+  "next_action": "выбрать вариант: (A) убрать reports из gitignore, (B) оставить локально, (C) использовать force add"
+}

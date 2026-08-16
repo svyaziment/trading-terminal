@@ -196,3 +196,7 @@ export function getPaperDynamics(params: FactorFilters & { timeframe: string }) 
 export function getPatterns(): Promise<{ patterns: import("./types").PatternDef[] }> {
   return getJson<{ patterns: import("./types").PatternDef[] }>("/api/patterns");
 }
+
+export function getStrategyPlugins(): Promise<{ plugins: string[] }> {
+  return getJson<{ plugins: string[] }>("/api/strategies/plugins");
+}
