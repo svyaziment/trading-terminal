@@ -16,7 +16,6 @@ build/
 
 # Logs and reports
 logs/
-reports/
 
 # OS
 .DS_Store
@@ -32,3 +31,7 @@ logs_internal/
 backend/certs/*.pem
 
 scripts/
+
+# Temporary files in reports (agent artifacts)
+reports/*/_tmp/
+reports/*/*.log
