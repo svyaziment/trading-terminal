@@ -297,6 +297,6 @@ Take-profit сразу выставляется как ожидающий sell-l
 
 ## 15. Панель мониторинга Live Trading
 
-`frontend/src/components/LiveTradingPanel.tsx` доступна во вкладке `Live Trading`. Панель каждые 10 секунд читает `trading.live_positions` через live monitoring API и показывает открытые позиции с последним best bid (fallback на best ask), нереализованный PnL в RUB/%, пагинируемую и сортируемую историю сделок, накопленный realized PnL и подключение Telegram.
+`frontend/src/components/LiveTradingPanel.tsx` доступна во вкладке `Live Trading`. Панель каждые 10 секунд читает `trading.live_positions` через live monitoring API и показывает открытые позиции с последним best bid (fallback на best ask), нереализованный PnL в RUB/%, пагинируемую и сортируемую историю сделок, накопленный realized PnL и подключение Telegram. Обе таблицы построены на общем `ui/DataTable`, разделяют `FilterChips`, а фильтры дат используют вынесенный из Strategy Lab общий `ui/DatePicker`.
 
 `/api/live-trading/positions` и `/api/live-trading/dynamics` отделяют данные sandbox-исполнения от paper trading. Эндпоинты поддерживают фильтры тикера, дат и статуса; специальное значение `status=closed` выбирает закрытия по stop и take. `/api/notifications/status` выполняет read-only проверку Telegram `getMe` и кеширует результат на 30 секунд. Реквизиты в ответ не попадают.

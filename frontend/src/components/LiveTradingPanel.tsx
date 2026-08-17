@@ -12,13 +12,16 @@ import type {
   LivePosition,
   NotificationStatus,
 } from "../types";
+import DataTable, {
+  formatFilterValue,
+  type ColumnDef,
+  type FilterState,
+  type FilterValue,
+  type SortState,
+} from "./ui/DataTable";
+import FilterChips from "./ui/FilterChips";
 
-const CLOSED_STATUS_OPTIONS = [
-  { value: "closed", label: "Все закрытые" },
-  { value: "closed_take", label: "Take profit" },
-  { value: "closed_stop", label: "Stop loss" },
-  { value: "cancelled", label: "Отменённые" },
-];
+const CLOSED_STATUS_OPTIONS = ["closed_take", "closed_stop", "cancelled"];
 const PAGE_SIZES = [20, 50, 100];
 const POLL_INTERVAL_MS = 10_000;
 
@@ -68,40 +71,13 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function SortButton({
-  field,
-  label,
-  sortBy,
-  sortDir,
-  onSort,
-}: {
-  field: string;
-  label: string;
-  sortBy: string;
-  sortDir: "asc" | "desc";
-  onSort: (field: string) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onSort(field)}
-      className="whitespace-nowrap text-left transition hover:text-sky-300"
-    >
-      {label} {sortBy === field ? (sortDir === "asc" ? "↑" : "↓") : ""}
-    </button>
-  );
-}
-
 export default function LiveTradingPanel() {
   const [openPositions, setOpenPositions] = useState<LivePosition[]>([]);
   const [history, setHistory] = useState<LivePosition[]>([]);
   const [historyTotal, setHistoryTotal] = useState(0);
   const [dynamics, setDynamics] = useState<DynamicsPoint[]>([]);
   const [telegram, setTelegram] = useState<NotificationStatus | null>(null);
-  const [ticker, setTicker] = useState("");
-  const [historyStatus, setHistoryStatus] = useState("closed");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [filters, setFilters] = useState<FilterState>({});
   const [timeframe, setTimeframe] = useState<"1h" | "1d">("1h");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -116,7 +92,19 @@ export default function LiveTradingPanel() {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Area"> | null>(null);
 
-  const normalizedTicker = ticker.trim().toUpperCase() || undefined;
+  const tickerFilter = filters.ticker;
+  const dateFilter = filters.entry_ts;
+  const statusFilter = filters.status;
+  const normalizedTicker =
+    tickerFilter?.kind === "text" && tickerFilter.value
+      ? tickerFilter.value.trim().toUpperCase()
+      : undefined;
+  const dateFrom = dateFilter?.kind === "date" ? dateFilter.from : undefined;
+  const dateTo = dateFilter?.kind === "date" ? dateFilter.to : undefined;
+  const historyStatus =
+    statusFilter?.kind === "select" && statusFilter.value
+      ? statusFilter.value
+      : "closed";
 
   useEffect(() => {
     const element = chartBoxRef.current;
@@ -238,20 +226,14 @@ export default function LiveTradingPanel() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const handleSort = (field: string) => {
-    if (sortBy === field) setSortDir((value) => (value === "asc" ? "desc" : "asc"));
-    else {
-      setSortBy(field);
-      setSortDir("desc");
-    }
+  const handleSort = (state: SortState) => {
+    setSortBy(state.key);
+    setSortDir(state.dir);
     setPage(1);
   };
 
-  const resetFilters = () => {
-    setTicker("");
-    setHistoryStatus("closed");
-    setDateFrom("");
-    setDateTo("");
+  const handleFilters = (next: FilterState) => {
+    setFilters(next);
     setPage(1);
   };
 
@@ -260,6 +242,61 @@ export default function LiveTradingPanel() {
     () => history.reduce((sum, position) => sum + (position.pnl_rub ?? 0), 0),
     [history]
   );
+  const openColumns = useMemo<ColumnDef<LivePosition>[]>(() => [
+    {
+      key: "ticker", label: "Тикер", accessor: (position) => position.ticker,
+      render: (position) => <span className="font-mono font-semibold text-slate-100">{position.ticker}</span>,
+      filter: { kind: "text", placeholder: "например SBER" },
+    },
+    {
+      key: "entry_ts", label: "Вход", accessor: (position) => position.entry_ts,
+      render: (position) => <span className="font-mono text-slate-400">{fmtTime(position.entry_ts)}</span>,
+      filter: { kind: "date" },
+    },
+    { key: "entry_price", label: "Цена входа", numeric: true, accessor: (position) => position.entry_price, render: (position) => fmtNum(position.entry_price, 3), filter: { kind: "range" } },
+    { key: "current_price", label: "Текущая", numeric: true, accessor: (position) => position.current_price, render: (position) => <span className="text-sky-300">{fmtNum(position.current_price, 3)}</span>, filter: { kind: "range" } },
+    { key: "pnl_rub", label: "PnL ₽", numeric: true, accessor: (position) => position.pnl_rub, render: (position) => <span className={pnlClass(position.pnl_rub)}>{fmtNum(position.pnl_rub, 2)}</span>, filter: { kind: "range" } },
+    { key: "pnl_pct", label: "PnL %", numeric: true, accessor: (position) => position.pnl_pct, render: (position) => <span className={pnlClass(position.pnl_pct)}>{fmtPct(position.pnl_pct)}</span>, filter: { kind: "range" } },
+    { key: "size_lots", label: "Размер", numeric: true, accessor: (position) => position.size_lots, render: (position) => `${position.size_lots} лот.` },
+    { key: "status", label: "Статус", accessor: (position) => position.status, render: (position) => <StatusBadge status={position.status} />, sortable: false },
+  ], []);
+  const historyColumns = useMemo<ColumnDef<LivePosition>[]>(() => [
+    {
+      key: "ticker", label: "Тикер", accessor: (position) => position.ticker,
+      render: (position) => <span className="font-mono font-semibold text-slate-100">{position.ticker}</span>,
+      filter: { kind: "text", placeholder: "например SBER" },
+    },
+    {
+      key: "entry_ts", label: "Вход", accessor: (position) => position.entry_ts,
+      render: (position) => <span className="font-mono text-slate-400">{fmtTime(position.entry_ts)}</span>,
+      filter: { kind: "date" },
+    },
+    { key: "exit_ts", label: "Выход", accessor: (position) => position.exit_ts, render: (position) => <span className="font-mono text-slate-400">{fmtTime(position.exit_ts)}</span>, filter: { kind: "date" } },
+    { key: "entry_price", label: "Цена входа", numeric: true, accessor: (position) => position.entry_price, render: (position) => fmtNum(position.entry_price, 3), filter: { kind: "range" } },
+    { key: "exit_price", label: "Цена выхода", numeric: true, accessor: (position) => position.exit_price, render: (position) => fmtNum(position.exit_price, 3), filter: { kind: "range" } },
+    { key: "pnl_rub", label: "PnL ₽", numeric: true, accessor: (position) => position.pnl_rub, render: (position) => <span className={pnlClass(position.pnl_rub)}>{fmtNum(position.pnl_rub, 2)}</span>, filter: { kind: "range" } },
+    { key: "pnl_pct", label: "PnL %", numeric: true, accessor: (position) => position.pnl_pct, render: (position) => <span className={pnlClass(position.pnl_pct)}>{fmtPct(position.pnl_pct)}</span>, filter: { kind: "range" } },
+    {
+      key: "status", label: "Статус", accessor: (position) => position.status,
+      render: (position) => <StatusBadge status={position.status} />,
+      filter: { kind: "select", options: CLOSED_STATUS_OPTIONS, optionLabel: statusLabel },
+    },
+  ], []);
+  const filterLabels = useMemo(() => ({
+    ticker: "тикер",
+    entry_ts: "дата входа",
+    exit_ts: "дата выхода",
+    status: "статус",
+    entry_price: "цена входа",
+    exit_price: "цена выхода",
+    current_price: "текущая цена",
+    pnl_rub: "PnL ₽",
+    pnl_pct: "PnL %",
+  }), []);
+  const filterValue = useCallback((key: string, value: FilterValue) => {
+    if (key === "status" && value.kind === "select") return statusLabel(value.value);
+    return formatFilterValue(value);
+  }, []);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -295,47 +332,21 @@ export default function LiveTradingPanel() {
         </div>
       </section>
 
-      <section className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-slate-500">
-            Тикер
-            <input
-              value={ticker}
-              onChange={(event) => { setTicker(event.target.value); setPage(1); }}
-              placeholder="SBER"
-              className="w-28 rounded border border-slate-700 bg-slate-950 px-3 py-1.5 font-mono text-xs uppercase text-slate-200 outline-none focus:border-sky-500"
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-slate-500">
-            Статус истории
-            <select
-              value={historyStatus}
-              onChange={(event) => { setHistoryStatus(event.target.value); setPage(1); }}
-              className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-sky-500"
-            >
-              {CLOSED_STATUS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-slate-500">
-            Дата от
-            <input type="date" value={dateFrom} onChange={(event) => { setDateFrom(event.target.value); setPage(1); }}
-              className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-sky-500" />
-          </label>
-          <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wider text-slate-500">
-            Дата до
-            <input type="date" value={dateTo} onChange={(event) => { setDateTo(event.target.value); setPage(1); }}
-              className="rounded border border-slate-700 bg-slate-950 px-3 py-1.5 text-xs text-slate-200 outline-none focus:border-sky-500" />
-          </label>
-          <button type="button" onClick={resetFilters}
-            className="rounded border border-slate-700 px-3 py-1.5 text-xs text-slate-400 transition hover:border-rose-500 hover:text-rose-300">
-            Сбросить
-          </button>
-          <div className="ml-auto text-right font-mono text-[10px] text-slate-500">
-            <div>{loading ? "обновление…" : "автообновление 10с"}</div>
-            <div>{lastUpdated ? `последнее ${lastUpdated.toLocaleTimeString("ru-RU")}` : "—"}</div>
-          </div>
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/50 px-4 py-3">
+        <FilterChips
+          filters={filters}
+          onChange={handleFilters}
+          labels={filterLabels}
+          valueLabel={filterValue}
+        />
+        {Object.keys(filters).length === 0 && (
+          <span className="text-[10px] uppercase tracking-wider text-slate-600">
+            Фильтры доступны в заголовках таблиц
+          </span>
+        )}
+        <div className="ml-auto text-right font-mono text-[10px] text-slate-500">
+          <div>{loading ? "обновление…" : "автообновление 10с"}</div>
+          <div>{lastUpdated ? `последнее ${lastUpdated.toLocaleTimeString("ru-RU")}` : "—"}</div>
         </div>
       </section>
 
@@ -345,42 +356,17 @@ export default function LiveTradingPanel() {
         </div>
       )}
 
-      <section className="rounded-lg border border-slate-800 bg-slate-900/50">
-        <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-          <h3 className="font-display text-sm font-semibold uppercase tracking-wider text-slate-200">
-            Открытые позиции
-          </h3>
-          <span className="font-mono text-[10px] text-slate-500">{openPositions.length} поз.</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-slate-950/50 text-left text-[10px] uppercase tracking-wider text-slate-500">
-              <tr>
-                <th className="px-4 py-2">Тикер</th><th className="px-4 py-2">Вход</th>
-                <th className="px-4 py-2">Текущая</th><th className="px-4 py-2">PnL ₽</th>
-                <th className="px-4 py-2">PnL %</th><th className="px-4 py-2">Размер</th>
-                <th className="px-4 py-2">Статус</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {openPositions.map((position) => (
-                <tr key={position.id} className="hover:bg-slate-800/40">
-                  <td className="px-4 py-2 font-mono font-semibold text-slate-100">{position.ticker}</td>
-                  <td className="px-4 py-2 font-mono text-slate-300">{fmtNum(position.entry_price, 3)}</td>
-                  <td className="px-4 py-2 font-mono text-sky-300">{fmtNum(position.current_price, 3)}</td>
-                  <td className={`px-4 py-2 font-mono ${pnlClass(position.pnl_rub)}`}>{fmtNum(position.pnl_rub, 2)}</td>
-                  <td className={`px-4 py-2 font-mono ${pnlClass(position.pnl_pct)}`}>{fmtPct(position.pnl_pct)}</td>
-                  <td className="px-4 py-2 font-mono text-slate-400">{position.size_lots ?? "—"} лот.</td>
-                  <td className="px-4 py-2"><StatusBadge status={position.status} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!loading && openPositions.length === 0 && (
-            <div className="py-8 text-center text-xs text-slate-600">Нет открытых позиций</div>
-          )}
-        </div>
-      </section>
+      <DataTable
+        columns={openColumns}
+        rows={openPositions}
+        rowKey={(position) => position.id}
+        filters={filters}
+        onFiltersChange={handleFilters}
+        title="Открытые позиции"
+        headerRight={<span className="font-mono text-[10px] text-slate-500">{openPositions.length} поз.</span>}
+        size="xs"
+        emptyText={loading ? "загрузка…" : "Нет открытых позиций"}
+      />
 
       <section className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
         <div className="mb-3 flex items-center justify-between">
@@ -406,46 +392,22 @@ export default function LiveTradingPanel() {
         )}
       </section>
 
-      <section className="rounded-lg border border-slate-800 bg-slate-900/50">
-        <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-          <h3 className="font-display text-sm font-semibold uppercase tracking-wider text-slate-200">
-            История сделок
-          </h3>
-          <span className="font-mono text-[10px] text-slate-500">{historyTotal} всего</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="bg-slate-950/50 text-left text-[10px] uppercase tracking-wider text-slate-500">
-              <tr>
-                <th className="px-4 py-2"><SortButton field="ticker" label="Тикер" {...{ sortBy, sortDir }} onSort={handleSort} /></th>
-                <th className="px-4 py-2"><SortButton field="entry_ts" label="Вход" {...{ sortBy, sortDir }} onSort={handleSort} /></th>
-                <th className="px-4 py-2"><SortButton field="exit_ts" label="Выход" {...{ sortBy, sortDir }} onSort={handleSort} /></th>
-                <th className="px-4 py-2"><SortButton field="entry_price" label="Цена вх." {...{ sortBy, sortDir }} onSort={handleSort} /></th>
-                <th className="px-4 py-2"><SortButton field="exit_price" label="Цена вых." {...{ sortBy, sortDir }} onSort={handleSort} /></th>
-                <th className="px-4 py-2"><SortButton field="pnl_rub" label="PnL ₽" {...{ sortBy, sortDir }} onSort={handleSort} /></th>
-                <th className="px-4 py-2"><SortButton field="pnl_pct" label="PnL %" {...{ sortBy, sortDir }} onSort={handleSort} /></th>
-                <th className="px-4 py-2"><SortButton field="status" label="Статус" {...{ sortBy, sortDir }} onSort={handleSort} /></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-800">
-              {history.map((position) => (
-                <tr key={position.id} className="hover:bg-slate-800/40">
-                  <td className="px-4 py-2 font-mono font-semibold text-slate-100">{position.ticker}</td>
-                  <td className="px-4 py-2 font-mono text-slate-400">{fmtTime(position.entry_ts)}</td>
-                  <td className="px-4 py-2 font-mono text-slate-400">{fmtTime(position.exit_ts)}</td>
-                  <td className="px-4 py-2 font-mono text-slate-300">{fmtNum(position.entry_price, 3)}</td>
-                  <td className="px-4 py-2 font-mono text-slate-300">{fmtNum(position.exit_price, 3)}</td>
-                  <td className={`px-4 py-2 font-mono ${pnlClass(position.pnl_rub)}`}>{fmtNum(position.pnl_rub, 2)}</td>
-                  <td className={`px-4 py-2 font-mono ${pnlClass(position.pnl_pct)}`}>{fmtPct(position.pnl_pct)}</td>
-                  <td className="px-4 py-2"><StatusBadge status={position.status} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!loading && history.length === 0 && (
-            <div className="py-8 text-center text-xs text-slate-600">Нет сделок для выбранных фильтров</div>
-          )}
-        </div>
+      <section>
+        <DataTable
+          columns={historyColumns}
+          rows={history}
+          rowKey={(position) => position.id}
+          filters={filters}
+          onFiltersChange={handleFilters}
+          sort={{ key: sortBy, dir: sortDir }}
+          onSortChange={handleSort}
+          title="История сделок"
+          headerRight={<span className="font-mono text-[10px] text-slate-500">{historyTotal} всего</span>}
+          size="xs"
+          className="rounded-b-none border-b-0"
+          emptyText={loading ? "загрузка…" : "Нет сделок для выбранных фильтров"}
+          csv={{ filename: "live-trading-history.csv" }}
+        />
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-800 px-4 py-3 text-xs">
           <button disabled={page <= 1 || loading} onClick={() => setPage((value) => value - 1)}
             className="rounded border border-slate-700 px-3 py-1 disabled:opacity-40">Назад</button>
