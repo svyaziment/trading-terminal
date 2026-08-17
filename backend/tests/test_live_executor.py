@@ -386,6 +386,94 @@ def test_initialize_builds_unmodified_strategy_evaluator(monkeypatch):
     assert isinstance(executor.evaluators["SBER"], Evaluator)
 
 
+def test_initialize_filters_tickers_to_live_universe(monkeypatch):
+    instruments = pd.DataFrame(
+        [
+            {"ticker": "SBER", "figi": "figi-sber", "lot_size": 10},
+            {"ticker": "CBOM", "figi": "figi-cbom", "lot_size": 10},
+        ]
+    )
+    db = FakeDB(instruments=instruments)
+
+    class Evaluator:
+        def load_context(self, *args):
+            return None
+
+        def __init__(self, config):
+            self.config = config
+
+    strategy = {"patterns": ["levels_reversal"]}
+    monkeypatch.setattr(
+        module,
+        "get_paper_strategy",
+        lambda _db: (strategy, ["SBER", "CBOM"], "strategy-1"),
+    )
+    monkeypatch.setattr(module, "get_live_trading_universe", lambda _db: ["SBER"])
+    monkeypatch.setattr(
+        module,
+        "build_4h_context",
+        lambda *_args: {
+            "levels": ["level"],
+            "ts_4h": ["ts"],
+            "atr_by_ts": {"ts": 1},
+            "buy_ts": [],
+        },
+    )
+    executor = LiveExecutor(
+        db=db,
+        broker=FakeBroker(),
+        config={"enabled": True},
+        evaluator_factory=Evaluator,
+    )
+
+    executor.initialize()
+
+    assert executor.tickers == ["SBER"]
+    assert list(executor.evaluators) == ["SBER"]
+
+
+def test_initialize_uses_live_universe_when_strategy_has_no_overlap(monkeypatch):
+    instruments = pd.DataFrame(
+        [{"ticker": "SBER", "figi": "figi-sber", "lot_size": 10}]
+    )
+    db = FakeDB(instruments=instruments)
+
+    class Evaluator:
+        def __init__(self, config):
+            self.config = config
+
+        def load_context(self, *args):
+            return None
+
+    monkeypatch.setattr(
+        module,
+        "get_paper_strategy",
+        lambda _db: ({"patterns": ["levels_reversal"]}, ["CBOM"], "strategy-1"),
+    )
+    monkeypatch.setattr(module, "get_live_trading_universe", lambda _db: ["SBER"])
+    monkeypatch.setattr(
+        module,
+        "build_4h_context",
+        lambda *_args: {
+            "levels": ["level"],
+            "ts_4h": ["ts"],
+            "atr_by_ts": {"ts": 1},
+            "buy_ts": [],
+        },
+    )
+    executor = LiveExecutor(
+        db=db,
+        broker=FakeBroker(),
+        config={"enabled": True},
+        evaluator_factory=Evaluator,
+    )
+
+    executor.initialize()
+
+    assert executor.tickers == ["SBER"]
+    assert list(executor.evaluators) == ["SBER"]
+
+
 def test_runtime_migration_is_idempotent():
     db = FakeDB()
 

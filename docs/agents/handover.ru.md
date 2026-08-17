@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-17 (задачи #59-#65 Live Trading Infrastructure; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-17 (задачи #59-#66 Live Trading Infrastructure; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -11,7 +11,7 @@
 
 Полное дерево см. в разделе 2 `project-context.ru.md`. Ключевые операционные точки входа:
 - `backend/app/main.py` - приложение FastAPI + регистрация маршрутов.
-- `backend/app/analytics/trading_config.py` - торговая вселенная + реестр стратегий (единый источник истины).
+- `backend/app/analytics/trading_config.py` - торговая вселенная, live top-5 и реестр стратегий (единый источник истины).
 - `start_processes.sh` / `stop_processes.sh` - процессы paper trading и опционального sandbox-исполнения.
 - `docs/refresh/context_collector.py` - сборщик контекста для задач агента.
 
@@ -136,3 +136,11 @@ python docs/refresh/context_collector.py
 - Обе таблицы используют единый `DataTable` и общие filter chips, как в Strategy Lab. Фильтры открываются в заголовках; диапазоны дат используют общий календарный `DatePicker`. История поддерживает серверную сортировку и пагинацию; отсутствие точного фильтра статуса означает все закрытые позиции (`closed_stop` и `closed_take`).
 - `/api/notifications/status` выполняет Telegram `getMe` без отправки сообщения и кеширует результат на 30 секунд. `configured=false` означает отсутствие `TGM_TOKEN` или chat ID; `configured=true` вместе с `disconnected` означает ошибку проверки Bot API.
 - Проверка frontend: `cd frontend && npm run build`. Backend: `cd backend && python -m pytest -q tests/test_live_trading_api.py tests/test_notifications_api.py tests/test_telegram_notifier.py`.
+
+## 18. Эксплуатация live-вселенной
+
+- Paper и data refresh оставляют `get_trading_universe()` (top-15 из `trading.trading_universe`).
+- Sandbox-исполнение использует `LIVE_UNIVERSE` / `get_live_trading_universe()`: SBER, LKOH, RUAL, NVTK, GAZP (задача #66). `LiveExecutor.initialize()` пересекает тикеры paper-стратегии с этим списком.
+- Не сужайте таблицу БД до пяти имён: это остановит стриминг и paper trading по остальному top-15.
+- Код рейтинга и отчёт: `analytics/issue-66-live-universe/`. После нового снимка `extract_inputs.py` перезапустите `analysis.py` и синхронизируйте `LIVE_UNIVERSE` с `summary.json`.
+- Тесты: `cd backend && python -m pytest -q tests/test_trading_config.py tests/test_live_universe_analysis.py tests/test_live_executor.py`.

@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-17 (Issues #59-#65 Live Trading Infrastructure). Companion to project-context.md.
+Last refreshed: 2026-08-17 (Issues #59-#66 Live Trading Infrastructure). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -11,7 +11,7 @@ Operational knowledge to work on this project safely: structure, DB schema, pipe
 
 See project-context.md section 2 for the full tree. Key operational entry points:
 - `backend/app/main.py` - FastAPI app + route registration.
-- `backend/app/analytics/trading_config.py` - trading universe + strategy registry (single source of truth).
+- `backend/app/analytics/trading_config.py` - trading universe, live top-5, and strategy registry (single source of truth).
 - `start_processes.sh` / `stop_processes.sh` - paper trading and opt-in sandbox execution processes.
 - `docs/refresh/context_collector.py` - context collector for agent tasks.
 
@@ -136,3 +136,11 @@ python docs/refresh/context_collector.py
 - Both tables use the shared `DataTable` and filter chips used by Strategy Lab. Filters open from column headers, and date ranges use the shared calendar `DatePicker`. History retains server-side sorting and pagination; no exact status filter means all closed positions (`closed_stop` and `closed_take`).
 - `/api/notifications/status` performs Telegram `getMe` without sending a message and caches the result for 30 seconds. `configured=false` means `TGM_TOKEN` or chat ID is absent; `configured=true` with `disconnected` means the Bot API probe failed.
 - Frontend check: `cd frontend && npm run build`. Backend checks: `cd backend && python -m pytest -q tests/test_live_trading_api.py tests/test_notifications_api.py tests/test_telegram_notifier.py`.
+
+## 18. Operating the Live Trading Universe
+
+- Paper/data refresh keep `get_trading_universe()` (top-15 from `trading.trading_universe`).
+- Sandbox execution uses `LIVE_UNIVERSE` / `get_live_trading_universe()`: SBER, LKOH, RUAL, NVTK, GAZP (Issue #66). `LiveExecutor.initialize()` intersects paper-strategy tickers with this list.
+- Do not shrink the DB table to five names: that would stop streaming and paper trading on the rest of the top-15.
+- Ranking code and report: `analytics/issue-66-live-universe/`. Re-run `analysis.py` after a new `extract_inputs.py` snapshot; keep `LIVE_UNIVERSE` in sync with `summary.json`.
+- Tests: `cd backend && python -m pytest -q tests/test_trading_config.py tests/test_live_universe_analysis.py tests/test_live_executor.py`.

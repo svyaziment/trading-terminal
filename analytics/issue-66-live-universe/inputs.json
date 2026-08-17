@@ -1,0 +1,1117 @@
+{
+  "extracted_at": "2026-08-17 22:35:21",
+  "paper_positions": {
+    "rows": 0,
+    "closed": 0,
+    "open": 0,
+    "wins": 0,
+    "pnl_rub": 0.0
+  },
+  "paper_equity": {
+    "rows": 121,
+    "min_ts": "2026-08-15 11:37:53.211049",
+    "max_ts": "2026-08-15 13:38:07.647869",
+    "min_equity_rub": 100000.0,
+    "max_equity_rub": 100000.0,
+    "min_drawdown_pct": 0.0,
+    "max_drawdown_pct": 0.0,
+    "min_open_positions": 0,
+    "max_open_positions": 0
+  },
+  "paper_equity_sample": [
+    {
+      "timestamp": "2026-08-15 11:37:53.211049",
+      "equity_rub": 100000.0,
+      "realized_pnl": 0.0,
+      "open_positions": 0,
+      "drawdown_pct": 0.0
+    },
+    {
+      "timestamp": "2026-08-15 11:38:53.317477",
+      "equity_rub": 100000.0,
+      "realized_pnl": 0.0,
+      "open_positions": 0,
+      "drawdown_pct": 0.0
+    },
+    {
+      "timestamp": "2026-08-15 11:39:53.411671",
+      "equity_rub": 100000.0,
+      "realized_pnl": 0.0,
+      "open_positions": 0,
+      "drawdown_pct": 0.0
+    }
+  ],
+  "active_strategy": {
+    "id": 36,
+    "name": "test_20260731",
+    "in_paper_test": true,
+    "locked": true,
+    "run_params": {
+      "depth": "express",
+      "date_to": "2026-07-31",
+      "tickers": [
+        "AFKS",
+        "ALRS",
+        "CBOM",
+        "CHMF",
+        "FEES",
+        "FLOT",
+        "GAZP",
+        "GMKN",
+        "IRAO",
+        "LKOH",
+        "MGNT",
+        "MOEX",
+        "MTLR",
+        "MTSS",
+        "NLMK",
+        "NVTK",
+        "PHOR",
+        "PIKK",
+        "PLZL",
+        "ROSN",
+        "RTKM",
+        "RUAL",
+        "SBER",
+        "SIBN",
+        "SNGS",
+        "TATN",
+        "TRNFP",
+        "VTBR"
+      ],
+      "date_from": "2026-07-01",
+      "test_types": [
+        "full_sample"
+      ]
+    },
+    "patterns": [
+      "levels_reversal",
+      "signal_4h_buy"
+    ],
+    "confirm_windows": [
+      10
+    ],
+    "risk_reward": {
+      "risk": 1,
+      "reward": 2
+    },
+    "commission_pct": 0.06
+  },
+  "universe": [
+    {
+      "ticker": "RUAL",
+      "rank": 1,
+      "pf": 2.448,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.072907"
+    },
+    {
+      "ticker": "GMKN",
+      "rank": 2,
+      "pf": 2.447,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.074331"
+    },
+    {
+      "ticker": "GAZP",
+      "rank": 3,
+      "pf": 2.061,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.075589"
+    },
+    {
+      "ticker": "LKOH",
+      "rank": 4,
+      "pf": 2.016,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.076847"
+    },
+    {
+      "ticker": "PIKK",
+      "rank": 5,
+      "pf": 1.998,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.078031"
+    },
+    {
+      "ticker": "SIBN",
+      "rank": 6,
+      "pf": 1.972,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.079284"
+    },
+    {
+      "ticker": "SBER",
+      "rank": 7,
+      "pf": 1.937,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.080459"
+    },
+    {
+      "ticker": "MTSS",
+      "rank": 8,
+      "pf": 1.823,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.081852"
+    },
+    {
+      "ticker": "CBOM",
+      "rank": 9,
+      "pf": 1.82,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.083066"
+    },
+    {
+      "ticker": "FEES",
+      "rank": 10,
+      "pf": 1.804,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.084251"
+    },
+    {
+      "ticker": "PLZL",
+      "rank": 11,
+      "pf": 1.789,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.085859"
+    },
+    {
+      "ticker": "NVTK",
+      "rank": 12,
+      "pf": 1.687,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.087309"
+    },
+    {
+      "ticker": "TATN",
+      "rank": 13,
+      "pf": 1.637,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.088751"
+    },
+    {
+      "ticker": "MTLR",
+      "rank": 14,
+      "pf": 1.57,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.089996"
+    },
+    {
+      "ticker": "ALRS",
+      "rank": 15,
+      "pf": 1.563,
+      "source": "backtest_pf_levels_reversal",
+      "notes": "task-115: top-15 by best PF (levels_reversal matrix, 28 tickers w/ PF)",
+      "updated_at": "2026-07-30 10:37:22.091234"
+    }
+  ],
+  "locked_backtest": [
+    {
+      "ticker": "AFKS",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 7,
+        "pf": 4.23,
+        "wr": 42.9,
+        "exp_pct": 1.856,
+        "maxdd_pct": 1.6
+      },
+      "created_at": "2026-07-31 21:32:50.938629"
+    },
+    {
+      "ticker": "ALRS",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 10,
+        "pf": 2.05,
+        "wr": 40.0,
+        "exp_pct": 0.893,
+        "maxdd_pct": 3.6
+      },
+      "created_at": "2026-07-31 21:33:06.410161"
+    },
+    {
+      "ticker": "CBOM",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 38,
+        "pf": 0.13,
+        "wr": 10.5,
+        "exp_pct": -0.328,
+        "maxdd_pct": 12.4
+      },
+      "created_at": "2026-07-31 21:33:18.679599"
+    },
+    {
+      "ticker": "CHMF",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 12,
+        "pf": 0.44,
+        "wr": 16.7,
+        "exp_pct": -0.681,
+        "maxdd_pct": 9.4
+      },
+      "created_at": "2026-07-31 21:33:32.482399"
+    },
+    {
+      "ticker": "FEES",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 10,
+        "pf": 3.48,
+        "wr": 40.0,
+        "exp_pct": 1.739,
+        "maxdd_pct": 2.3
+      },
+      "created_at": "2026-07-31 21:33:43.709792"
+    },
+    {
+      "ticker": "FLOT",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 40,
+        "pf": 1.62,
+        "wr": 27.5,
+        "exp_pct": 0.106,
+        "maxdd_pct": 2.9
+      },
+      "created_at": "2026-07-31 21:33:58.954355"
+    },
+    {
+      "ticker": "GAZP",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 16,
+        "pf": 1.51,
+        "wr": 31.2,
+        "exp_pct": 0.285,
+        "maxdd_pct": 4.2
+      },
+      "created_at": "2026-07-31 21:34:09.678184"
+    },
+    {
+      "ticker": "GMKN",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 33,
+        "pf": 1.35,
+        "wr": 27.3,
+        "exp_pct": 0.095,
+        "maxdd_pct": 3.9
+      },
+      "created_at": "2026-07-31 21:34:29.554186"
+    },
+    {
+      "ticker": "IRAO",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 7,
+        "pf": 3.85,
+        "wr": 57.1,
+        "exp_pct": 1.276,
+        "maxdd_pct": 1.1
+      },
+      "created_at": "2026-07-31 21:34:42.878071"
+    },
+    {
+      "ticker": "LKOH",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 10,
+        "pf": 1.59,
+        "wr": 40.0,
+        "exp_pct": 0.372,
+        "maxdd_pct": 1.5
+      },
+      "created_at": "2026-07-31 21:34:53.441737"
+    },
+    {
+      "ticker": "MGNT",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 7,
+        "pf": 1.57,
+        "wr": 14.3,
+        "exp_pct": 0.814,
+        "maxdd_pct": 5.6
+      },
+      "created_at": "2026-07-31 21:35:05.808794"
+    },
+    {
+      "ticker": "MOEX",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 20,
+        "pf": 2.39,
+        "wr": 15.0,
+        "exp_pct": 0.38,
+        "maxdd_pct": 3.4
+      },
+      "created_at": "2026-07-31 21:35:17.208201"
+    },
+    {
+      "ticker": "MTLR",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 7,
+        "pf": 0.19,
+        "wr": 14.3,
+        "exp_pct": -1.262,
+        "maxdd_pct": 7.4
+      },
+      "created_at": "2026-07-31 21:35:34.231832"
+    },
+    {
+      "ticker": "MTSS",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 9,
+        "pf": 2.03,
+        "wr": 44.4,
+        "exp_pct": 0.687,
+        "maxdd_pct": 2.5
+      },
+      "created_at": "2026-07-31 21:35:49.538509"
+    },
+    {
+      "ticker": "NLMK",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 5,
+        "pf": 2.07,
+        "wr": 40.0,
+        "exp_pct": 1.117,
+        "maxdd_pct": 2.3
+      },
+      "created_at": "2026-07-31 21:36:00.680831"
+    },
+    {
+      "ticker": "NVTK",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 27,
+        "pf": 2.56,
+        "wr": 37.0,
+        "exp_pct": 0.66,
+        "maxdd_pct": 3.1
+      },
+      "created_at": "2026-07-31 21:36:13.953748"
+    },
+    {
+      "ticker": "PHOR",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 17,
+        "pf": 3.22,
+        "wr": 52.9,
+        "exp_pct": 0.737,
+        "maxdd_pct": 3.9
+      },
+      "created_at": "2026-07-31 21:36:28.747864"
+    },
+    {
+      "ticker": "PIKK",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 8,
+        "pf": 0.51,
+        "wr": 25.0,
+        "exp_pct": -0.225,
+        "maxdd_pct": 3.6
+      },
+      "created_at": "2026-07-31 21:36:43.713842"
+    },
+    {
+      "ticker": "PLZL",
+      "test_type": "full_sample",
+      "depth": "express",
+      "metrics": {
+        "n": 22,
+        "pf": 1.13,
+        "wr": 13.6,
+        "exp_pct": 0.095,
+        "maxdd_pct": 6.8
+      },
+      "created_at": "2026-07-31 21:37:00.108142"
+    }
+  ],
+  "instruments": [
+    {
+      "ticker": "ALRS",
+      "lot_size": 10,
+      "min_price_increment": 0.01,
+      "figi": "BBG004S68B31"
+    },
+    {
+      "ticker": "CBOM",
+      "lot_size": 100,
+      "min_price_increment": 0.001,
+      "figi": "BBG009GSYN76"
+    },
+    {
+      "ticker": "FEES",
+      "lot_size": 10000,
+      "min_price_increment": 2e-05,
+      "figi": "BBG00475JZZ6"
+    },
+    {
+      "ticker": "GAZP",
+      "lot_size": 10,
+      "min_price_increment": 0.01,
+      "figi": "BBG004730RP0"
+    },
+    {
+      "ticker": "GMKN",
+      "lot_size": 10,
+      "min_price_increment": 0.02,
+      "figi": "BBG004731489"
+    },
+    {
+      "ticker": "LKOH",
+      "lot_size": 1,
+      "min_price_increment": 0.5,
+      "figi": "BBG004731032"
+    },
+    {
+      "ticker": "MTLR",
+      "lot_size": 1,
+      "min_price_increment": 0.01,
+      "figi": "BBG004S68598"
+    },
+    {
+      "ticker": "MTSS",
+      "lot_size": 10,
+      "min_price_increment": 0.05,
+      "figi": "BBG004S681W1"
+    },
+    {
+      "ticker": "NVTK",
+      "lot_size": 1,
+      "min_price_increment": 0.1,
+      "figi": "BBG00475KKY8"
+    },
+    {
+      "ticker": "PIKK",
+      "lot_size": 1,
+      "min_price_increment": 0.1,
+      "figi": "BBG004S68BH6"
+    },
+    {
+      "ticker": "PLZL",
+      "lot_size": 1,
+      "min_price_increment": 0.2,
+      "figi": "BBG000R607Y3"
+    },
+    {
+      "ticker": "RUAL",
+      "lot_size": 10,
+      "min_price_increment": 0.005,
+      "figi": "BBG008F2T3T2"
+    },
+    {
+      "ticker": "SBER",
+      "lot_size": 1,
+      "min_price_increment": 0.01,
+      "figi": "BBG004730N88"
+    },
+    {
+      "ticker": "SIBN",
+      "lot_size": 1,
+      "min_price_increment": 0.05,
+      "figi": "BBG004S684M6"
+    },
+    {
+      "ticker": "TATN",
+      "lot_size": 1,
+      "min_price_increment": 0.1,
+      "figi": "BBG004RVFFC0"
+    }
+  ],
+  "market": [
+    {
+      "ticker": "ALRS",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 19.04,
+      "last_volume": 120285030,
+      "atr_14": 0.761545348,
+      "atr_pct": 3.999712962184874,
+      "avg_volume_60d": 10476579.014492754,
+      "avg_turnover_60d": 214047604.39144927,
+      "n_days": 69
+    },
+    {
+      "ticker": "CBOM",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 11.601,
+      "last_volume": 16137600,
+      "atr_14": 0.4569342705,
+      "atr_pct": 3.938748991466253,
+      "avg_volume_60d": 12551324.528301887,
+      "avg_turnover_60d": 110445913.0490566,
+      "n_days": 53
+    },
+    {
+      "ticker": "FEES",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 0.04892,
+      "last_volume": 4357430000,
+      "atr_14": 0.0022384679,
+      "atr_pct": 4.575772485690924,
+      "avg_volume_60d": 3211670754.716981,
+      "avg_turnover_60d": 153882582.51698112,
+      "n_days": 53
+    },
+    {
+      "ticker": "GAZP",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 84.59,
+      "last_volume": 110508250,
+      "atr_14": 3.024771438,
+      "atr_pct": 3.5758026220593453,
+      "avg_volume_60d": 14946634.608695652,
+      "avg_turnover_60d": 1423678016.556087,
+      "n_days": 69
+    },
+    {
+      "ticker": "GMKN",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 114.74,
+      "last_volume": 32000090,
+      "atr_14": 4.6233663083,
+      "atr_pct": 4.029428541310789,
+      "avg_volume_60d": 2934423.579710145,
+      "avg_turnover_60d": 349412917.52231884,
+      "n_days": 69
+    },
+    {
+      "ticker": "LKOH",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 4302.5,
+      "last_volume": 1305608,
+      "atr_14": 144.5273621829,
+      "atr_pct": 3.359148452827426,
+      "avg_volume_60d": 1076329.3018867925,
+      "avg_turnover_60d": 4750151319.367925,
+      "n_days": 53
+    },
+    {
+      "ticker": "MTLR",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 37.07,
+      "last_volume": 28566427,
+      "atr_14": 1.9366565778,
+      "atr_pct": 5.224323112489884,
+      "avg_volume_60d": 17434116.52,
+      "avg_turnover_60d": 669958972.636,
+      "n_days": 75
+    },
+    {
+      "ticker": "MTSS",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 181.5,
+      "last_volume": 4413800,
+      "atr_14": 5.7839859877,
+      "atr_pct": 3.1867691392286503,
+      "avg_volume_60d": 5603256.981132075,
+      "avg_turnover_60d": 1080012370.4339623,
+      "n_days": 53
+    },
+    {
+      "ticker": "NVTK",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 928.1,
+      "last_volume": 4331742,
+      "atr_14": 37.3157489557,
+      "atr_pct": 4.020660376651223,
+      "avg_volume_60d": 2521089.0434782607,
+      "avg_turnover_60d": 2411172158.3971014,
+      "n_days": 69
+    },
+    {
+      "ticker": "PIKK",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 575.0,
+      "last_volume": 251324,
+      "atr_14": 15.630739608,
+      "atr_pct": 2.718389497043478,
+      "avg_volume_60d": 201744.7358490566,
+      "avg_turnover_60d": 114812045.01698112,
+      "n_days": 53
+    },
+    {
+      "ticker": "PLZL",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 1099.2,
+      "last_volume": 6526120,
+      "atr_14": 70.9584286244,
+      "atr_pct": 6.455461119395924,
+      "avg_volume_60d": 3177165.867924528,
+      "avg_turnover_60d": 4070259593.807547,
+      "n_days": 53
+    },
+    {
+      "ticker": "RUAL",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 24.75,
+      "last_volume": 84638970,
+      "atr_14": 1.015071089,
+      "atr_pct": 4.10129732929293,
+      "avg_volume_60d": 6261388.579710145,
+      "avg_turnover_60d": 161907748.3944203,
+      "n_days": 69
+    },
+    {
+      "ticker": "SBER",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 273.4,
+      "last_volume": 45732142,
+      "atr_14": 5.3503744121,
+      "atr_pct": 1.9569767418068764,
+      "avg_volume_60d": 27574777.826666668,
+      "avg_turnover_60d": 7976618489.343734,
+      "n_days": 75
+    },
+    {
+      "ticker": "SIBN",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 463.8,
+      "last_volume": 1244588,
+      "atr_14": 18.1983353351,
+      "atr_pct": 3.923746299072876,
+      "avg_volume_60d": 804099.6226415094,
+      "avg_turnover_60d": 356411980.86226416,
+      "n_days": 53
+    },
+    {
+      "ticker": "TATN",
+      "last_1d_ts": "2026-08-14 00:00:00",
+      "last_close": 519.6,
+      "last_volume": 3220705,
+      "atr_14": 22.9080322573,
+      "atr_pct": 4.408782189626636,
+      "avg_volume_60d": 2838319.768115942,
+      "avg_turnover_60d": 1404691947.4884057,
+      "n_days": 69
+    }
+  ],
+  "spreads": [
+    {
+      "ticker": "ALRS",
+      "n_quotes": 1503,
+      "min_ts": "2026-07-30 11:32:00",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.09145712373553452,
+      "median_abs_spread_pct": 0.052369730295897164,
+      "avg_bid_depth": 46614.96407185629,
+      "avg_ask_depth": 43885.783100465735,
+      "avg_depth": 90500.74717232202
+    },
+    {
+      "ticker": "CBOM",
+      "n_quotes": 1501,
+      "min_ts": "2026-07-30 11:32:00",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.09691600939278257,
+      "median_abs_spread_pct": 0.09024456276509149,
+      "avg_bid_depth": 615.5169886742171,
+      "avg_ask_depth": 699.9533644237175,
+      "avg_depth": 1315.4703530979348
+    },
+    {
+      "ticker": "FEES",
+      "n_quotes": 1502,
+      "min_ts": "2026-07-30 11:32:00",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.10722740254532252,
+      "median_abs_spread_pct": 0.0801603206412793,
+      "avg_bid_depth": 3973.362849533955,
+      "avg_ask_depth": 4005.681757656458,
+      "avg_depth": 7979.0446071904125
+    },
+    {
+      "ticker": "GAZP",
+      "n_quotes": 3527,
+      "min_ts": "2026-07-27 16:04:25.593361",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.03537375675044894,
+      "median_abs_spread_pct": 0.011213905242506437,
+      "avg_bid_depth": 14309.329174936205,
+      "avg_ask_depth": 11343.18003969379,
+      "avg_depth": 25652.509214629998
+    },
+    {
+      "ticker": "GMKN",
+      "n_quotes": 3184,
+      "min_ts": "2026-07-27 16:04:25.487565",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.04153964923012471,
+      "median_abs_spread_pct": 0.017557721007809692,
+      "avg_bid_depth": 8935.785489949749,
+      "avg_ask_depth": 8940.95194723618,
+      "avg_depth": 17876.73743718593
+    },
+    {
+      "ticker": "LKOH",
+      "n_quotes": 1503,
+      "min_ts": "2026-07-30 11:32:00",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.03370976096152715,
+      "median_abs_spread_pct": 0.011452785890167783,
+      "avg_bid_depth": 2665.831004657352,
+      "avg_ask_depth": 2492.7139055222888,
+      "avg_depth": 5158.54491017964
+    },
+    {
+      "ticker": "MTLR",
+      "n_quotes": 1503,
+      "min_ts": "2026-07-30 11:32:00",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.06146316263339278,
+      "median_abs_spread_pct": 0.05277044854880217,
+      "avg_bid_depth": 59815.666666666664,
+      "avg_ask_depth": 55655.962741184296,
+      "avg_depth": 115471.62940785097
+    },
+    {
+      "ticker": "MTSS",
+      "n_quotes": 1503,
+      "min_ts": "2026-07-30 11:32:00",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.04898871116770048,
+      "median_abs_spread_pct": 0.05272871078301837,
+      "avg_bid_depth": 5372.930805056553,
+      "avg_ask_depth": 4975.773785761809,
+      "avg_depth": 10348.704590818363
+    },
+    {
+      "ticker": "NVTK",
+      "n_quotes": 1503,
+      "min_ts": "2026-07-30 11:32:00",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.03636517427824381,
+      "median_abs_spread_pct": 0.010753266304642479,
+      "avg_bid_depth": 6103.829673985362,
+      "avg_ask_depth": 6475.620093147039,
+      "avg_depth": 12579.449767132402
+    },
+    {
+      "ticker": "PIKK",
+      "n_quotes": 2996,
+      "min_ts": "2026-07-27 16:04:25.548017",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.07231619584569517,
+      "median_abs_spread_pct": 0.06954102920722831,
+      "avg_bid_depth": 2443.4322429906542,
+      "avg_ask_depth": 2548.9696261682243,
+      "avg_depth": 4992.401869158878
+    },
+    {
+      "ticker": "PLZL",
+      "n_quotes": 1503,
+      "min_ts": "2026-07-30 11:32:00",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.10337941572865722,
+      "median_abs_spread_pct": 0.031206116398821263,
+      "avg_bid_depth": 5495.472388556221,
+      "avg_ask_depth": 5290.788423153693,
+      "avg_depth": 10786.260811709913
+    },
+    {
+      "ticker": "RUAL",
+      "n_quotes": 3420,
+      "min_ts": "2026-07-27 16:04:25.427168",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.05846107388757294,
+      "median_abs_spread_pct": 0.041135335252988736,
+      "avg_bid_depth": 17809.772514619883,
+      "avg_ask_depth": 19835.737134502924,
+      "avg_depth": 37645.50964912281
+    },
+    {
+      "ticker": "SBER",
+      "n_quotes": 1503,
+      "min_ts": "2026-07-30 11:32:00",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.03478961942729608,
+      "median_abs_spread_pct": 0.0036501012903282348,
+      "avg_bid_depth": 30870.10113107119,
+      "avg_ask_depth": 30512.895542248836,
+      "avg_depth": 61382.99667332003
+    },
+    {
+      "ticker": "SIBN",
+      "n_quotes": 3244,
+      "min_ts": "2026-07-27 16:04:25.675487",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.047317098086361385,
+      "median_abs_spread_pct": 0.03360779700890097,
+      "avg_bid_depth": 3731.7552404438966,
+      "avg_ask_depth": 9268.179408138101,
+      "avg_depth": 12999.934648581999
+    },
+    {
+      "ticker": "TATN",
+      "n_quotes": 1503,
+      "min_ts": "2026-07-30 11:32:00",
+      "max_ts": "2026-08-14 19:33:00",
+      "avg_abs_spread_pct": 0.050069997406309914,
+      "median_abs_spread_pct": 0.019423132951349474,
+      "avg_bid_depth": 16120.925482368595,
+      "avg_ask_depth": 15565.38256819694,
+      "avg_depth": 31686.308050565534
+    }
+  ],
+  "top_stocks": [
+    {
+      "report_date": "2026-07-22",
+      "ticker": "VTBR",
+      "rank": 1,
+      "sum_volume": 3656790742,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "SBER",
+      "rank": 2,
+      "sum_volume": 1494319390,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "T",
+      "rank": 3,
+      "sum_volume": 735819854,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "MTLR",
+      "rank": 4,
+      "sum_volume": 665765219,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "WUSH",
+      "rank": 5,
+      "sum_volume": 461628955,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "ROSN",
+      "rank": 6,
+      "sum_volume": 440811584,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "SMLT",
+      "rank": 7,
+      "sum_volume": 372766160,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "MAGN",
+      "rank": 8,
+      "sum_volume": 231822572,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "RNFT",
+      "rank": 9,
+      "sum_volume": 225339212,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "GAZP",
+      "rank": 10,
+      "sum_volume": 224190180,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "ALRS",
+      "rank": 11,
+      "sum_volume": 212433969,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "RUAL",
+      "rank": 12,
+      "sum_volume": 154499927,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "VKCO",
+      "rank": 13,
+      "sum_volume": 150690930,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "ASTR",
+      "rank": 14,
+      "sum_volume": 146371580,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "EUTR",
+      "rank": 15,
+      "sum_volume": 141436848,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "RAGR",
+      "rank": 16,
+      "sum_volume": 137273411,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "TATN",
+      "rank": 17,
+      "sum_volume": 111222967,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "SGZH",
+      "rank": 18,
+      "sum_volume": 106938684,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "IVAT",
+      "rank": 19,
+      "sum_volume": 102370782,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "NVTK",
+      "rank": 20,
+      "sum_volume": 99357136,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "SBERP",
+      "rank": 21,
+      "sum_volume": 93711440,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "SNGSP",
+      "rank": 22,
+      "sum_volume": 92375096,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "AFLT",
+      "rank": 23,
+      "sum_volume": 92277170,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "UWGN",
+      "rank": 24,
+      "sum_volume": 91915393,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "IRAO",
+      "rank": 25,
+      "sum_volume": 84342818,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "GMKN",
+      "rank": 26,
+      "sum_volume": 81838999,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "AFKS",
+      "rank": 27,
+      "sum_volume": 69507052,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "CHMF",
+      "rank": 28,
+      "sum_volume": 51535495,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "NLMK",
+      "rank": 29,
+      "sum_volume": 50128131,
+      "candle_count": 2
+    },
+    {
+      "report_date": "2026-07-22",
+      "ticker": "ETLN",
+      "rank": 30,
+      "sum_volume": 49239682,
+      "candle_count": 2
+    }
+  ],
+  "issue44_levels_reversal_ticker_pnl_rub": {
+    "PIKK": 5085,
+    "GMKN": 3160,
+    "ROSN": 3097,
+    "MTLR": 3079,
+    "RUAL": 2883,
+    "SBER": -257
+  }
+}
