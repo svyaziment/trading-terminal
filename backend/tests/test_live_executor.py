@@ -10,6 +10,7 @@ from app.analytics.live_executor import (
     TokenBucket,
     ensure_live_positions_table,
 )
+from app.broker.tinkoff_sandbox import SandboxAPIError
 
 
 class Result:
@@ -52,14 +53,15 @@ class FakeDB:
 
 
 class FakeBroker:
-    def __init__(self, positions=None):
+    def __init__(self, positions=None, balance=Decimal("50000")):
         self.calls = []
         self.positions = positions or []
+        self.balance = balance
         self.order_number = 0
 
     def check_balance(self):
         self.calls.append(("check_balance", {}))
-        return Decimal("50000")
+        return self.balance
 
     def execute_order(self, **kwargs):
         self.calls.append(("execute_order", kwargs))
@@ -192,21 +194,47 @@ def test_buy_flow_checks_balance_sizes_entry_and_places_take_limit():
     )
 
 
-def test_imbalance_is_mandatory_before_any_broker_request():
+def test_imbalance_is_mandatory_before_any_broker_request(caplog):
     broker = FakeBroker()
     executor = make_executor(broker=broker)
 
-    result = executor.process_signal(
-        "SBER",
-        {"entry_price": 100, "stop": 95, "take": 110},
-        imbalance=1.0,
-    )
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal(
+            "SBER",
+            {"entry_price": 100, "stop": 95, "take": 110},
+            imbalance=1.0,
+        )
 
-    assert result == {"executed": False, "reason": "imbalance"}
+    assert result == {
+        "executed": False,
+        "reason": "imbalance_below_threshold",
+    }
     assert broker.calls == []
+    assert "ticker=SBER reason=imbalance_below_threshold" in caplog.text
+    assert "imbalance=1.0 imbalance_threshold=1.0" in caplog.text
 
 
-def test_max_open_positions_blocks_entry():
+def test_stale_orderbook_logs_age_before_any_broker_request(caplog, monkeypatch):
+    broker = FakeBroker()
+    executor = make_executor(broker=broker)
+    monkeypatch.setattr(executor, "_latest_orderbook", lambda _ticker: (None, 420.0))
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal(
+            "SBER",
+            {"entry_price": 100, "stop": 95, "take": 110},
+        )
+
+    assert result == {
+        "executed": False,
+        "reason": "stale_or_missing_orderbook",
+    }
+    assert broker.calls == []
+    assert "ticker=SBER reason=stale_or_missing_orderbook" in caplog.text
+    assert "orderbook_age_seconds=420.0 max_age_seconds=300.0" in caplog.text
+
+
+def test_max_open_positions_blocks_entry(caplog):
     db = FakeDB(active=active_position())
     broker = FakeBroker()
     executor = make_executor(
@@ -215,14 +243,87 @@ def test_max_open_positions_blocks_entry():
         max_open_positions=1,
     )
 
-    result = executor.process_signal(
-        "SBER",
-        {"entry_price": 100, "stop": 95, "take": 110},
-        imbalance=2,
-    )
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal(
+            "SBER",
+            {"entry_price": 100, "stop": 95, "take": 110},
+            imbalance=2,
+        )
 
     assert result["reason"] == "max_open_positions"
     assert broker.calls == []
+    assert "open_positions=1 max_open_positions=1" in caplog.text
+
+
+def test_zero_free_balance_logs_insufficient_cash_without_order(caplog):
+    broker = FakeBroker(balance=Decimal("0"))
+    executor = make_executor(broker=broker)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal(
+            "SBER",
+            {"entry_price": 100, "stop": 95, "take": 110},
+            imbalance=2,
+        )
+
+    assert result == {"executed": False, "reason": "insufficient_cash"}
+    assert broker.calls == [("check_balance", {})]
+    assert "ticker=SBER reason=insufficient_cash free_rub=0" in caplog.text
+
+
+@pytest.mark.parametrize("sizing_reason", ["invalid_stop", "insufficient_capital"])
+def test_position_sizing_rejection_is_logged(
+    caplog,
+    monkeypatch,
+    sizing_reason,
+):
+    broker = FakeBroker()
+    executor = make_executor(broker=broker)
+    monkeypatch.setattr(
+        module,
+        "calculate_position_size",
+        lambda **_kwargs: {
+            "size_lots": 0,
+            "size_rub": 0.0,
+            "risk_rub": 0.0,
+            "reason": sizing_reason,
+        },
+    )
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal(
+            "SBER",
+            {"entry_price": 100, "stop": 95, "take": 110},
+            imbalance=2,
+        )
+
+    assert result == {"executed": False, "reason": sizing_reason}
+    assert broker.calls == [("check_balance", {})]
+    assert f"ticker=SBER reason={sizing_reason}" in caplog.text
+    assert "size_lots=0" in caplog.text
+
+
+def test_broker_error_log_excludes_exception_message(caplog):
+    class FailingBroker(FakeBroker):
+        def check_balance(self):
+            self.calls.append(("check_balance", {}))
+            raise SandboxAPIError("token=secret account=private")
+
+    broker = FailingBroker()
+    executor = make_executor(broker=broker)
+
+    with caplog.at_level("WARNING", logger=module.__name__):
+        result = executor.process_signal(
+            "SBER",
+            {"entry_price": 100, "stop": 95, "take": 110},
+            imbalance=2,
+        )
+
+    assert result == {"executed": False, "reason": "broker_error"}
+    assert broker.calls == [("check_balance", {})]
+    assert "ticker=SBER reason=broker_error operation=check_balance" in caplog.text
+    assert "secret" not in caplog.text
+    assert "private" not in caplog.text
 
 
 def test_stop_is_submitted_only_after_price_crosses_trigger():

@@ -13,7 +13,6 @@ import signal
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
 from typing import Any, Callable, Dict, Optional
 
 import pandas as pd
@@ -24,7 +23,8 @@ from app.analytics.live_engine import (
     get_paper_strategy,
 )
 from app.analytics.orderbook_imbalance import (
-    get_recent_imbalance,
+    calculate_volume_imbalance,
+    get_imbalance_threshold,
     passes_imbalance_filter,
 )
 from app.analytics.position_sizer import calculate_position_size
@@ -32,6 +32,7 @@ from app.analytics.strategy_engine import StrategyEvaluator
 from app.analytics.trading_config import (
     get_live_trading_config,
     get_live_trading_universe,
+    get_orderbook_imbalance_config,
 )
 from app.broker.tinkoff_sandbox import SandboxAPIError, TinkoffSandboxClient
 from app.db.db_manager import DBManager
@@ -268,6 +269,56 @@ class LiveExecutor:
             """
         ).to_dataframe()
 
+    def _skip_signal(
+        self,
+        ticker: str,
+        reason: str,
+        *,
+        warning: bool = False,
+        **values: Any,
+    ) -> Dict[str, Any]:
+        details = " ".join(f"{key}={value}" for key, value in values.items())
+        message = "Live signal skipped: ticker=%s reason=%s"
+        args: list[Any] = [ticker, reason]
+        if details:
+            message += " %s"
+            args.append(details)
+        log = logger.warning if warning else logger.info
+        log(message, *args)
+        return {"executed": False, "reason": reason}
+
+    def _latest_orderbook(self, ticker: str) -> tuple[Optional[float], Optional[float]]:
+        """Return latest fresh imbalance and its age in seconds."""
+        frame = self.db.select(
+            """
+            SELECT timestamp, bid_depth, ask_depth
+            FROM trading.online_orderbook_aggregates
+            WHERE ticker=%s
+            ORDER BY timestamp DESC
+            LIMIT 1
+            """,
+            (ticker,),
+        ).to_dataframe()
+        if frame.empty:
+            return None, None
+
+        row = frame.iloc[0]
+        observed_at = pd.Timestamp(row["timestamp"]).to_pydatetime()
+        if observed_at.tzinfo is not None:
+            observed_at = observed_at.astimezone(
+                timezone(timedelta(hours=3))
+            ).replace(tzinfo=None)
+        age_seconds = max(0.0, (_now_msk_naive() - observed_at).total_seconds())
+        max_age_seconds = (
+            float(get_orderbook_imbalance_config()["max_age_minutes"]) * 60
+        )
+        if age_seconds > max_age_seconds:
+            return None, age_seconds
+        return (
+            calculate_volume_imbalance(row.get("bid_depth"), row.get("ask_depth")),
+            age_seconds,
+        )
+
     def process_signal(
         self,
         ticker: str,
@@ -278,31 +329,86 @@ class LiveExecutor:
     ) -> Dict[str, Any]:
         """Validate and execute one BUY decision from ``StrategyEvaluator``."""
         if decision.get("action") not in (None, "enter"):
-            return {"executed": False, "reason": "not_buy_signal"}
+            return self._skip_signal(ticker, "not_buy_signal")
         if ticker not in self.instruments:
-            return {"executed": False, "reason": "unknown_instrument"}
+            return self._skip_signal(ticker, "unknown_instrument")
 
         entry_price = float(decision["entry_price"])
         stop_price = float(decision["stop"])
         take_price = float(decision["take"])
         if not (0 < stop_price < entry_price < take_price):
-            return {"executed": False, "reason": "invalid_price_levels"}
+            return self._skip_signal(
+                ticker,
+                "invalid_price_levels",
+                entry_price=entry_price,
+                stop_price=stop_price,
+                take_price=take_price,
+            )
 
         active = self._active_positions()
         if len(active) >= int(self.config["max_open_positions"]):
-            return {"executed": False, "reason": "max_open_positions"}
+            return self._skip_signal(
+                ticker,
+                "max_open_positions",
+                open_positions=len(active),
+                max_open_positions=int(self.config["max_open_positions"]),
+            )
         if not active.empty and ticker in set(active["ticker"].astype(str)):
-            return {"executed": False, "reason": "duplicate_ticker"}
+            return self._skip_signal(
+                ticker,
+                "duplicate_ticker",
+                open_positions=len(active),
+            )
 
-        imbalance_value = (
-            get_recent_imbalance(self.db, ticker)
-            if imbalance is None
-            else imbalance
+        orderbook_age_seconds: Optional[float] = None
+        if imbalance is None:
+            imbalance_value, orderbook_age_seconds = self._latest_orderbook(ticker)
+        else:
+            imbalance_value = imbalance
+        max_age_seconds = (
+            float(get_orderbook_imbalance_config()["max_age_minutes"]) * 60
         )
+        if imbalance_value is None:
+            return self._skip_signal(
+                ticker,
+                "stale_or_missing_orderbook",
+                orderbook_age_seconds=(
+                    "missing"
+                    if orderbook_age_seconds is None
+                    else round(orderbook_age_seconds, 3)
+                ),
+                max_age_seconds=max_age_seconds,
+            )
+        threshold = get_imbalance_threshold(self._filter_config())
         if not passes_imbalance_filter(imbalance_value, self._filter_config()):
-            return {"executed": False, "reason": "imbalance"}
+            return self._skip_signal(
+                ticker,
+                "imbalance_below_threshold",
+                imbalance=imbalance_value,
+                imbalance_threshold=threshold,
+                orderbook_age_seconds=(
+                    "provided"
+                    if orderbook_age_seconds is None
+                    else round(orderbook_age_seconds, 3)
+                ),
+            )
 
-        free_balance = self._broker_call("check_balance")
+        try:
+            free_balance = self._broker_call("check_balance")
+        except SandboxAPIError as exc:
+            return self._skip_signal(
+                ticker,
+                "broker_error",
+                warning=True,
+                operation="check_balance",
+                error_type=type(exc).__name__,
+            )
+        if float(free_balance) <= 0:
+            return self._skip_signal(
+                ticker,
+                "insufficient_cash",
+                free_rub=free_balance,
+            )
         instrument = self.instruments[ticker]
         stop_distance_pct = (entry_price - stop_price) / entry_price * 100
         sizing = calculate_position_size(
@@ -314,15 +420,34 @@ class LiveExecutor:
             max_position_pct=float(self.config["max_position_pct"]),
         )
         if sizing["size_lots"] <= 0:
-            return {"executed": False, "reason": sizing["reason"]}
+            return self._skip_signal(
+                ticker,
+                sizing["reason"],
+                free_rub=free_balance,
+                size_lots=sizing["size_lots"],
+                size_rub=round(sizing["size_rub"], 2),
+                lot_size=instrument["lot_size"],
+                lot_cost=entry_price * instrument["lot_size"],
+                stop_distance_pct=round(stop_distance_pct, 6),
+            )
 
-        entry_order = self._broker_call(
-            "execute_order",
-            instrument_id=instrument["instrument_id"],
-            quantity=sizing["size_lots"],
-            direction="buy",
-            order_type="market",
-        )
+        try:
+            entry_order = self._broker_call(
+                "execute_order",
+                instrument_id=instrument["instrument_id"],
+                quantity=sizing["size_lots"],
+                direction="buy",
+                order_type="market",
+            )
+        except SandboxAPIError as exc:
+            return self._skip_signal(
+                ticker,
+                "broker_error",
+                warning=True,
+                operation="execute_entry_order",
+                error_type=type(exc).__name__,
+                size_lots=sizing["size_lots"],
+            )
         executed_lots = int(getattr(entry_order, "lots_executed", 0))
         stored_lots = executed_lots or sizing["size_lots"]
         executed_price = getattr(entry_order, "executed_order_price", None)
@@ -351,10 +476,13 @@ class LiveExecutor:
                     stored_lots,
                     take_price,
                 )
-            except Exception:
-                logger.exception(
-                    "Position %s opened without take protection; monitor will retry",
+            except Exception as exc:
+                logger.warning(
+                    "Live protection pending: ticker=%s reason=broker_error "
+                    "operation=place_take_order position_id=%s error_type=%s",
+                    ticker,
                     position_id,
+                    type(exc).__name__,
                 )
                 return {
                     "executed": True,
@@ -463,12 +591,6 @@ class LiveExecutor:
             )
             if result["executed"]:
                 executed += 1
-            else:
-                logger.info(
-                    "Live signal skipped: ticker=%s reason=%s",
-                    ticker,
-                    result["reason"],
-                )
         return executed
 
     def refresh_contexts(self) -> None:
