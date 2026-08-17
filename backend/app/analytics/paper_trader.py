@@ -25,10 +25,12 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from app.db.db_manager import DBManager
+from app.notifications.telegram_notifier import TelegramNotifier
 
 logger = logging.getLogger(__name__)
 from app.analytics.trading_config import get_trading_universe
 from app.analytics.paper_strategy import get_active_paper_strategy
+from app.core.config_manager import load_settings
 
 COMMISSION_PER_SIDE = 0.0003
 ROUND_TRIP = 2 * COMMISSION_PER_SIDE  # 0.06%
@@ -119,7 +121,8 @@ def create_pending_order(db, ticker, limit_price, stop_price, take_price, lot_si
 
 
 def open_market_position(db, ticker, entry_price, stop_price, take_price, lot_size, size_lots, size_rub,
-                         signal_source, window_mode, rr_mode, rr_ratio, signal_id, strategy_name=None):
+                         signal_source, window_mode, rr_mode, rr_ratio, signal_id, strategy_name=None,
+                         notifier: TelegramNotifier | None = None):
     db.execute("""
         INSERT INTO trading.paper_positions
             (ticker, entry_ts, entry_price, stop_price, take_price, lot_size, size_lots, size_rub,
@@ -128,18 +131,36 @@ def open_market_position(db, ticker, entry_price, stop_price, take_price, lot_si
     """, (ticker, _now_msk().replace(tzinfo=None), entry_price, stop_price, take_price,
           lot_size, size_lots, size_rub, signal_source, window_mode, rr_mode, rr_ratio, signal_id, strategy_name))
     logger.info(f"OPEN(market) {ticker} [{signal_source}/{window_mode}/{rr_mode}]: {size_lots} lots @ {entry_price:.4f} (stop {stop_price:.2f}, take {take_price:.2f}, signal#{signal_id})")
+    if notifier:
+        notifier.notify_position_open(
+            ticker=ticker,
+            price=entry_price,
+            size_lots=size_lots,
+            lot_size=lot_size,
+            reason=f"market/{signal_source}",
+        )
 
 
-def fill_entry(db, pos_id, ticker, entry_price, entry_ts):
+def fill_entry(db, pos_id, ticker, entry_price, entry_ts, lot_size=1, size_lots=1,
+               notifier: TelegramNotifier | None = None):
     db.execute("""
         UPDATE trading.paper_positions
         SET status='open', entry_price=%s, entry_ts=%s, updated_at=now()
         WHERE id=%s
     """, (entry_price, entry_ts, pos_id))
     logger.info(f"FILLED(limit) #{pos_id} {ticker}: entry @ {entry_price:.4f} at {entry_ts}")
+    if notifier:
+        notifier.notify_position_open(
+            ticker=ticker,
+            price=entry_price,
+            size_lots=size_lots,
+            lot_size=lot_size,
+            reason="limit fill",
+        )
 
 
-def close_position(db, pos_id, ticker, exit_price, exit_reason, exit_ts, entry_price, lot_size, size_lots):
+def close_position(db, pos_id, ticker, exit_price, exit_reason, exit_ts, entry_price, lot_size, size_lots,
+                   notifier: TelegramNotifier | None = None):
     pnl_rub, net_pct = _compute_pnl(entry_price, exit_price, lot_size, size_lots)
     db.execute("""
         UPDATE trading.paper_positions
@@ -147,6 +168,16 @@ def close_position(db, pos_id, ticker, exit_price, exit_reason, exit_ts, entry_p
         WHERE id=%s
     """, (f'closed_{exit_reason}', exit_ts, exit_price, exit_reason, pnl_rub, net_pct, pos_id))
     logger.info(f"CLOSE #{pos_id} {ticker} ({exit_reason}) @ {exit_price:.4f} at {exit_ts}: PnL {pnl_rub:.0f} RUB ({net_pct:.2f}%)")
+    if notifier:
+        notifier.notify_position_close(
+            ticker=ticker,
+            price=exit_price,
+            size_lots=size_lots,
+            lot_size=lot_size,
+            pnl_rub=pnl_rub,
+            pnl_pct=net_pct,
+            reason=exit_reason,
+        )
     return pnl_rub
 
 
@@ -156,7 +187,7 @@ def cancel_pending(db, pos_id, ticker, reason):
 
 
 def process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, per_trade_rub,
-                    strategy_name=None, config=None):
+                    strategy_name=None, config=None, notifier: TelegramNotifier | None = None):
     """Create positions/orders from new signals: market (open now) + limit (pending) arms."""
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=30)
     new_signals = db.select("""
@@ -253,17 +284,17 @@ def process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, 
                     logger.info(f"SKIP signal #{sig_id} {tk} [market]: entry {entry_price:.4f} >= take {take_price:.4f}")
                     continue
                 open_market_position(db, tk, entry_price, stop_price, take_price, lot_size, size_lots, size_rub,
-                                     src, wmode, rmode, rr_ratio, sig_id, strategy_name)
+                                     src, wmode, rmode, rr_ratio, sig_id, strategy_name, notifier)
             else:  # limit
                 create_pending_order(db, tk, sig_price, stop_price, take_price, lot_size, size_lots, size_rub,
                                      src, wmode, rmode, rr_ratio, 'limit', sig_id, strategy_name)
         processed_ids.add(sig_id)
 
 
-def monitor_pending(db):
+def monitor_pending(db, notifier: TelegramNotifier | None = None):
     """Fill pending limit orders when price touches limit; cancel expired / price above take."""
     pending = db.select("""
-        SELECT id, ticker, limit_price, limit_ts, take_price
+        SELECT id, ticker, limit_price, limit_ts, take_price, lot_size, size_lots
         FROM trading.paper_positions WHERE status='pending' ORDER BY id
     """).to_dataframe()
     now_naive = _now_msk().replace(tzinfo=None)
@@ -284,11 +315,20 @@ def monitor_pending(db):
                 cancel_pending(db, int(p['id']), tk, 'price above take before fill')
                 break
             if float(c['low']) <= limit_price <= float(c['high']):
-                fill_entry(db, int(p['id']), tk, limit_price, c['timestamp'])
+                fill_entry(
+                    db,
+                    int(p['id']),
+                    tk,
+                    limit_price,
+                    c['timestamp'],
+                    int(p['lot_size']),
+                    int(p['size_lots']),
+                    notifier,
+                )
                 break
 
 
-def monitor_open(db):
+def monitor_open(db, notifier: TelegramNotifier | None = None):
     """Check stop (market) / take (limit) for open positions."""
     open_pos = db.select("""
         SELECT id, ticker, entry_ts, entry_price, stop_price, take_price, lot_size, size_lots
@@ -308,15 +348,16 @@ def monitor_open(db):
                 continue
             if float(c['low']) <= stop:
                 close_position(db, int(p['id']), tk, stop, 'stop', c['timestamp'],
-                               entry_price, int(p['lot_size']), int(p['size_lots']))
+                               entry_price, int(p['lot_size']), int(p['size_lots']), notifier)
                 break
             if take is not None and float(c['high']) >= take:
                 close_position(db, int(p['id']), tk, take, 'take', c['timestamp'],
-                               entry_price, int(p['lot_size']), int(p['size_lots']))
+                               entry_price, int(p['lot_size']), int(p['size_lots']), notifier)
                 break
 
 
-def write_equity(db, capital):
+def write_equity(db, capital, notifier: TelegramNotifier | None = None,
+                 critical_drawdown_pct: float = 2.0):
     realized = db.select("SELECT coalesce(sum(pnl_rub),0) s FROM trading.paper_positions WHERE status LIKE 'closed_%'").to_dataframe()
     realized_pnl = float(realized.iloc[0]['s']) if not realized.empty else 0.0
     open_pos = db.select("SELECT ticker, entry_price, lot_size, size_lots FROM trading.paper_positions WHERE status='open'").to_dataframe()
@@ -332,6 +373,16 @@ def write_equity(db, capital):
     peak = float(peak_df.iloc[0]['m']) if not peak_df.empty and peak_df.iloc[0]['m'] is not None else equity
     peak = max(peak, equity)
     dd = (peak - equity) / peak * 100.0 if peak > 0 else 0.0
+    previous_df = db.select("""
+        SELECT equity_rub, drawdown_pct
+        FROM trading.paper_equity ORDER BY timestamp DESC LIMIT 1
+    """).to_dataframe()
+    previous_equity = (
+        float(previous_df.iloc[0]['equity_rub']) if not previous_df.empty else None
+    )
+    previous_dd = (
+        float(previous_df.iloc[0]['drawdown_pct']) if not previous_df.empty else None
+    )
     n_open = len(open_pos)
     pend = db.select("SELECT count(*) c FROM trading.paper_positions WHERE status='pending'").to_dataframe()
     n_pending = int(pend.iloc[0]['c']) if not pend.empty else 0
@@ -339,6 +390,24 @@ def write_equity(db, capital):
         INSERT INTO trading.paper_equity (timestamp, equity_rub, realized_pnl, open_positions, drawdown_pct, created_at)
         VALUES (%s,%s,%s,%s,%s,now())
     """, (_now_msk().replace(tzinfo=None), round(equity, 2), round(realized_pnl, 2), n_open + n_pending, round(dd, 3)))
+    if notifier and equity <= 0 and (previous_equity is None or previous_equity > 0):
+        notifier.notify_critical(
+            event="GAME OVER",
+            details=f"Equity {equity:.2f} RUB, drawdown {dd:.2f}%",
+        )
+    elif (
+        notifier
+        and critical_drawdown_pct > 0
+        and dd >= critical_drawdown_pct
+        and (previous_dd is None or previous_dd < critical_drawdown_pct)
+    ):
+        notifier.notify_critical(
+            event="LARGE DRAWDOWN",
+            details=(
+                f"Drawdown {dd:.2f}% превысил лимит "
+                f"{critical_drawdown_pct:.2f}%; equity {equity:.2f} RUB"
+            ),
+        )
     return equity
 
 
@@ -347,6 +416,8 @@ def run_paper_trader(tickers=None, duration_minutes=60, check_interval_sec=30,
                      max_positions=80, max_entries_per_day=400):
     # Issue #27: read strategy from DB
     db = DBManager()
+    settings = load_settings()
+    notifier = TelegramNotifier(settings.telegram)
     strategy_name = None
     config = None
     try:
@@ -358,7 +429,7 @@ def run_paper_trader(tickers=None, duration_minutes=60, check_interval_sec=30,
     if tickers is None:
         tickers = get_trading_universe(db)
     lot_sizes = get_lot_sizes(db, tickers)
-    logger.info(f"Paper trader started: strategy '{strategy_name}', capital {capital:.0f}, per_trade {per_trade_rub:.0f}, max_pos {max_positions}, lots {lot_sizes}")
+    logger.info(f"Paper trader started: strategy '{strategy_name}', capital {capital:.0f}, per_trade {per_trade_rub:.0f}, max_pos {max_positions}, lots {lot_sizes}, telegram={notifier.enabled}")
     start_time = time.time()
     last_check = 0
     last_equity_write = 0
@@ -366,15 +437,15 @@ def run_paper_trader(tickers=None, duration_minutes=60, check_interval_sec=30,
         now = time.time()
         if now - last_check >= check_interval_sec:
             process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, per_trade_rub,
-                            strategy_name=strategy_name, config=config)
-            monitor_pending(db)
-            monitor_open(db)
+                            strategy_name=strategy_name, config=config, notifier=notifier)
+            monitor_pending(db, notifier)
+            monitor_open(db, notifier)
             last_check = now
         if now - last_equity_write >= 60:
-            write_equity(db, capital)
+            write_equity(db, capital, notifier, settings.risk.max_daily_loss_pct)
             last_equity_write = now
         time.sleep(1)
-    write_equity(db, capital)
+    write_equity(db, capital, notifier, settings.risk.max_daily_loss_pct)
     try: db.close_pool()
     except Exception: pass
     logger.info("Paper trader finished")

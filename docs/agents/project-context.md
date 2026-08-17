@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-17 (Issues #59-#62 Live Trading Infrastructure). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-17 (Issues #59-#64 Live Trading Infrastructure). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -66,6 +66,8 @@ trading-terminal/
 │ │ │ ├── top_stocks.py # Top stocks by volume logic
 │ │ │ └── patterns/ # 10 patterns: trend/, mean_reversion/, breakout/, volume/, price_action/
 │ │ ├── core/config_manager.py # Settings (pydantic), logger, env vars
+│ │ ├── notifications/
+│ │ │ └── telegram_notifier.py # Rate-limited paper-trading Bot API alerts
 │ │ ├── broker/
 │ │ │ ├── data_loader.py # Historical candles via T-Bank Invest API
 │ │ │ └── tinkoff_sandbox.py # Sandbox-only orders, balance, positions, cancellation
@@ -148,7 +150,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 
 **Paper trading** (`live_engine.py` + `paper_trader.py`, background):
 - live_engine: reads active strategy from DB (`paper_strategy.get_active_paper_strategy`), builds 4h context via `build_strategy_context`, feeds live 1min bars into per-ticker `StrategyEvaluator` instances (unified entry logic, same as backtest), emits signals to `trading.alerts`.
-- paper_trader: reads strategy config from DB (RR from `config.risk_reward`), alerts -> market positions (open at best_ask, single arm) -> monitor stop/take -> write equity. Records `strategy_name` in `paper_positions`.
+- paper_trader: reads strategy config from DB (RR from `config.risk_reward`), alerts -> market positions (open at best_ask, single arm) -> monitor stop/take -> write equity. Records `strategy_name` in `paper_positions` and sends best-effort Telegram alerts for opens, closes, stop/take, drawdown threshold crossings, and GAME OVER.
 - On startup `start_processes.sh` runs `position_catchup.py` (resolve pending + check open against historical 1min candles).
 
 **Sandbox live execution** (`live_executor.py`, opt-in background process): uses the same `StrategyEvaluator` and live 1min context, then requires fresh order-book imbalance, checks sandbox cash, calculates whole-lot size, submits a market BUY, and records the position in `trading.live_positions`. Start explicitly with `START_LIVE_EXECUTOR=1 ./start_processes.sh`; normal paper startup does not place broker orders.
@@ -228,12 +230,12 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 | I | ML (CatBoost/LightGBM) | Not started |
 | J | A/B test analysis report (signal_source x window x rr x entry) | Pending (accumulate closed trades) |
 | O  | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Done (Epic #39) |
-| P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, control panel) | In progress: backend execution path #59-#62 done; control panel remains |
+| P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, alerting, control panel) | In progress: backend execution path #59-#62 and Telegram alerting #64 done; control panel remains |
 
 ## 9. Important Notes
 
 - **Sandbox mode**: no real trading. T-Bank API sandbox tokens.
-- **Secrets**: .env (`TINVEST_TOKEN` / `TINVEST_ACC` for market data, `TINVEST_SANDBOX` / optional `TINVEST_SANDBOX_ACC` for sandbox execution, `PSTGRS_PWD`). Never log secrets or reuse market-data credentials for trading.
+- **Secrets**: .env (`TINVEST_TOKEN` / `TINVEST_ACC` for market data, `TINVEST_SANDBOX` / optional `TINVEST_SANDBOX_ACC` for sandbox execution, `TGM_TOKEN` / `TGM_CHAT` for Telegram, `PSTGRS_PWD`). Never log secrets or reuse market-data credentials for trading.
 - **Docker**: rebuild backend image after code changes (`docker compose up -d --build backend`). Backend mounts `./reports` (for last_run.json).
 - **Single source of truth**: trading universe + strategy definitions live in `trading_config.py` / `trading.trading_universe`. Do not hardcode ticker lists or strategy params in modules.
 - **Locked strategy**: the strategy under paper test has `locked=true`; the API rejects overwriting it (409). Unlock only after the test period.
@@ -280,3 +282,9 @@ Default limits are centralized in `trading_config.py` (`POSITION_SIZING`): 1% ri
 The take-profit is submitted immediately as a resting sell-limit. The stop-loss is intentionally synthetic: a sell-limit below the current market would execute immediately, so the executor waits until the broker's current price reaches the stop, cancels the take, and then submits the stop sell-limit at the observed price. Position reconciliation polls `get_positions()`; disappearance after a take or triggered stop closes the DB row and calculates PnL. External SELL handling cancels protection and closes through a sandbox market order.
 
 Every broker API attempt, including internal retries and account discovery, passes through a token bucket capped at 10 requests/second. SIGTERM/SIGINT only sets a shutdown flag; final cleanup then cancels pending entry/protection orders, updates DB state, optionally flattens open sandbox positions when `close_positions_on_shutdown` is enabled, and closes the standalone DB pool. The complete policy is returned by `get_live_trading_config()` from `trading_config.py`.
+
+## 14. Telegram Alerting
+
+`backend/app/notifications/telegram_notifier.py` sends Markdown messages through the Telegram Bot API. It uses `TGM_TOKEN` and `TGM_CHAT`; legacy `TGM_CHAT_ID` remains a fallback. `TGM_APP_ID` and `TGM_APP_HASH` are loaded for configuration compatibility but are not required by the Bot API.
+
+Delivery is serialized and limited to one attempt per second. Network/API errors are logged and returned as `False`, never propagated into the trading loop. `paper_trader.py` emits alerts after successful DB writes for market and limit opens and for every close (including stop/take). Equity updates emit a critical alert only when drawdown first crosses `risk.max_daily_loss_pct`, or when equity first reaches zero (GAME OVER), preventing repeated alerts on every loop.

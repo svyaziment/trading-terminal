@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-17 (задачи #59-#62 Live Trading Infrastructure; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-17 (задачи #59-#64 Live Trading Infrastructure; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -66,6 +66,8 @@ trading-terminal/
 │ │ │ ├── top_stocks.py # Логика top stocks по объёму
 │ │ │ └── patterns/ # 10 паттернов: trend/, mean_reversion/, breakout/, volume/, price_action/
 │ │ ├── core/config_manager.py # Настройки (pydantic), logger, env vars
+│ │ ├── notifications/
+│ │ │ └── telegram_notifier.py # Telegram Bot API alerts paper trading с rate limit
 │ │ ├── broker/
 │ │ │ ├── data_loader.py # Исторические свечи через T-Bank Invest API
 │ │ │ └── tinkoff_sandbox.py # Только sandbox: ордера, баланс, позиции, отмена
@@ -148,7 +150,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 
 **Paper trading** (`live_engine.py` + `paper_trader.py`, background):
 - live_engine: читает активную стратегию из БД (`paper_strategy.get_active_paper_strategy`), строит 4h контекст через `build_strategy_context`, передаёт живые 1min бары в per-ticker `StrategyEvaluator` (единая логика входа, та же что в бэктесте), генерирует сигналы в `trading.alerts`.
-- paper_trader: читает конфиг стратегии из БД (RR из `config.risk_reward`), alerts -> market positions (open по best_ask, один arm) -> мониторинг stop/take -> запись equity. Записывает `strategy_name` в `paper_positions`.
+- paper_trader: читает конфиг стратегии из БД (RR из `config.risk_reward`), alerts -> market positions (open по best_ask, один arm) -> мониторинг stop/take -> запись equity. Записывает `strategy_name` в `paper_positions` и в best-effort режиме отправляет Telegram alerts для открытий, закрытий, stop/take, пересечения порога drawdown и GAME OVER.
 - При старте `start_processes.sh` запускает `position_catchup.py` (разбор pending + проверка open по историческим 1min свечам).
 
 **Sandbox live execution** (`live_executor.py`, опциональный фоновый процесс): использует тот же `StrategyEvaluator` и live 1min контекст, затем требует свежий imbalance стакана, проверяет sandbox-баланс, рассчитывает целое число лотов, выставляет market BUY и записывает позицию в `trading.live_positions`. Запуск только явно: `START_LIVE_EXECUTOR=1 ./start_processes.sh`; обычный paper-запуск не выставляет брокерские ордера.
@@ -228,12 +230,12 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | I | ML (CatBoost/LightGBM) | Не начато |
 | J | Отчёт анализа A/B теста (signal_source x window x rr x entry) | Ожидает (накопить закрытые сделки) |
 | O | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Готово (Эпик #39) |
-| P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, панель управления) | В работе: backend-путь исполнения #59-#62 готов; остаётся панель управления |
+| P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, alerting, панель управления) | В работе: backend-путь исполнения #59-#62 и Telegram alerting #64 готовы; остаётся панель управления |
 
 ## 9. Важные замечания
 
 - **Песочница**: реальной торговли нет. Используются sandbox-токены T-Bank API.
-- **Секреты**: .env (`TINVEST_TOKEN` / `TINVEST_ACC` для рыночных данных, `TINVEST_SANDBOX` / необязательный `TINVEST_SANDBOX_ACC` для sandbox-исполнения, `PSTGRS_PWD`). Никогда не логировать секреты и не использовать реквизиты рыночных данных для торговли.
+- **Секреты**: .env (`TINVEST_TOKEN` / `TINVEST_ACC` для рыночных данных, `TINVEST_SANDBOX` / необязательный `TINVEST_SANDBOX_ACC` для sandbox-исполнения, `TGM_TOKEN` / `TGM_CHAT` для Telegram, `PSTGRS_PWD`). Никогда не логировать секреты и не использовать реквизиты рыночных данных для торговли.
 - **Docker**: после изменений кода пересоберите backend image (`docker compose up -d --build backend`). Backend монтирует `./reports` (для last_run.json).
 - **Единый источник истины**: торговая вселенная + определения стратегий живут в `trading_config.py` / `trading.trading_universe`. Не хардкодьте списки тикеров или параметры стратегий в модулях.
 - **Заблокированная стратегия**: стратегия в paper test имеет `locked=true`; API отклоняет её перезапись (409). Разблокировать только после тестового периода.
@@ -280,3 +282,9 @@ Live-проверка 2026-08-16: оператор открыл sandbox-счёт
 Take-profit сразу выставляется как ожидающий sell-limit. Stop-loss намеренно реализован как синтетический триггер: sell-limit ниже текущего рынка исполнился бы сразу, поэтому executor ждёт, когда текущая цена брокера достигнет stop, отменяет take и только затем выставляет stop sell-limit по наблюдаемой цене. Сверка позиций опрашивает `get_positions()`; исчезновение позиции после take или сработавшего stop закрывает строку БД и рассчитывает PnL. Внешний SELL отменяет защитные заявки и закрывает позицию sandbox market-ордером.
 
 Каждая попытка обращения к broker API, включая внутренние retry и обнаружение счёта, проходит через token bucket с потолком 10 запросов/сек. SIGTERM/SIGINT только устанавливает флаг остановки; финальная очистка отменяет ожидающие entry/protection заявки, обновляет состояние БД, при включённом `close_positions_on_shutdown` закрывает открытые sandbox-позиции и закрывает DB pool standalone-процесса. Полную политику возвращает `get_live_trading_config()` из `trading_config.py`.
+
+## 14. Telegram alerting
+
+`backend/app/notifications/telegram_notifier.py` отправляет Markdown-сообщения через Telegram Bot API. Используются `TGM_TOKEN` и `TGM_CHAT`; прежнее имя `TGM_CHAT_ID` сохранено как fallback. `TGM_APP_ID` и `TGM_APP_HASH` загружаются для совместимости конфигурации, но Bot API их не требует.
+
+Отправка сериализована и ограничена одной попыткой в секунду. Сетевые ошибки и ошибки API логируются и возвращают `False`, но не попадают в торговый цикл. `paper_trader.py` отправляет alerts после успешной записи в БД для market/limit открытий и каждого закрытия, включая stop/take. При обновлении equity критический alert отправляется только при первом пересечении `risk.max_daily_loss_pct` или первом достижении нулевого equity (GAME OVER), поэтому каждый цикл не создаёт повторное сообщение.

@@ -47,6 +47,13 @@ class RiskConfig(BaseConfig):
     max_position_size: int = 100000
 
 
+class TelegramConfig(BaseConfig):
+    token: str = ""
+    chat_id: str = ""
+    app_id: str = ""
+    app_hash: str = ""
+
+
 class DbConfig(BaseConfig):
     host: str = "localhost"
     database: str = "postgres"
@@ -59,6 +66,7 @@ class Settings(BaseConfig):
     api: ApiConfig = Field(default_factory=ApiConfig)
     terminal: TerminalConfig = Field(default_factory=TerminalConfig)
     risk: RiskConfig = Field(default_factory=RiskConfig)
+    telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     db: DbConfig = Field(default_factory=DbConfig)
 
 
@@ -107,6 +115,7 @@ def load_settings() -> Settings:
     api_yaml = yaml_data.get("api", {}) or {}
     terminal_yaml = yaml_data.get("terminal", {}) or {}
     risk_yaml = yaml_data.get("risk", {}) or {}
+    telegram_yaml = yaml_data.get("telegram", {}) or {}
     db_yaml = yaml_data.get("db", {}) or {}
 
     api_config = ApiConfig(
@@ -123,6 +132,15 @@ def load_settings() -> Settings:
 
     terminal_config = TerminalConfig(**terminal_yaml)
     risk_config = RiskConfig(**risk_yaml)
+    telegram_config = TelegramConfig(
+        token=_env_str("TGM_TOKEN", str(telegram_yaml.get("token", ""))),
+        chat_id=_env_str(
+            "TGM_CHAT",
+            _env_str("TGM_CHAT_ID", str(telegram_yaml.get("chat_id", ""))),
+        ),
+        app_id=_env_str("TGM_APP_ID", str(telegram_yaml.get("app_id", ""))),
+        app_hash=_env_str("TGM_APP_HASH", str(telegram_yaml.get("app_hash", ""))),
+    )
 
     db_password = _env_str("PSTGRS_PWD", "")
     if db_password == "":
@@ -140,6 +158,7 @@ def load_settings() -> Settings:
         api=api_config,
         terminal=terminal_config,
         risk=risk_config,
+        telegram=telegram_config,
         db=db_config,
     )
 

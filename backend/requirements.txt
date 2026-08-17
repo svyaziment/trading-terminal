@@ -6,3 +6,4 @@ psycopg2-binary
 pandas
 asyncpg
 t-tech-investments
+requests
