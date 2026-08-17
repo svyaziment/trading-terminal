@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-17 (задачи #59-#61 Live Trading Infrastructure; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-17 (задачи #59-#62 Live Trading Infrastructure; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -12,20 +12,21 @@
 Полное дерево см. в разделе 2 `project-context.ru.md`. Ключевые операционные точки входа:
 - `backend/app/main.py` - приложение FastAPI + регистрация маршрутов.
 - `backend/app/analytics/trading_config.py` - торговая вселенная + реестр стратегий (единый источник истины).
-- `start_processes.sh` / `stop_processes.sh` - процессы paper trading.
+- `start_processes.sh` / `stop_processes.sh` - процессы paper trading и опционального sandbox-исполнения.
 - `docs/refresh/context_collector.py` - сборщик контекста для задач агента.
 
 ## 3. Схема базы данных
 
-См. раздел 3 `project-context.ru.md`. Новые таблицы (Strategy Lab + paper trading): `strategies`, `backtest_results`, `paper_positions`, `paper_equity`, `trading_universe`, `alerts`. Все находятся в схеме `trading`.
+См. раздел 3 `project-context.ru.md`. Новые таблицы включают `strategies`, `backtest_results`, `paper_positions`, `paper_equity`, `live_positions`, `trading_universe` и `alerts`. Все находятся в схеме `trading`.
 
 ## 4. Конвейер данных
 
-См. раздел 4 `project-context.ru.md`. Четыре фоновых процесса (запускаются через `start_processes.sh`):
+См. раздел 4 `project-context.ru.md`. По умолчанию запускаются четыре paper-процесса:
 1. `data_refresher` - MOEX 1min + агрегация + индикаторы + сигналы (каждые 15 минут, top-15).
 2. `online_data` - стриминг 1min свечей + стакана.
 3. `live_engine` - читает активную стратегию из БД (`paper_strategy.get_active_paper_strategy`), строит 4h контекст через `build_strategy_context`, передаёт живые 1min бары в per-ticker `StrategyEvaluator` (единая логика входа, та же что в бэктесте), генерирует сигналы в `trading.alerts`.
 4. `paper_trader` - читает конфиг стратегии из БД (RR из `config.risk_reward`), alerts -> market позиции (open по best_ask, один arm) -> мониторинг stop/take -> запись equity. Записывает `strategy_name` в `paper_positions`.
+- Опционально: `LiveExecutor` выполняет sandbox-ордера через брокера и запускается только с `START_LIVE_EXECUTOR=1`.
 При старте: `position_catchup` разбирает pending/open позиции по историческим свечам.
 
 ## 5. API Endpoints
@@ -106,3 +107,15 @@ python docs/refresh/context_collector.py
 - В broker order передавайте `size_lots`. `size_rub` — бюджет до округления, а не указание на дробное количество лотов.
 - Результаты `invalid_stop` и `insufficient_capital` означают отказ (`size_lots == 0`) и не должны доходить до брокера. `min_lot` можно исполнять: калькулятор уже убедился, что свободного капитала хватает на один полный лот.
 - Unit-тест: `cd backend && python -m pytest -q tests/test_position_sizer.py`.
+
+## 15. Эксплуатация sandbox live executor
+
+- Условия запуска: backend пересобран, streaming online data работает, активна одна заблокированная стратегия, sandbox-счёт пополнен и `LIVE_TRADING.enabled=true`.
+- При подготовке новой БД примените миграцию явно: `psql ... -f backend/migrations/20260817_01_live_positions.sql`. `LiveExecutor.initialize()` также автоматически применяет ту же идемпотентную схему.
+- Безопасный запуск: `START_LIVE_EXECUTOR=1 ./start_processes.sh`. Дополнительный opt-in не даёт обычному paper workflow выставлять sandbox-ордера. Лог: `reports/live-executor/executor.log`.
+- Порядок обработки фиксирован: BUY от `StrategyEvaluator` -> свежий imbalance -> свободные RUB -> position sizing -> market BUY -> take sell-limit -> запись/сверка БД.
+- Stop-защита синтетическая. Нельзя выставлять stop sell-limit при входе: limit ниже рынка исполнился бы сразу. Монитор ждёт `current_price <= stop_price`, отменяет take и затем выставляет sell-limit по наблюдаемой цене.
+- Каждая физическая попытка broker API, включая retry SDK и обнаружение счёта, использует один token bucket (`api_rate_limit`, максимум 10/сек). Не добавляйте вызовы в обход `_broker_call` или клиентского hook `before_request`.
+- SIGTERM/SIGINT запрашивает очистку. Ожидающие entry/protection заявки отменяются; открытые позиции закрываются только при `close_positions_on_shutdown=true`. При значении false по умолчанию позиции остаются открытыми, а их protection IDs очищаются в БД.
+- Диагностика: `SELECT * FROM trading.live_positions WHERE status IN ('pending','open') ORDER BY id;`.
+- Тесты: `cd backend && python -m pytest -q tests/test_live_executor.py`.

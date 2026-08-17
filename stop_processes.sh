@@ -5,7 +5,7 @@ DURATION=${DURATION_MINUTES:-1200}
 echo "=== Step 0: Stop all existing processes ==="
 docker compose exec -T backend python -c "
 import os, signal
-targets = ['run_data_refresher', 'run_online_data', 'run_signal_engine', 'run_paper_trader', 'run_levels_refresher']
+targets = ['run_data_refresher', 'run_online_data', 'run_signal_engine', 'run_live_engine', 'run_paper_trader', 'run_levels_refresher', 'LiveExecutor']
 killed = []
 for pid_dir in os.listdir('/proc'):
     if not pid_dir.isdigit(): continue

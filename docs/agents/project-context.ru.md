@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-17 (задачи #59-#61 Live Trading Infrastructure; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-17 (задачи #59-#62 Live Trading Infrastructure; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -46,6 +46,7 @@ trading-terminal/
 │   │   ├── strategy_context.py      # Построение контекста стратегии (уровни, ATR, BUY-сигналы)
 │ │ │ ├── trading_config.py # ЕДИНЫЙ ИСТОЧНИК ИСТИНЫ: вселенная, стратегии, live risk policy
 │ │ │ ├── position_sizer.py # Гибридный sizing по риску/концентрации + округление лотов
+│ │ │ ├── live_executor.py # Sandbox-исполнение, защита, сверка позиций, shutdown
 │ │ │ ├── online_data.py # Стриминг: 1min свечи + стакан -> online_* таблицы
 │ │ │ ├── orderbook_imbalance.py # Отношение bid/ask depth + обязательный live-фильтр
 │ │ │ ├── online_signals.py # Движок онлайн-сигналов (paper trading, A/B arms)
@@ -71,6 +72,7 @@ trading-terminal/
 │ │ ├── db/db_manager.py # Синхронный PostgreSQL manager (pool, select, execute, insert_with_schema)
 │ │ └── main.py # FastAPI app, регистрация маршрутов
 │ ├── Dockerfile # python:3.12-slim, T-Bank SDK, psycopg2
+│ ├── migrations/ # Идемпотентные PostgreSQL-миграции, включая live_positions
 │ └── tests/
 │       ├── test_strategy_plugin.py    # Бит-в-бит регрессионный тест (levels_reversal)
 │       └── test_portfolio_simulator.py # Unit + integration тесты portfolio simulator
@@ -120,6 +122,7 @@ trading-terminal/
 | **backtest_results** | ~64 | Strategy Lab: метрики backtest/walk-forward по тикерам (jsonb) |
 | **paper_positions** | ~704 | Позиции paper trading (A/B factors, limit/market, stop/take, PnL) |
 | **paper_equity** | ~2855 | Кривая equity (equity_rub, realized_pnl, drawdown_pct, open_positions) |
+| **live_positions** | runtime | Sandbox-ордера T-Bank, идентификаторы защиты, жизненный цикл и PnL |
 | **trading_universe** | 15 | Торговая вселенная (ticker, rank, pf, source) - top-15 по PF |
 | **alerts** | ~72 | Онлайн-сигналы (details jsonb: price, support/take, factors) |
 | backtest_runs | ~300 | Метаданные прогонов backtest (legacy + levels matrix) |
@@ -131,6 +134,7 @@ trading-terminal/
 - `strategies`: id, name (unique), config (jsonb: patterns, confirm_windows, commission_pct, slippage_pct, risk_reward, n_runs), in_paper_test (bool), locked (bool), description
 - `backtest_results`: id, strategy_id (FK), ticker, test_type (full_sample/walkforward), depth, metrics (jsonb), created_at
 - `paper_positions`: id, ticker, entry_ts/price, stop_price, take_price, limit_price, limit_ts, size_lots, size_rub, lot_size, status (pending/open/closed_stop/closed_take/cancelled), signal_source, window_mode, rr_mode, rr_ratio, entry_mode (market/limit), signal_id, strategy_name, exit_ts/price/reason, pnl_rub, pnl_pct
+- `live_positions`: id, ticker, instrument_id, signal_ts, entry_price, lot_size, size_lots, stop_price, take_price, broker_order_id/stop_id/take_id, status, strategy_name, exit_ts/price/reason, pnl_rub
 - `paper_equity`: id, timestamp, equity_rub, realized_pnl, open_positions, drawdown_pct
 - `trading_universe`: ticker (PK), rank, pf, source, notes, updated_at
 - `alerts`: id, alert_type, ticker, message, details (jsonb), created_at
@@ -146,6 +150,8 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 - live_engine: читает активную стратегию из БД (`paper_strategy.get_active_paper_strategy`), строит 4h контекст через `build_strategy_context`, передаёт живые 1min бары в per-ticker `StrategyEvaluator` (единая логика входа, та же что в бэктесте), генерирует сигналы в `trading.alerts`.
 - paper_trader: читает конфиг стратегии из БД (RR из `config.risk_reward`), alerts -> market positions (open по best_ask, один arm) -> мониторинг stop/take -> запись equity. Записывает `strategy_name` в `paper_positions`.
 - При старте `start_processes.sh` запускает `position_catchup.py` (разбор pending + проверка open по историческим 1min свечам).
+
+**Sandbox live execution** (`live_executor.py`, опциональный фоновый процесс): использует тот же `StrategyEvaluator` и live 1min контекст, затем требует свежий imbalance стакана, проверяет sandbox-баланс, рассчитывает целое число лотов, выставляет market BUY и записывает позицию в `trading.live_positions`. Запуск только явно: `START_LIVE_EXECUTOR=1 ./start_processes.sh`; обычный paper-запуск не выставляет брокерские ордера.
 
 **Strategy Lab** (`strategy_backtest.py` через `strategy_jobs.py`): config -> backtest по тикерам (full-sample) + walk-forward (полугодия 2024-H2..2026-H1) -> backtest_results.
 
@@ -222,7 +228,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | I | ML (CatBoost/LightGBM) | Не начато |
 | J | Отчёт анализа A/B теста (signal_source x window x rr x entry) | Ожидает (накопить закрытые сделки) |
 | O | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Готово (Эпик #39) |
-| P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, панель управления) | В работе: sandbox broker client (#59), realtime imbalance стакана (#60) и position sizing (#61) готовы |
+| P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, панель управления) | В работе: backend-путь исполнения #59-#62 готов; остаётся панель управления |
 
 ## 9. Важные замечания
 
@@ -266,3 +272,11 @@ Live-проверка 2026-08-16: оператор открыл sandbox-счёт
 Исполняемое количество — целое число лотов, помещающихся в бюджет: `floor(size_rub / (price * lot_size))`. Если бюджет меньше одного лота, но свободного капитала достаточно для его оплаты, результат повышается до одного лота с причиной `min_lot`. Неположительное расстояние до stop-loss возвращает `invalid_stop`, а капитал меньше стоимости полного лота — `insufficient_capital`.
 
 Лимиты по умолчанию централизованы в `trading_config.py` (`POSITION_SIZING`): риск 1% на сделку и не более 20% капитала в одной позиции. Результат также сообщает, что определило итоговый размер: риск, концентрация или правило минимального лота.
+
+## 13. Sandbox live executor
+
+`backend/app/analytics/live_executor.py` реализует `LiveExecutor` без изменений `StrategyEvaluator`. Для каждого тикера он загружает активную заблокированную стратегию и 4h-контекст, передаёт последнюю закрытую строку из `online_candles_1min` в `check_entry` и до любого обращения к брокеру применяет обязательный фильтр свежего imbalance. Прошедший BUY проверяет свободные RUB, рассчитывает размер через `calculate_position_size`, отправляет sandbox market-ордер и сохраняет broker IDs и состояние в `trading.live_positions`.
+
+Take-profit сразу выставляется как ожидающий sell-limit. Stop-loss намеренно реализован как синтетический триггер: sell-limit ниже текущего рынка исполнился бы сразу, поэтому executor ждёт, когда текущая цена брокера достигнет stop, отменяет take и только затем выставляет stop sell-limit по наблюдаемой цене. Сверка позиций опрашивает `get_positions()`; исчезновение позиции после take или сработавшего stop закрывает строку БД и рассчитывает PnL. Внешний SELL отменяет защитные заявки и закрывает позицию sandbox market-ордером.
+
+Каждая попытка обращения к broker API, включая внутренние retry и обнаружение счёта, проходит через token bucket с потолком 10 запросов/сек. SIGTERM/SIGINT только устанавливает флаг остановки; финальная очистка отменяет ожидающие entry/protection заявки, обновляет состояние БД, при включённом `close_positions_on_shutdown` закрывает открытые sandbox-позиции и закрывает DB pool standalone-процесса. Полную политику возвращает `get_live_trading_config()` из `trading_config.py`.

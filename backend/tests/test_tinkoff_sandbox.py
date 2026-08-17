@@ -229,6 +229,7 @@ def test_transient_api_error_retries_with_same_order_id(monkeypatch):
             return order_response(kwargs["order_id"])
 
     sleeps = []
+    request_attempts = []
     sandbox = Sandbox()
     monkeypatch.setattr(module, "SDK_RETRYABLE_ERRORS", (TransientError,))
     client = TinkoffSandboxClient(
@@ -236,6 +237,7 @@ def test_transient_api_error_retries_with_same_order_id(monkeypatch):
         account_id="sandbox-account",
         client_factory=factory_for(sandbox),
         sleep_fn=sleeps.append,
+        before_request=lambda: request_attempts.append("token"),
     )
 
     result = client.execute_order(
@@ -247,6 +249,7 @@ def test_transient_api_error_retries_with_same_order_id(monkeypatch):
     assert result.order_id == "idempotent-order-id"
     assert sandbox.order_ids == ["idempotent-order-id", "idempotent-order-id"]
     assert sleeps == [0.5]
+    assert request_attempts == ["token", "token"]
 
 
 def test_non_retryable_api_error_is_wrapped(monkeypatch):

@@ -6,7 +6,7 @@ DURATION=${DURATION_MINUTES:-1200}
 echo "=== Step 0: Stop all existing processes ==="
 docker compose exec -T backend python -c "
 import os, signal
-targets = ['run_data_refresher', 'run_online_data', 'run_signal_engine', 'run_live_engine', 'run_paper_trader', 'run_levels_refresher']
+targets = ['run_data_refresher', 'run_online_data', 'run_signal_engine', 'run_live_engine', 'run_paper_trader', 'run_levels_refresher', 'LiveExecutor']
 killed = []
 for pid_dir in os.listdir('/proc'):
     if not pid_dir.isdigit(): continue
@@ -55,10 +55,21 @@ mkdir -p reports/paper-trader
 nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.paper_trader import run_paper_trader; run_paper_trader(duration_minutes=${DURATION})" > reports/paper-trader/trader.log 2>&1 &
 sleep 3
 
-echo "=== Step 6: Verify (should be 1 each) ==="
+echo "=== Step 6: Start sandbox live executor when explicitly requested ==="
+if [[ "${START_LIVE_EXECUTOR:-0}" == "1" ]]; then
+    mkdir -p reports/live-executor
+    nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.live_executor import LiveExecutor; LiveExecutor().run(duration_minutes=${DURATION})" > reports/live-executor/executor.log 2>&1 &
+    sleep 1
+else
+    echo "Sandbox LiveExecutor disabled for this launch (set START_LIVE_EXECUTOR=1)"
+fi
+
+echo "=== Step 7: Verify background processes ==="
 docker compose exec -T backend python -c "
 import os
 targets = {'run_data_refresher': 0, 'run_online_data': 0, 'run_live_engine': 0, 'run_paper_trader': 0}
+if '${START_LIVE_EXECUTOR:-0}' == '1':
+    targets['LiveExecutor'] = 0
 for pid_dir in os.listdir('/proc'):
     if not pid_dir.isdigit(): continue
     pid = int(pid_dir)
