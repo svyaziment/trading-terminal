@@ -123,7 +123,7 @@ python docs/refresh/context_collector.py
 ## 16. Эксплуатация Telegram alerts для paper trading
 
 - Точка входа: `app.notifications.telegram_notifier.TelegramNotifier`; интеграция с paper trading находится в `paper_trader.py`.
-- Задайте `TGM_TOKEN` и `TGM_CHAT_ID`. `TGM_APP_ID` и `TGM_APP_HASH` загружаются, но Bot API их не использует. Никогда не печатайте и не коммитьте эти значения.
+- Задайте `TGM_TOKEN` и `TGM_CHAT`; прежнее имя `TGM_CHAT_ID` сохранено как fallback. `TGM_APP_ID` и `TGM_APP_HASH` загружаются, но Bot API их не использует. Никогда не печатайте и не коммитьте эти значения.
 - Notifier отправляет Markdown-сообщения об открытии/закрытии с тикером, BUY/SELL, ценой, количеством лотов и штук, PnL и причиной. Stop/take имеют отдельные эмодзи, критические события — 🚨.
 - Вызовы сериализуются с частотой не более одной попытки в секунду. Ошибки доставки только логируются и не должны останавливать paper trading.
 - Alert большого drawdown использует `risk.max_daily_loss_pct` и отправляется только при пересечении порога. GAME OVER отправляется только при первом переходе equity в неположительное значение.

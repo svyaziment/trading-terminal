@@ -31,6 +31,7 @@ services:
       TINVEST_ACC: ${TINVEST_ACC:-}
       TINVEST_SANDBOX_ACC: ${TINVEST_SANDBOX_ACC:-}
       TGM_TOKEN: ${TGM_TOKEN:-}
+      TGM_CHAT: ${TGM_CHAT:-}
       TGM_CHAT_ID: ${TGM_CHAT_ID:-}
       TGM_APP_ID: ${TGM_APP_ID:-}
       TGM_APP_HASH: ${TGM_APP_HASH:-}

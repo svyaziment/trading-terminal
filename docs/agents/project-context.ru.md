@@ -235,7 +235,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 ## 9. Важные замечания
 
 - **Песочница**: реальной торговли нет. Используются sandbox-токены T-Bank API.
-- **Секреты**: .env (`TINVEST_TOKEN` / `TINVEST_ACC` для рыночных данных, `TINVEST_SANDBOX` / необязательный `TINVEST_SANDBOX_ACC` для sandbox-исполнения, `TGM_TOKEN` / `TGM_CHAT_ID` для Telegram, `PSTGRS_PWD`). Никогда не логировать секреты и не использовать реквизиты рыночных данных для торговли.
+- **Секреты**: .env (`TINVEST_TOKEN` / `TINVEST_ACC` для рыночных данных, `TINVEST_SANDBOX` / необязательный `TINVEST_SANDBOX_ACC` для sandbox-исполнения, `TGM_TOKEN` / `TGM_CHAT` для Telegram, `PSTGRS_PWD`). Никогда не логировать секреты и не использовать реквизиты рыночных данных для торговли.
 - **Docker**: после изменений кода пересоберите backend image (`docker compose up -d --build backend`). Backend монтирует `./reports` (для last_run.json).
 - **Единый источник истины**: торговая вселенная + определения стратегий живут в `trading_config.py` / `trading.trading_universe`. Не хардкодьте списки тикеров или параметры стратегий в модулях.
 - **Заблокированная стратегия**: стратегия в paper test имеет `locked=true`; API отклоняет её перезапись (409). Разблокировать только после тестового периода.
@@ -285,6 +285,6 @@ Take-profit сразу выставляется как ожидающий sell-l
 
 ## 14. Telegram alerting
 
-`backend/app/notifications/telegram_notifier.py` отправляет Markdown-сообщения через Telegram Bot API. Используются `TGM_TOKEN` и `TGM_CHAT_ID`; `TGM_APP_ID` и `TGM_APP_HASH` загружаются для совместимости конфигурации, но Bot API их не требует.
+`backend/app/notifications/telegram_notifier.py` отправляет Markdown-сообщения через Telegram Bot API. Используются `TGM_TOKEN` и `TGM_CHAT`; прежнее имя `TGM_CHAT_ID` сохранено как fallback. `TGM_APP_ID` и `TGM_APP_HASH` загружаются для совместимости конфигурации, но Bot API их не требует.
 
 Отправка сериализована и ограничена одной попыткой в секунду. Сетевые ошибки и ошибки API логируются и возвращают `False`, но не попадают в торговый цикл. `paper_trader.py` отправляет alerts после успешной записи в БД для market/limit открытий и каждого закрытия, включая stop/take. При обновлении equity критический alert отправляется только при первом пересечении `risk.max_daily_loss_pct` или первом достижении нулевого equity (GAME OVER), поэтому каждый цикл не создаёт повторное сообщение.

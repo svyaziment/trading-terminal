@@ -134,7 +134,10 @@ def load_settings() -> Settings:
     risk_config = RiskConfig(**risk_yaml)
     telegram_config = TelegramConfig(
         token=_env_str("TGM_TOKEN", str(telegram_yaml.get("token", ""))),
-        chat_id=_env_str("TGM_CHAT_ID", str(telegram_yaml.get("chat_id", ""))),
+        chat_id=_env_str(
+            "TGM_CHAT",
+            _env_str("TGM_CHAT_ID", str(telegram_yaml.get("chat_id", ""))),
+        ),
         app_id=_env_str("TGM_APP_ID", str(telegram_yaml.get("app_id", ""))),
         app_hash=_env_str("TGM_APP_HASH", str(telegram_yaml.get("app_hash", ""))),
     )

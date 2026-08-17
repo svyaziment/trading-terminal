@@ -235,7 +235,7 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 ## 9. Important Notes
 
 - **Sandbox mode**: no real trading. T-Bank API sandbox tokens.
-- **Secrets**: .env (`TINVEST_TOKEN` / `TINVEST_ACC` for market data, `TINVEST_SANDBOX` / optional `TINVEST_SANDBOX_ACC` for sandbox execution, `TGM_TOKEN` / `TGM_CHAT_ID` for Telegram, `PSTGRS_PWD`). Never log secrets or reuse market-data credentials for trading.
+- **Secrets**: .env (`TINVEST_TOKEN` / `TINVEST_ACC` for market data, `TINVEST_SANDBOX` / optional `TINVEST_SANDBOX_ACC` for sandbox execution, `TGM_TOKEN` / `TGM_CHAT` for Telegram, `PSTGRS_PWD`). Never log secrets or reuse market-data credentials for trading.
 - **Docker**: rebuild backend image after code changes (`docker compose up -d --build backend`). Backend mounts `./reports` (for last_run.json).
 - **Single source of truth**: trading universe + strategy definitions live in `trading_config.py` / `trading.trading_universe`. Do not hardcode ticker lists or strategy params in modules.
 - **Locked strategy**: the strategy under paper test has `locked=true`; the API rejects overwriting it (409). Unlock only after the test period.
@@ -285,6 +285,6 @@ Every broker API attempt, including internal retries and account discovery, pass
 
 ## 14. Telegram Alerting
 
-`backend/app/notifications/telegram_notifier.py` sends Markdown messages through the Telegram Bot API. It uses `TGM_TOKEN` and `TGM_CHAT_ID`; `TGM_APP_ID` and `TGM_APP_HASH` are loaded for configuration compatibility but are not required by the Bot API.
+`backend/app/notifications/telegram_notifier.py` sends Markdown messages through the Telegram Bot API. It uses `TGM_TOKEN` and `TGM_CHAT`; legacy `TGM_CHAT_ID` remains a fallback. `TGM_APP_ID` and `TGM_APP_HASH` are loaded for configuration compatibility but are not required by the Bot API.
 
 Delivery is serialized and limited to one attempt per second. Network/API errors are logged and returned as `False`, never propagated into the trading loop. `paper_trader.py` emits alerts after successful DB writes for market and limit opens and for every close (including stop/take). Equity updates emit a critical alert only when drawdown first crosses `risk.max_daily_loss_pct`, or when equity first reaches zero (GAME OVER), preventing repeated alerts on every loop.
