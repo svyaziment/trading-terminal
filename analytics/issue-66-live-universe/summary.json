@@ -1,0 +1,171 @@
+{
+  "extracted_at": "2026-08-17 22:35:21",
+  "selected": [
+    "SBER",
+    "LKOH",
+    "RUAL",
+    "NVTK",
+    "GAZP"
+  ],
+  "excluded": {
+    "PIKK": "locked_strategy_pf",
+    "CBOM": "locked_strategy_pf",
+    "MTLR": "locked_strategy_pf"
+  },
+  "paper_positions": {
+    "rows": 0,
+    "closed": 0,
+    "open": 0,
+    "wins": 0,
+    "pnl_rub": 0.0
+  },
+  "paper_equity": {
+    "rows": 121,
+    "min_ts": "2026-08-15 11:37:53.211049",
+    "max_ts": "2026-08-15 13:38:07.647869",
+    "min_equity_rub": 100000.0,
+    "max_equity_rub": 100000.0,
+    "min_drawdown_pct": 0.0,
+    "max_drawdown_pct": 0.0,
+    "min_open_positions": 0,
+    "max_open_positions": 0
+  },
+  "active_strategy": {
+    "id": 36,
+    "name": "test_20260731"
+  },
+  "scores": [
+    {
+      "ticker": "SBER",
+      "sector": "banks",
+      "score": 0.7701,
+      "universe_pf": 1.937,
+      "strategy_pf": null,
+      "strategy_n": null,
+      "median_abs_spread_pct": 0.0036501012903282348,
+      "atr_pct": 1.9569767418068764,
+      "selected": true
+    },
+    {
+      "ticker": "LKOH",
+      "sector": "oil",
+      "score": 0.6671,
+      "universe_pf": 2.016,
+      "strategy_pf": 1.59,
+      "strategy_n": 10.0,
+      "median_abs_spread_pct": 0.011452785890167783,
+      "atr_pct": 3.359148452827426,
+      "selected": true
+    },
+    {
+      "ticker": "RUAL",
+      "sector": "metals",
+      "score": 0.6501,
+      "universe_pf": 2.448,
+      "strategy_pf": null,
+      "strategy_n": null,
+      "median_abs_spread_pct": 0.041135335252988736,
+      "atr_pct": 4.10129732929293,
+      "selected": true
+    },
+    {
+      "ticker": "NVTK",
+      "sector": "gas",
+      "score": 0.6371,
+      "universe_pf": 1.687,
+      "strategy_pf": 2.56,
+      "strategy_n": 27.0,
+      "median_abs_spread_pct": 0.010753266304642479,
+      "atr_pct": 4.020660376651223,
+      "selected": true
+    },
+    {
+      "ticker": "GAZP",
+      "sector": "oil",
+      "score": 0.6121,
+      "universe_pf": 2.061,
+      "strategy_pf": 1.51,
+      "strategy_n": 16.0,
+      "median_abs_spread_pct": 0.011213905242506437,
+      "atr_pct": 3.5758026220593453,
+      "selected": true
+    },
+    {
+      "ticker": "GMKN",
+      "sector": "metals",
+      "score": 0.5679,
+      "universe_pf": 2.447,
+      "strategy_pf": 1.35,
+      "strategy_n": 33.0,
+      "median_abs_spread_pct": 0.017557721007809692,
+      "atr_pct": 4.029428541310789,
+      "selected": false
+    },
+    {
+      "ticker": "SIBN",
+      "sector": "oil",
+      "score": 0.5424,
+      "universe_pf": 1.972,
+      "strategy_pf": null,
+      "strategy_n": null,
+      "median_abs_spread_pct": 0.03360779700890097,
+      "atr_pct": 3.923746299072876,
+      "selected": false
+    },
+    {
+      "ticker": "FEES",
+      "sector": "power",
+      "score": 0.5221,
+      "universe_pf": 1.804,
+      "strategy_pf": 3.48,
+      "strategy_n": 10.0,
+      "median_abs_spread_pct": 0.0801603206412793,
+      "atr_pct": 4.575772485690924,
+      "selected": false
+    },
+    {
+      "ticker": "MTSS",
+      "sector": "telco",
+      "score": 0.4863,
+      "universe_pf": 1.823,
+      "strategy_pf": 2.03,
+      "strategy_n": 9.0,
+      "median_abs_spread_pct": 0.05272871078301837,
+      "atr_pct": 3.1867691392286503,
+      "selected": false
+    },
+    {
+      "ticker": "ALRS",
+      "sector": "metals",
+      "score": 0.4296,
+      "universe_pf": 1.563,
+      "strategy_pf": 2.05,
+      "strategy_n": 10.0,
+      "median_abs_spread_pct": 0.052369730295897164,
+      "atr_pct": 3.999712962184874,
+      "selected": false
+    },
+    {
+      "ticker": "TATN",
+      "sector": "oil",
+      "score": 0.4203,
+      "universe_pf": 1.637,
+      "strategy_pf": null,
+      "strategy_n": null,
+      "median_abs_spread_pct": 0.019423132951349474,
+      "atr_pct": 4.408782189626636,
+      "selected": false
+    },
+    {
+      "ticker": "PLZL",
+      "sector": "metals",
+      "score": 0.3558,
+      "universe_pf": 1.789,
+      "strategy_pf": 1.13,
+      "strategy_n": 22.0,
+      "median_abs_spread_pct": 0.031206116398821263,
+      "atr_pct": 6.455461119395924,
+      "selected": false
+    }
+  ]
+}

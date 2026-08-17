@@ -1,15 +1,16 @@
 """
 Central trading configuration - SINGLE SOURCE OF TRUTH for:
   1) the traded universe (tickers) - read from trading.trading_universe (rank order);
-  2) strategy definitions (name -> params) - so backtest and paper trading never diverge;
-  3) T-Bank sandbox execution and retry policy;
-  4) live order-book imbalance defaults;
-  5) live position-sizing risk limits;
-  6) live sandbox executor policy.
+  2) the sandbox live subset (LIVE_UNIVERSE / get_live_trading_universe);
+  3) strategy definitions (name -> params) - so backtest and paper trading never diverge;
+  4) T-Bank sandbox execution and retry policy;
+  5) live order-book imbalance defaults;
+  6) live position-sizing risk limits;
+  7) live sandbox executor policy.
 
 Every module (data_refresher, online_data, online_signals, paper_trader, strategy_backtest)
 must import get_trading_universe() / get_strategy() from here instead of hardcoding
-ticker lists or strategy parameters.
+ticker lists or strategy parameters. LiveExecutor uses get_live_trading_universe().
 """
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
@@ -91,6 +92,11 @@ DEFAULT_UNIVERSE = [
     'TATN', 'CHMF', 'ALRS', 'PLZL', 'MOEX',
 ]
 
+# Issue #66: sandbox live-trading subset. Paper trading and data refresh keep
+# the full trading.trading_universe (top-15). LiveExecutor intersects with this
+# list so sandbox orders stay on the ranked names that still have a live book.
+LIVE_UNIVERSE = ['SBER', 'LKOH', 'RUAL', 'NVTK', 'GAZP']
+
 
 def get_trading_universe(db=None, limit: Optional[int] = None) -> List[str]:
     """Traded tickers from trading.trading_universe (rank order). Falls back to DEFAULT_UNIVERSE."""
@@ -105,6 +111,14 @@ def get_trading_universe(db=None, limit: Optional[int] = None) -> List[str]:
         except Exception:
             pass
     return DEFAULT_UNIVERSE[:limit] if limit else list(DEFAULT_UNIVERSE)
+
+
+def get_live_trading_universe(db=None) -> List[str]:
+    """Tickers allowed for sandbox live execution (Issue #66 top-5)."""
+    selected = list(LIVE_UNIVERSE)
+    traded = set(get_trading_universe(db))
+    filtered = [ticker for ticker in selected if ticker in traded]
+    return filtered or selected
 
 
 # --- Strategy registry -------------------------------------------------------

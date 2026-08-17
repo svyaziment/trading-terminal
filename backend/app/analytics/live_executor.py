@@ -29,7 +29,10 @@ from app.analytics.orderbook_imbalance import (
 )
 from app.analytics.position_sizer import calculate_position_size
 from app.analytics.strategy_engine import StrategyEvaluator
-from app.analytics.trading_config import get_live_trading_config
+from app.analytics.trading_config import (
+    get_live_trading_config,
+    get_live_trading_universe,
+)
 from app.broker.tinkoff_sandbox import SandboxAPIError, TinkoffSandboxClient
 from app.db.db_manager import DBManager
 
@@ -37,6 +40,24 @@ from app.db.db_manager import DBManager
 logger = logging.getLogger(__name__)
 
 ACTIVE_STATUSES = ("pending", "open")
+
+
+def _filter_live_tickers(strategy_tickers: list[str], live_universe: list[str]) -> list[str]:
+    """Keep strategy tickers that belong to the Issue #66 live universe."""
+    if not live_universe:
+        return list(strategy_tickers)
+    allowed = set(live_universe)
+    filtered = [ticker for ticker in strategy_tickers if ticker in allowed]
+    if filtered:
+        if filtered != list(strategy_tickers):
+            logger.info("Live universe filter: %s -> %s", strategy_tickers, filtered)
+        return filtered
+    logger.warning(
+        "Paper strategy tickers %s do not intersect live universe %s; using live universe",
+        strategy_tickers,
+        live_universe,
+    )
+    return list(live_universe)
 
 
 def _now_msk_naive() -> datetime:
@@ -186,7 +207,7 @@ class LiveExecutor:
             raise RuntimeError("No active locked strategy is available")
         self.strategy_config = dict(strategy_config)
         self.strategy_name = strategy_name
-        self.tickers = list(tickers)
+        self.tickers = _filter_live_tickers(tickers, get_live_trading_universe(self.db))
         self._load_instruments()
 
         for ticker in self.tickers:
