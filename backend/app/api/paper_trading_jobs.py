@@ -8,6 +8,7 @@ Factors: signal_source (base/imbalance/base_4hbuy), window_mode (window/always),
 """
 from __future__ import annotations
 import math
+from datetime import date
 from typing import Any, Optional
 from fastapi import FastAPI, HTTPException, Query
 from app.db.db_manager import DBManager
@@ -42,7 +43,8 @@ def _json_safe(obj: Any) -> Any:
         return s
 
 
-def _build_where(signal_source=None, window_mode=None, rr_mode=None, entry_mode=None, status=None):
+def _build_where(signal_source=None, window_mode=None, rr_mode=None, entry_mode=None,
+                 status=None, date_from=None, date_to=None, ticker=None):
     clauses, params = [], {}
     if signal_source:
         clauses.append("signal_source = %(signal_source)s"); params['signal_source'] = signal_source
@@ -52,8 +54,18 @@ def _build_where(signal_source=None, window_mode=None, rr_mode=None, entry_mode=
         clauses.append("rr_mode = %(rr_mode)s"); params['rr_mode'] = rr_mode
     if entry_mode:
         clauses.append("entry_mode = %(entry_mode)s"); params['entry_mode'] = entry_mode
-    if status:
+    if status == 'closed':
+        clauses.append("status IN ('closed_stop','closed_take')")
+    elif status:
         clauses.append("status = %(status)s"); params['status'] = status
+    if date_from:
+        clauses.append("COALESCE(entry_ts, created_at)::date >= %(date_from)s")
+        params['date_from'] = date_from
+    if date_to:
+        clauses.append("COALESCE(entry_ts, created_at)::date <= %(date_to)s")
+        params['date_to'] = date_to
+    if ticker:
+        clauses.append("ticker = %(ticker)s"); params['ticker'] = ticker
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     return where, params
 
@@ -109,13 +121,14 @@ def register_routes(app: FastAPI) -> None:
     def positions(signal_source: Optional[str] = None, window_mode: Optional[str] = None,
                   rr_mode: Optional[str] = None, entry_mode: Optional[str] = None,
                   status: Optional[str] = None, ticker: Optional[str] = None,
+                  date_from: Optional[date] = None, date_to: Optional[date] = None,
                   limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0),
                   sort_by: str = Query("entry_ts"), sort_dir: str = Query("desc")):
         db = _get_db()
-        where, params = _build_where(signal_source, window_mode, rr_mode, entry_mode, status)
-        if ticker:
-            params['ticker'] = ticker
-            where = where + (" AND ticker = %(ticker)s" if where else " WHERE ticker = %(ticker)s")
+        where, params = _build_where(
+            signal_source, window_mode, rr_mode, entry_mode, status, date_from, date_to,
+            ticker
+        )
         allowed = {'entry_ts', 'exit_ts', 'pnl_rub', 'pnl_pct', 'ticker', 'status',
                    'created_at', 'entry_price', 'exit_price', 'id'}
         if sort_by not in allowed:
@@ -132,18 +145,69 @@ def register_routes(app: FastAPI) -> None:
             ORDER BY {sort_by} {sort_dir}, id {sort_dir}
             LIMIT %(limit)s OFFSET %(offset)s
         """, {**params, 'limit': limit, 'offset': offset}).to_dataframe()
-        items = [_json_safe(rec) for rec in df.to_dict('records')] if not df.empty else []
+        records = df.to_dict('records') if not df.empty else []
+        open_tickers = sorted({
+            str(rec['ticker']) for rec in records if rec.get('status') == 'open'
+        })
+        current_prices = {}
+        if open_tickers:
+            pdf = db.select("""
+                SELECT DISTINCT ON (ticker) ticker, best_bid, best_ask
+                FROM trading.online_orderbook_aggregates
+                WHERE ticker = ANY(%s)
+                ORDER BY ticker, timestamp DESC
+            """, (open_tickers,)).to_dataframe()
+            if not pdf.empty:
+                for _, price_row in pdf.iterrows():
+                    for candidate in (price_row['best_bid'], price_row['best_ask']):
+                        try:
+                            price = float(candidate)
+                        except (TypeError, ValueError):
+                            continue
+                        if math.isfinite(price):
+                            current_prices[str(price_row['ticker'])] = price
+                            break
+
+        for rec in records:
+            if rec.get('status') == 'open':
+                current_price = current_prices.get(str(rec['ticker']))
+                rec['current_price'] = current_price
+                if (
+                    current_price is not None
+                    and rec.get('entry_price') is not None
+                    and rec.get('size_lots') is not None
+                    and rec.get('lot_size') is not None
+                ):
+                    entry_price = float(rec['entry_price'])
+                    rec['pnl_rub'] = round(
+                        (current_price - entry_price)
+                        * int(rec['size_lots'])
+                        * int(rec['lot_size']),
+                        2,
+                    )
+                    rec['pnl_pct'] = round(
+                        (current_price / entry_price - 1.0) * 100.0,
+                        4,
+                    ) if entry_price > 0 else None
+            else:
+                rec['current_price'] = rec.get('exit_price')
+
+        items = [_json_safe(rec) for rec in records]
         return {'items': items, 'total': total, 'limit': limit, 'offset': offset}
 
     @app.get("/api/paper-trading/dynamics")
     def dynamics(timeframe: str = Query("1d"), signal_source: Optional[str] = None,
                  window_mode: Optional[str] = None, rr_mode: Optional[str] = None,
-                 entry_mode: Optional[str] = None):
+                 entry_mode: Optional[str] = None, ticker: Optional[str] = None,
+                 date_from: Optional[date] = None, date_to: Optional[date] = None):
         if timeframe not in TF_MAP:
             raise HTTPException(status_code=400, detail=f"bad timeframe {timeframe}; use {list(TF_MAP)}")
         trunc = TF_MAP[timeframe]
         db = _get_db()
-        where, params = _build_where(signal_source, window_mode, rr_mode, entry_mode)
+        where, params = _build_where(
+            signal_source, window_mode, rr_mode, entry_mode,
+            date_from=date_from, date_to=date_to, ticker=ticker
+        )
         base_where = where + (" AND " if where else " WHERE ") + \
             "status IN ('closed_stop','closed_take') AND exit_ts IS NOT NULL"
         df = db.select(f"""

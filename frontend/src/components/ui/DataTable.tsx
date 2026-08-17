@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import DatePicker from "./DatePicker";
 
 /* ==================================================================
    DataTable — единая таблица проекта (task-002)
@@ -157,10 +158,20 @@ function FilterPopover<T>(props: {
       )}
       {f.kind === "date" && (
         <div className="space-y-2">
-          <input type="date" className={inputCls} value={draft.from ?? ""}
-            onChange={(e) => setDraft({ ...draft, from: e.target.value })} />
-          <input type="date" className={inputCls} value={draft.to ?? ""}
-            onChange={(e) => setDraft({ ...draft, to: e.target.value })} />
+          <label className="block">
+            <span className="mb-1 block text-[9px] uppercase tracking-wider text-slate-500">с</span>
+            <DatePicker
+              value={draft.from ?? ""}
+              onChange={(value) => setDraft({ ...draft, from: value })}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-[9px] uppercase tracking-wider text-slate-500">до</span>
+            <DatePicker
+              value={draft.to ?? ""}
+              onChange={(value) => setDraft({ ...draft, to: value })}
+            />
+          </label>
         </div>
       )}
       {f.kind === "range" && (

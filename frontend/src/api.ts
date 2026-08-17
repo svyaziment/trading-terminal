@@ -163,7 +163,13 @@ export function getStrategyDataRange() {
 }
 
 // ---- Paper Trading (task-126) ----
-import type { PaperOverview, PaperPosition, PaperDynamics } from "./types";
+import type {
+  LivePosition,
+  NotificationStatus,
+  PaperOverview,
+  PaperPosition,
+  PaperDynamics,
+} from "./types";
 
 export interface FactorFilters {
   signal_source?: string;
@@ -183,14 +189,51 @@ export function getPaperPositions(
     offset?: number;
     sort_by?: string;
     sort_dir?: string;
+    date_from?: string;
+    date_to?: string;
   }
 ) {
   return getJson<{ items: PaperPosition[]; total: number; limit: number; offset: number }>(
     `/api/paper-trading/positions${toQuery(params)}`
   );
 }
-export function getPaperDynamics(params: FactorFilters & { timeframe: string }) {
+export function getPaperDynamics(
+  params: FactorFilters & {
+    timeframe: string;
+    ticker?: string;
+    date_from?: string;
+    date_to?: string;
+  }
+) {
   return getJson<PaperDynamics>(`/api/paper-trading/dynamics${toQuery(params)}`);
+}
+
+export function getLivePositions(params: {
+  status: string;
+  ticker?: string;
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
+  sort_by?: string;
+  sort_dir?: string;
+}) {
+  return getJson<{ items: LivePosition[]; total: number; limit: number; offset: number }>(
+    `/api/live-trading/positions${toQuery(params)}`
+  );
+}
+
+export function getLiveDynamics(params: {
+  timeframe: string;
+  ticker?: string;
+  date_from?: string;
+  date_to?: string;
+}) {
+  return getJson<PaperDynamics>(`/api/live-trading/dynamics${toQuery(params)}`);
+}
+
+export function getNotificationStatus() {
+  return getJson<NotificationStatus>("/api/notifications/status");
 }
 
 export function getPatterns(): Promise<{ patterns: import("./types").PatternDef[] }> {
