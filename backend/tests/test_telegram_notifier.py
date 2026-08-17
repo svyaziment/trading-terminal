@@ -8,6 +8,9 @@ class FakeResponse:
     def raise_for_status(self) -> None:
         return None
 
+    def json(self) -> dict:
+        return {"ok": True}
+
 
 class FakeClock:
     def __init__(self) -> None:
@@ -93,3 +96,17 @@ def test_missing_credentials_disable_delivery() -> None:
 
     assert notifier.send_message("ignored") is False
     assert called is False
+
+
+def test_connection_check_uses_get_me_without_sending_message() -> None:
+    calls = []
+
+    def sender(url, **kwargs):
+        calls.append((url, kwargs))
+        return FakeResponse()
+
+    notifier = TelegramNotifier(_config(), request_sender=sender)
+
+    assert notifier.check_connection() is True
+    assert calls[0][0].endswith("/getMe")
+    assert "json" not in calls[0][1]

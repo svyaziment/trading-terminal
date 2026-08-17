@@ -204,6 +204,9 @@ export interface PaperPosition {
   created_at: string | null;
   updated_at: string | null;
 }
+export interface LivePosition extends PaperPosition {
+  current_price: number | null;
+}
 export interface DynamicsPoint {
   ts: string;
   pnl_rub: number;
@@ -215,6 +218,11 @@ export interface PaperDynamics {
   timeframe: string;
   points: DynamicsPoint[];
   cum_pnl_rub: number;
+}
+export interface NotificationStatus {
+  status: "connected" | "disconnected";
+  configured: boolean;
+  checked_at: string;
 }
 
 export interface PatternParam {

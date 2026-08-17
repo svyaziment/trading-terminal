@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-17 (задачи #59-#64 Live Trading Infrastructure; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-17 (задачи #59-#65 Live Trading Infrastructure; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -26,7 +26,8 @@ trading-terminal/
 │ │ │ ├── backtest_jobs.py # POST /api/backtest/run (legacy pattern matrix)
 │ │ │ ├── levels_backtest_jobs.py # Эндпоинты матрицы levels backtest
 │ │ │ ├── strategy_jobs.py # Хранение стратегий + backtest API (Strategy Lab)
-│ │ │ ├── paper_trading_jobs.py # API мониторинга paper trading (overview/positions/dynamics)
+│ │ │ ├── paper_trading_jobs.py # API paper/live мониторинга (цены, фильтры, positions/dynamics)
+│ │ │ ├── notifications.py # Кешированный статус подключения Telegram Bot API
 │ │ │ ├── moex_1min_loader.py # Загрузчик 1min свечей MOEX ISS API (инкрементальный)
 │ │ │ └── signals.py # GET /api/signals (legacy)
 │ │ ├── analytics/
@@ -85,6 +86,7 @@ trading-terminal/
 │ │ │ ├── SignalsPanel.tsx # Таблица сигналов (сортировка, фильтр, пагинация)
 │ │ │ ├── StrategyLab.tsx # Strategy Lab: конструктор бэктестов + результаты + lock UI
 │ │ │ ├── PaperTradingPanel.tsx # Paper Trading: A/B dashboard (фильтры, PnL chart, позиции)
+│ │ │ ├── LiveTradingPanel.tsx # Live monitoring: открытые/история/equity/Telegram
 │   │   ├── PatternSettingsModal.tsx # Schema-driven модалка настроек паттернов (Эпик #11)
 │ │ │ ├── PipelineWidget.tsx # Виджет статуса refresh/regenerate
 │ │ │ ├── CandleChart.tsx # Свечной график
@@ -180,8 +182,9 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/strategies/{id}/results | Результаты backtest (метрики по тикерам) |
 | GET | /api/tickers/big | Тикеры с >= N 1min свечей (выбираемая вселенная) |
 | GET | /api/paper-trading/overview | Имя стратегии + опции факторов + сводная статистика (фильтры факторов) |
-| GET | /api/paper-trading/positions | Список позиций (фильтры + пагинация + сортировка) |
-| GET | /api/paper-trading/dynamics | Кумулятивный ряд реализованного PnL с шагом 1h/1d/1w (фильтры факторов) |
+| GET | /api/paper-trading/positions | Список позиций (фильтры + пагинация + сортировка); открытые строки содержат текущую цену и нереализованный PnL |
+| GET | /api/paper-trading/dynamics | Кумулятивный ряд реализованного PnL с шагом 1h/1d/1w (фильтры факторов/тикера/дат) |
+| GET | /api/notifications/status | Кешированный статус конфигурации и подключения Telegram Bot API |
 
 Общий lock: jobs_state.py (in-process). Одновременно выполняется только одна тяжёлая задача; остальные возвращают 409.
 
@@ -230,7 +233,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | I | ML (CatBoost/LightGBM) | Не начато |
 | J | Отчёт анализа A/B теста (signal_source x window x rr x entry) | Ожидает (накопить закрытые сделки) |
 | O | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Готово (Эпик #39) |
-| P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, alerting, панель управления) | В работе: backend-путь исполнения #59-#62 и Telegram alerting #64 готовы; остаётся панель управления |
+| P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, alerting, панель управления) | Backend-исполнение #59-#62, Telegram #64 и monitoring panel #65 готовы |
 
 ## 9. Важные замечания
 
@@ -288,3 +291,9 @@ Take-profit сразу выставляется как ожидающий sell-l
 `backend/app/notifications/telegram_notifier.py` отправляет Markdown-сообщения через Telegram Bot API. Используются `TGM_TOKEN` и `TGM_CHAT`; прежнее имя `TGM_CHAT_ID` сохранено как fallback. `TGM_APP_ID` и `TGM_APP_HASH` загружаются для совместимости конфигурации, но Bot API их не требует.
 
 Отправка сериализована и ограничена одной попыткой в секунду. Сетевые ошибки и ошибки API логируются и возвращают `False`, но не попадают в торговый цикл. `paper_trader.py` отправляет alerts после успешной записи в БД для market/limit открытий и каждого закрытия, включая stop/take. При обновлении equity критический alert отправляется только при первом пересечении `risk.max_daily_loss_pct` или первом достижении нулевого equity (GAME OVER), поэтому каждый цикл не создаёт повторное сообщение.
+
+## 15. Панель мониторинга Live Trading
+
+`frontend/src/components/LiveTradingPanel.tsx` доступна во вкладке `Live Trading`. Панель обновляется каждые 10 секунд и показывает открытые позиции с последним best bid (fallback на best ask), нереализованный PnL в RUB/%, пагинируемую и сортируемую историю сделок, накопленный realized PnL и подключение Telegram.
+
+По требованиям задачи #65 панель использует `/api/paper-trading/positions` и `/api/paper-trading/dynamics`. Эндпоинты поддерживают фильтры тикера, дат и статуса; специальное значение `status=closed` выбирает закрытия по stop и take. `/api/notifications/status` выполняет read-only проверку Telegram `getMe` и кеширует результат на 30 секунд. Реквизиты в ответ не попадают.

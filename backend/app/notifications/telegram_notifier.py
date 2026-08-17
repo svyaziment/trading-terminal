@@ -81,6 +81,26 @@ class TelegramNotifier:
             )
             return False
 
+    def check_connection(self) -> bool:
+        """Validate Bot API credentials without sending a chat message."""
+        if not self.enabled:
+            return False
+
+        try:
+            response = self._request_sender(
+                f"https://api.telegram.org/bot{self.config.token}/getMe",
+                timeout=self.timeout_sec,
+            )
+            response.raise_for_status()
+            payload = response.json() if hasattr(response, "json") else {}
+            return bool(payload.get("ok", True))
+        except Exception as exc:
+            logger.warning(
+                "Telegram connection check failed (%s)",
+                type(exc).__name__,
+            )
+            return False
+
     def notify_position_open(
         self,
         *,

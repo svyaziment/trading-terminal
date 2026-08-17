@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-17 (Issues #59-#64 Live Trading Infrastructure). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-17 (Issues #59-#65 Live Trading Infrastructure). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -26,7 +26,8 @@ trading-terminal/
 │ │ │ ├── backtest_jobs.py # POST /api/backtest/run (legacy pattern matrix)
 │ │ │ ├── levels_backtest_jobs.py # Levels backtest matrix endpoints
 │ │ │ ├── strategy_jobs.py # Strategy storage + backtest API (Strategy Lab)
-│ │ │ ├── paper_trading_jobs.py # Paper trading monitoring API (overview/positions/dynamics)
+│ │ │ ├── paper_trading_jobs.py # Paper/live monitoring API (prices, filters, positions/dynamics)
+│ │ │ ├── notifications.py # Cached Telegram Bot API connectivity status
 │ │ │ ├── moex_1min_loader.py # MOEX ISS API 1min candles loader (incremental)
 │ │ │ └── signals.py # GET /api/signals (legacy)
 │ │ ├── analytics/
@@ -85,6 +86,7 @@ trading-terminal/
 │ │ │ ├── SignalsPanel.tsx # Signals table (sort, filter, pagination)
 │ │ │ ├── StrategyLab.tsx # Strategy Lab: backtest constructor + results + lock UI
 │ │ │ ├── PaperTradingPanel.tsx # Paper Trading: A/B dashboard (filters, PnL chart, positions)
+│ │ │ ├── LiveTradingPanel.tsx # Live monitoring: open/history/equity/Telegram
 │   │   ├── PatternSettingsModal.tsx # Schema-driven pattern settings modal (Epic #11)
 │ │ │ ├── PipelineWidget.tsx # Refresh/regenerate status widget
 │ │ │ ├── CandleChart.tsx # Candlestick chart
@@ -180,8 +182,9 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/strategies/{id}/results | Backtest results (per-ticker metrics) |
 | GET | /api/tickers/big | Tickers with >= N 1min candles (selectable universe) |
 | GET | /api/paper-trading/overview | Strategy name + factor options + summary stats (factor filters) |
-| GET | /api/paper-trading/positions | Positions list (filters + pagination + sort) |
-| GET | /api/paper-trading/dynamics | Cumulative realized PnL series by 1h/1d/1w (factor filters) |
+| GET | /api/paper-trading/positions | Positions list (filters + pagination + sort); open rows include current price and unrealized PnL |
+| GET | /api/paper-trading/dynamics | Cumulative realized PnL series by 1h/1d/1w (factor/ticker/date filters) |
+| GET | /api/notifications/status | Cached Telegram configuration and Bot API connectivity status |
 
 Shared lock: jobs_state.py (in-process). Only one heavy job runs at a time; others return 409.
 
@@ -230,7 +233,7 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 | I | ML (CatBoost/LightGBM) | Not started |
 | J | A/B test analysis report (signal_source x window x rr x entry) | Pending (accumulate closed trades) |
 | O  | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Done (Epic #39) |
-| P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, alerting, control panel) | In progress: backend execution path #59-#62 and Telegram alerting #64 done; control panel remains |
+| P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, alerting, control panel) | Backend execution #59-#62, Telegram #64, and monitoring panel #65 done |
 
 ## 9. Important Notes
 
@@ -288,3 +291,9 @@ Every broker API attempt, including internal retries and account discovery, pass
 `backend/app/notifications/telegram_notifier.py` sends Markdown messages through the Telegram Bot API. It uses `TGM_TOKEN` and `TGM_CHAT`; legacy `TGM_CHAT_ID` remains a fallback. `TGM_APP_ID` and `TGM_APP_HASH` are loaded for configuration compatibility but are not required by the Bot API.
 
 Delivery is serialized and limited to one attempt per second. Network/API errors are logged and returned as `False`, never propagated into the trading loop. `paper_trader.py` emits alerts after successful DB writes for market and limit opens and for every close (including stop/take). Equity updates emit a critical alert only when drawdown first crosses `risk.max_daily_loss_pct`, or when equity first reaches zero (GAME OVER), preventing repeated alerts on every loop.
+
+## 15. Live Trading Monitoring Panel
+
+`frontend/src/components/LiveTradingPanel.tsx` is available from the `Live Trading` tab. It polls every 10 seconds and shows open positions with the latest best bid (best ask fallback), unrealized RUB/% PnL, paginated and sortable trade history, cumulative realized PnL, and Telegram connectivity.
+
+The panel intentionally reuses `/api/paper-trading/positions` and `/api/paper-trading/dynamics`, as required by Issue #65. These endpoints support ticker/date/status filters; the special `status=closed` value selects both stop and take closures. `/api/notifications/status` performs a read-only Telegram `getMe` probe and caches the result for 30 seconds. It never returns credentials.
