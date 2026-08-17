@@ -204,7 +204,24 @@ export interface PaperPosition {
   created_at: string | null;
   updated_at: string | null;
 }
-export interface LivePosition extends PaperPosition {
+export interface LivePosition {
+  id: number;
+  ticker: string;
+  entry_ts: string | null;
+  entry_price: number;
+  exit_ts: string | null;
+  exit_price: number | null;
+  stop_price: number;
+  take_price: number;
+  status: string;
+  exit_reason: string | null;
+  pnl_rub: number | null;
+  pnl_pct: number | null;
+  size_lots: number;
+  lot_size: number;
+  strategy_name: string;
+  created_at: string | null;
+  updated_at: string | null;
   current_price: number | null;
 }
 export interface DynamicsPoint {

@@ -219,8 +219,17 @@ export function getLivePositions(params: {
   sort_dir?: string;
 }) {
   return getJson<{ items: LivePosition[]; total: number; limit: number; offset: number }>(
-    `/api/paper-trading/positions${toQuery(params)}`
+    `/api/live-trading/positions${toQuery(params)}`
   );
+}
+
+export function getLiveDynamics(params: {
+  timeframe: string;
+  ticker?: string;
+  date_from?: string;
+  date_to?: string;
+}) {
+  return getJson<PaperDynamics>(`/api/live-trading/dynamics${toQuery(params)}`);
 }
 
 export function getNotificationStatus() {

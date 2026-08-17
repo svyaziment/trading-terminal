@@ -131,8 +131,8 @@ python docs/refresh/context_collector.py
 
 ## 17. Operating the Live Trading Panel
 
-- Open the `Live Trading` frontend tab. It polls positions, history, PnL dynamics, and Telegram status every 10 seconds.
+- Open the `Live Trading` frontend tab. It polls sandbox data from `trading.live_positions`, PnL dynamics, and Telegram status every 10 seconds.
 - Open-position `current_price` comes from the latest order-book best bid, with best ask as fallback. Missing market data is rendered as unavailable rather than using a stale hardcoded price.
 - History supports ticker, entry-date range, closure status, server-side sorting, and pagination. `status=closed` means both `closed_stop` and `closed_take`.
 - `/api/notifications/status` performs Telegram `getMe` without sending a message and caches the result for 30 seconds. `configured=false` means `TGM_TOKEN` or chat ID is absent; `configured=true` with `disconnected` means the Bot API probe failed.
-- Frontend check: `cd frontend && npm run build`. Backend checks: `cd backend && python -m pytest -q tests/test_notifications_api.py tests/test_telegram_notifier.py`.
+- Frontend check: `cd frontend && npm run build`. Backend checks: `cd backend && python -m pytest -q tests/test_live_trading_api.py tests/test_notifications_api.py tests/test_telegram_notifier.py`.

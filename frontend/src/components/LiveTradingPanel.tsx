@@ -3,9 +3,9 @@ import { ColorType, LineStyle, createChart } from "lightweight-charts";
 import type { IChartApi, ISeriesApi, Time } from "lightweight-charts";
 
 import {
+  getLiveDynamics,
   getLivePositions,
   getNotificationStatus,
-  getPaperDynamics,
 } from "../api";
 import type {
   DynamicsPoint,
@@ -202,7 +202,7 @@ export default function LiveTradingPanel() {
           sort_by: sortBy,
           sort_dir: sortDir,
         }),
-        getPaperDynamics({ ...common, timeframe }),
+        getLiveDynamics({ ...common, timeframe }),
         getNotificationStatus(),
       ]);
       setOpenPositions(opened.items);

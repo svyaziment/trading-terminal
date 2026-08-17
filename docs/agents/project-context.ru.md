@@ -26,8 +26,9 @@ trading-terminal/
 │ │ │ ├── backtest_jobs.py # POST /api/backtest/run (legacy pattern matrix)
 │ │ │ ├── levels_backtest_jobs.py # Эндпоинты матрицы levels backtest
 │ │ │ ├── strategy_jobs.py # Хранение стратегий + backtest API (Strategy Lab)
-│ │ │ ├── paper_trading_jobs.py # API paper/live мониторинга (цены, фильтры, positions/dynamics)
+│ │ │ ├── paper_trading_jobs.py # API paper-мониторинга (цены, фильтры, positions/dynamics)
 │ │ │ ├── notifications.py # Кешированный статус подключения Telegram Bot API
+│ │ │ ├── live_trading_jobs.py # API sandbox live-позиций и динамики PnL
 │ │ │ ├── moex_1min_loader.py # Загрузчик 1min свечей MOEX ISS API (инкрементальный)
 │ │ │ └── signals.py # GET /api/signals (legacy)
 │ │ ├── analytics/
@@ -185,6 +186,8 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/paper-trading/positions | Список позиций (фильтры + пагинация + сортировка); открытые строки содержат текущую цену и нереализованный PnL |
 | GET | /api/paper-trading/dynamics | Кумулятивный ряд реализованного PnL с шагом 1h/1d/1w (фильтры факторов/тикера/дат) |
 | GET | /api/notifications/status | Кешированный статус конфигурации и подключения Telegram Bot API |
+| GET | /api/live-trading/positions | Sandbox live-позиции с текущей ценой, PnL, фильтрами, сортировкой и пагинацией |
+| GET | /api/live-trading/dynamics | Кумулятивный sandbox PnL с шагом 1h/1d/1w |
 
 Общий lock: jobs_state.py (in-process). Одновременно выполняется только одна тяжёлая задача; остальные возвращают 409.
 
@@ -294,6 +297,6 @@ Take-profit сразу выставляется как ожидающий sell-l
 
 ## 15. Панель мониторинга Live Trading
 
-`frontend/src/components/LiveTradingPanel.tsx` доступна во вкладке `Live Trading`. Панель обновляется каждые 10 секунд и показывает открытые позиции с последним best bid (fallback на best ask), нереализованный PnL в RUB/%, пагинируемую и сортируемую историю сделок, накопленный realized PnL и подключение Telegram.
+`frontend/src/components/LiveTradingPanel.tsx` доступна во вкладке `Live Trading`. Панель каждые 10 секунд читает `trading.live_positions` через live monitoring API и показывает открытые позиции с последним best bid (fallback на best ask), нереализованный PnL в RUB/%, пагинируемую и сортируемую историю сделок, накопленный realized PnL и подключение Telegram.
 
-По требованиям задачи #65 панель использует `/api/paper-trading/positions` и `/api/paper-trading/dynamics`. Эндпоинты поддерживают фильтры тикера, дат и статуса; специальное значение `status=closed` выбирает закрытия по stop и take. `/api/notifications/status` выполняет read-only проверку Telegram `getMe` и кеширует результат на 30 секунд. Реквизиты в ответ не попадают.
+`/api/live-trading/positions` и `/api/live-trading/dynamics` отделяют данные sandbox-исполнения от paper trading. Эндпоинты поддерживают фильтры тикера, дат и статуса; специальное значение `status=closed` выбирает закрытия по stop и take. `/api/notifications/status` выполняет read-only проверку Telegram `getMe` и кеширует результат на 30 секунд. Реквизиты в ответ не попадают.

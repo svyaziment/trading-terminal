@@ -29,6 +29,8 @@ def create_app() -> FastAPI:
     # issue-65: Telegram connectivity status for live monitoring
     from app.api.notifications import register_routes as register_notification_routes
     register_notification_routes(application)
+    from app.api.live_trading_jobs import register_routes as register_live_trading_routes
+    register_live_trading_routes(application)
     # task-041: async signal regeneration endpoints
     from app.api.signals_jobs import register_routes as register_jobs_routes
     register_jobs_routes(application)

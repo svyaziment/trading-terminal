@@ -26,8 +26,9 @@ trading-terminal/
 │ │ │ ├── backtest_jobs.py # POST /api/backtest/run (legacy pattern matrix)
 │ │ │ ├── levels_backtest_jobs.py # Levels backtest matrix endpoints
 │ │ │ ├── strategy_jobs.py # Strategy storage + backtest API (Strategy Lab)
-│ │ │ ├── paper_trading_jobs.py # Paper/live monitoring API (prices, filters, positions/dynamics)
+│ │ │ ├── paper_trading_jobs.py # Paper monitoring API (prices, filters, positions/dynamics)
 │ │ │ ├── notifications.py # Cached Telegram Bot API connectivity status
+│ │ │ ├── live_trading_jobs.py # Sandbox live positions and PnL dynamics API
 │ │ │ ├── moex_1min_loader.py # MOEX ISS API 1min candles loader (incremental)
 │ │ │ └── signals.py # GET /api/signals (legacy)
 │ │ ├── analytics/
@@ -185,6 +186,8 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/paper-trading/positions | Positions list (filters + pagination + sort); open rows include current price and unrealized PnL |
 | GET | /api/paper-trading/dynamics | Cumulative realized PnL series by 1h/1d/1w (factor/ticker/date filters) |
 | GET | /api/notifications/status | Cached Telegram configuration and Bot API connectivity status |
+| GET | /api/live-trading/positions | Sandbox live positions with current price, PnL, filters, sorting, and pagination |
+| GET | /api/live-trading/dynamics | Cumulative realized sandbox PnL by 1h/1d/1w |
 
 Shared lock: jobs_state.py (in-process). Only one heavy job runs at a time; others return 409.
 
@@ -294,6 +297,6 @@ Delivery is serialized and limited to one attempt per second. Network/API errors
 
 ## 15. Live Trading Monitoring Panel
 
-`frontend/src/components/LiveTradingPanel.tsx` is available from the `Live Trading` tab. It polls every 10 seconds and shows open positions with the latest best bid (best ask fallback), unrealized RUB/% PnL, paginated and sortable trade history, cumulative realized PnL, and Telegram connectivity.
+`frontend/src/components/LiveTradingPanel.tsx` is available from the `Live Trading` tab. It polls `trading.live_positions` through the live monitoring API every 10 seconds and shows open positions with the latest best bid (best ask fallback), unrealized RUB/% PnL, paginated and sortable trade history, cumulative realized PnL, and Telegram connectivity.
 
-The panel intentionally reuses `/api/paper-trading/positions` and `/api/paper-trading/dynamics`, as required by Issue #65. These endpoints support ticker/date/status filters; the special `status=closed` value selects both stop and take closures. `/api/notifications/status` performs a read-only Telegram `getMe` probe and caches the result for 30 seconds. It never returns credentials.
+`/api/live-trading/positions` and `/api/live-trading/dynamics` keep sandbox execution data separate from paper trading. They support ticker/date/status filters; the special `status=closed` value selects both stop and take closures. `/api/notifications/status` performs a read-only Telegram `getMe` probe and caches the result for 30 seconds. It never returns credentials.
