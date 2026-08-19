@@ -18,6 +18,14 @@ function fmtPeriod(from: string, to: string): string {
   return `${fmt(from)} — ${fmt(to)}`;
 }
 
+function formatPreviewFetchError(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (msg.includes("Not Found") || msg.includes("404")) {
+    return "API /api/patterns/preview не найден — пересоберите backend: docker compose up -d --build backend";
+  }
+  return msg;
+}
+
 function statusBanner(preview: PatternPreviewResponse | null, fetchError: string | null) {
   if (fetchError) {
     return { tone: "error" as const, text: fetchError };
@@ -105,7 +113,7 @@ export default function PatternPreviewModal({
       } catch (e) {
         if (!cancelled) {
           setPreview(null);
-          setFetchError(e instanceof Error ? e.message : String(e));
+          setFetchError(formatPreviewFetchError(e));
         }
       } finally {
         if (!cancelled) {
