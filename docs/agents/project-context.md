@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-19 (Issue #82 Strategy Lab pattern grouping). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-19 (Issue #88 pattern preview API). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -178,6 +178,8 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/jobs/status | All jobs status |
 | POST | /api/backtest/run | Background: legacy pattern matrix backtest |
 | POST | /api/levels-backtest/run | Levels backtest matrix |
+| GET | /api/patterns | Pattern registry schemas (Strategy Lab) |
+| POST | /api/patterns/preview | Pattern chart preview: candles + typed overlays (`ray`, `band`, `line`, `marker`); #88 implements `levels_reversal` |
 | POST | /api/strategies | Save strategy (rejects overwrite of locked) |
 | GET | /api/strategies | List strategies (with in_paper_test/locked/description) |
 | GET | /api/strategies/run/status | Strategy backtest job status |
@@ -248,6 +250,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | O  | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Done (Epic #39) |
 | P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, alerting, control panel) | Backend execution #59-#62, Telegram #64, monitoring panel #65, live-universe #66, skip-reason logging #73, and first sandbox canary #74 done |
 | Q | SignalEngine patterns in Strategy Lab (Epic #78) | #79–#82 done (evaluator, registry schemas, E2E/docs, Lab UI grouping) |
+| R | Pattern chart preview in Lab + Signals (Epic #87) | #88 preview API + levels overlays done; #89–#92 pending |
 
 ## 9. Important Notes
 

@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-19 (задача #82 группировка паттернов Strategy Lab; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-19 (задача #88 API превью паттернов; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -201,3 +201,12 @@ ORDER BY id DESC LIMIT 20;
 - Фильтр смотрит последнюю закрытую HTF-свечу. Нет строк индикаторов — вход отклоняется. `2h` есть в контракте, но текущий пайплайн агрегации/индикаторов его не пишет.
 - Locked paper-стратегия `test_20260731` должна оставаться только `levels_reversal` + `signal_4h_buy`.
 - Unit-тесты: `cd backend && python -m pytest -q tests/test_signal_engine_filters.py tests/test_pattern_registry.py tests/test_signal_pattern_e2e.py`.
+
+## 21. Эксплуатация превью паттерна на графике (эпик #87)
+
+- Точка входа: `POST /api/patterns/preview` в `strategy_jobs.py`; логика в `app.analytics.pattern_preview`.
+- Запрос: `ticker`, `pattern_id`, draft `params`, `date_from`, `date_to`. ТФ берётся из params (`level_timeframe` для `levels_reversal`, `timeframe` для id SignalEngine).
+- Ответ: `status` (`ok` / `empty` / `error` / `unsupported`), `candles`, typed `overlays` (`ray`, `band`, `line`, `marker`). Задача #88 реализует `levels_reversal`: все уровни с `defined_ts` в окне; на каждый уровень — `ray` от `defined_ts` до последнего видимого бара и `band` зоны ATR. Не эмулировать лучи бесконечными price lines.
+- Неизвестный `pattern_id` → `status=error` без 500. Нет свечей (в т.ч. неподдерживаемый `2h`) → `status=empty` с понятным сообщением.
+- Остальные id паттернов → `status=unsupported` только со свечами, пока #91 не добавит renderer'ы. Frontend — #89–#92.
+- Unit-тест: `cd backend && python -m pytest -q tests/test_pattern_preview.py`.

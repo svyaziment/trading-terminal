@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-19 (задача #82 группировка паттернов Strategy Lab; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-19 (задача #88 API превью паттернов). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -178,6 +178,8 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/jobs/status | Статус всех задач |
 | POST | /api/backtest/run | Фон: legacy pattern matrix backtest |
 | POST | /api/levels-backtest/run | Матрица levels backtest |
+| GET | /api/patterns | Схемы реестра паттернов (Strategy Lab) |
+| POST | /api/patterns/preview | Превью паттерна на графике: свечи + overlays (`ray`, `band`, `line`, `marker`); #88 — `levels_reversal` |
 | POST | /api/strategies | Сохранить стратегию (отклоняет перезапись locked) |
 | GET | /api/strategies | Список стратегий (with in_paper_test/locked/description) |
 | GET | /api/strategies/run/status | Статус задачи backtest стратегии |
@@ -248,6 +250,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | O | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Готово (Эпик #39) |
 | P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, alerting, панель управления) | Backend-исполнение #59-#62, Telegram #64, monitoring panel #65, live-вселенная #66, логи отказов #73 и первая sandbox canary #74 готовы |
 | Q | Паттерны SignalEngine в Strategy Lab (эпик #78) | #79–#82 готовы (evaluator, схемы registry, E2E/docs, группировка UI Lab) |
+| R | Превью паттерна на графике Lab + Сигналы (эпик #87) | #88 API preview + оверлеи levels готовы; #89–#92 далее |
 
 ## 9. Важные замечания
 
