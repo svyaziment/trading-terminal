@@ -32,6 +32,7 @@ from typing import Dict, List, Optional
 from app.db.db_manager import DBManager
 from app.analytics.levels_engine import build_levels, nearest_level_at
 from app.analytics.levels_backtest import compute_atr, aggregate_1min_to, build_confirm_series
+from app.analytics.pattern_registry import SIGNAL_ENGINE_PATTERN_IDS
 from app.analytics.strategy_engine import StrategyEvaluator
 
 EXPRESS_TICKERS = ['SBER', 'LKOH', 'PIKK']
@@ -42,7 +43,8 @@ DEPTH_PRESETS = {
     'very_serious': {'months': 24, 'n_tickers': None,          'n_runs': 100, 'walkforward': True},
 }
 
-ALL_PATTERNS = ['levels_reversal', 'signal_4h_buy', 'rsi_oversold', 'macd_bullish', 'bb_lower']
+LAB_PATTERNS = ['levels_reversal', 'signal_4h_buy', 'rsi_oversold', 'macd_bullish', 'bb_lower']
+ALL_PATTERNS = LAB_PATTERNS + list(SIGNAL_ENGINE_PATTERN_IDS)
 CONFIRM_WINDOWS = [1, 5, 10, 15, 20, 25, 30, 60, 90, 120]
 
 

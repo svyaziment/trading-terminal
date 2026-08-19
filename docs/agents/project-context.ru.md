@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-19 (задача #80 схемы паттернов SignalEngine в pattern_registry; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-19 (задача #81 E2E и документация SignalEngine Lab; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -196,6 +196,8 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 
 ## 6. Паттерны (10 всего)
 
+Вкладка Signals по-прежнему пишет десять классов `BasePattern` ниже в `trading.signals` (confidence, BUY/SELL, total_signals). Эта таблица **не** является путём Lab-фильтра, кроме `signal_4h_buy`.
+
 | Категория | Паттерн | Описание |
 |---|---|---|
 | Тренд | Trend_SMA_Alignment | Выравнивание SMA (20/50/200) |
@@ -209,7 +211,11 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | Ценовое действие | PA_ThreeWhiteSoldiers | Три белых солдата (бычий) |
 | Ценовое действие | PA_ThreeBlackCrows | Три чёрные вороны (медвежий) |
 
-Паттерны Strategy Lab (config-driven, логика AND): `levels_reversal` (4h зона поддержки + подтверждение; обязателен, задаёт stop/take), `signal_4h_buy` (активный 4h BUY из `trading.signals`; не рефакторится), `rsi_oversold` / `macd_bullish` / `bb_lower` (1min индикаторные AND-фильтры) и десять id SignalEngine (`Trend_SMA_Alignment`, `PA_Hammer`, `PA_HangingMan`, `PA_Engulfing`, `PA_ThreeWhiteSoldiers`, `PA_ThreeBlackCrows`, `VOL_Spike`, `VOL_Low_Pullback`, `MR_RSI_Reversal`, `BO_BB_Squeeze`) как AND-фильтры на последней закрытой HTF-свече через inline `BasePattern.evaluate`. Каждый SignalEngine-фильтр есть в `GET /api/patterns` с `timeframe` (30min, 1h, 2h, 4h, 1d, 1w; по умолчанию 4h), категорией и числовыми/select-дефолтами 4h из текущей реализации `BasePattern`. `rsi_oversold` не заменяет `MR_RSI_Reversal`. Группировка десяти id в UI — задача #82.
+Паттерны Strategy Lab (config-driven, логика AND, один конфиг для бэктеста / paper / live):
+- `levels_reversal` — обязателен; 4h зона поддержки + подтверждение; задаёт stop/take.
+- `signal_4h_buy` — агрегат 4h BUY из `trading.signals` (ТФ фиксирован; не рефакторится).
+- `rsi_oversold` / `macd_bullish` / `bb_lower` — 1min индикаторные AND-фильтры. `rsi_oversold` не является `MR_RSI_Reversal`.
+- Десять id SignalEngine выше — AND-фильтры на последней закрытой HTF-свече через inline `BasePattern.evaluate` по `trading.indicators`. Схемы из `GET /api/patterns` (select `timeframe` 30min/1h/2h/4h/1d/1w, по умолчанию 4h, плюс числовые дефолты 4h). Таймфрейм задаётся в модалке настроек. Группировка чипов в UI — задача #82.
 
 ## 7. Известные проблемы и статус
 
@@ -241,7 +247,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | J | Отчёт анализа A/B теста (signal_source x window x rr x entry) | Ожидает (накопить закрытые сделки) |
 | O | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Готово (Эпик #39) |
 | P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, alerting, панель управления) | Backend-исполнение #59-#62, Telegram #64, monitoring panel #65, live-вселенная #66, логи отказов #73 и первая sandbox canary #74 готовы |
-| Q | Паттерны SignalEngine в Strategy Lab (эпик #78) | Фундамент #79 и схемы registry #80 готовы; далее #81 e2e / #82 UI |
+| Q | Паттерны SignalEngine в Strategy Lab (эпик #78) | #79–#81 готовы (evaluator, схемы registry, E2E/docs); далее группировка UI #82 |
 
 ## 9. Важные замечания
 
@@ -316,4 +322,4 @@ Take-profit сразу выставляется как ожидающий sell-l
 
 `timeframe` — select, как `level_timeframe`. Поддерживаемые ТФ совпадают с порогами SignalEngine: 30min, 1h, 2h, 4h, 1d, 1w (по умолчанию 4h). Полные схемы Lab живут в `SIGNAL_ENGINE_PATTERN_SCHEMAS` / `PATTERN_REGISTRY` (`pattern_registry.py`); числовые дефолты — 4h `get_thresholds` (для PA — литералы `evaluate`). `normalize_patterns` сохраняет эти параметры, а `StrategyEvaluator` сейчас ключует inline evaluate только по `timeframe`. Фильтр смотрит последнюю *закрытую* HTF-свечу (open бара + длительность ТФ <= текущий 1min ts), чтобы бэктест не заглядывал в ещё формирующийся бакет. Отсутствующие HTF-индикаторы отклоняют вход. `2h` есть в контракте, потому что у паттернов есть пороги, но пайплайн свечей/индикаторов сейчас 2h не пишет — выбор этого ТФ не даёт сделок.
 
-`build_strategy_context` заранее считает BUY-метки по каждому включённому фильтру и передаёт `signal_filter_series` в `StrategyEvaluator.load_context` (бэктест, paper, live). Дефолт `levels_reversal` + `signal_4h_buy` (включая locked `test_20260731`) не включает ни один SignalEngine id, поэтому список сделок не меняется.
+`build_strategy_context` заранее считает BUY-метки по каждому включённому фильтру и передаёт `signal_filter_series` в `StrategyEvaluator.load_context` (бэктест, paper, live). Дефолт `levels_reversal` + `signal_4h_buy` (включая locked `test_20260731`) не включает ни один SignalEngine id, поэтому список сделок не меняется. E2E: `tests/test_signal_pattern_e2e.py` (`levels_reversal` + один id из реестра, например `PA_Engulfing` на 4h).

@@ -19,6 +19,8 @@ One selected pattern = backtest on that pattern alone.
 `levels_reversal` is required for a trade (it defines stop/take). Indicator and SignalEngine patterns
 act as additional AND-filters on top of it. `signal_4h_buy` stays a 4h BUY lookup in `trading.signals`.
 
+In the Strategy Lab constructor, enable a SignalEngine filter by adding its chip (schema from `GET /api/patterns`). The timeframe is chosen in the pattern settings modal (default 4h). Save → `normalize_patterns` → the same config for backtest, paper, and live. Do not overwrite locked `test_20260731`.
+
 ## 2. Confirmation windows (for `levels_reversal`)
 
 Available values (minutes): **1, 5, 10, 15, 20, 25, 30, 60, 90, 120**.
