@@ -10,7 +10,8 @@
   потому что StrategyEvaluator пока читает confirm_windows сверху.
 
 Issue #79: timeframe contract for SignalEngine AND-filters is stable here.
-Full ten-pattern schemas are added in #80 using SIGNAL_PATTERN_TIMEFRAME_PARAM.
+Issue #80: full schemas for the ten SignalEngine ids use SIGNAL_PATTERN_TIMEFRAME_PARAM
+plus 4h defaults from the current BasePattern implementations.
 """
 
 from __future__ import annotations
@@ -120,11 +121,9 @@ PATTERN_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
 }
 
-# Issue #79: stable SignalEngine filter id + timeframe contract for registry #80.
-# These ten ids are AND-filters in StrategyEvaluator; they are not listed in
-# PATTERN_REGISTRY until #80 adds full schemas. Do not treat rsi_oversold as
-# MR_RSI_Reversal. Do not fold signal_4h_buy into this set (it stays a 4h
-# trading.signals lookup).
+# Issue #79/#80: SignalEngine AND-filter ids + timeframe contract.
+# Do not treat rsi_oversold as MR_RSI_Reversal. Do not fold signal_4h_buy
+# into this set (it stays a 4h trading.signals lookup).
 SIGNAL_ENGINE_PATTERN_IDS: Tuple[str, ...] = (
     "Trend_SMA_Alignment",
     "PA_Engulfing",
@@ -157,6 +156,232 @@ SIGNAL_PATTERN_TIMEFRAME_PARAM: Dict[str, Any] = {
     "default": DEFAULT_SIGNAL_TIMEFRAME,
 }
 
+_SMA_COLUMNS = ["sma_10", "sma_20", "sma_50", "sma_200"]
+
+
+def _signal_params(*extra: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Timeframe first, then pattern-specific params. Copies so schemas stay isolated."""
+    params = [copy.deepcopy(SIGNAL_PATTERN_TIMEFRAME_PARAM)]
+    params.extend(copy.deepcopy(item) for item in extra)
+    return params
+
+
+# Schema defaults are the 4h SignalEngine thresholds (DEFAULT_SIGNAL_TIMEFRAME).
+# PA ratios are the literals from evaluate(); other ids use get_thresholds("4h").
+SIGNAL_ENGINE_PATTERN_SCHEMAS: Dict[str, Dict[str, Any]] = {
+    "Trend_SMA_Alignment": {
+        "label": "SMA Alignment",
+        "hint": "цена > быстрая SMA > медленная SMA (BUY)",
+        "category": "trend",
+        "params": _signal_params(
+            {
+                "key": "fast_sma",
+                "label": "Быстрая SMA",
+                "type": "select",
+                "options": list(_SMA_COLUMNS),
+                "default": "sma_20",
+            },
+            {
+                "key": "slow_sma",
+                "label": "Медленная SMA",
+                "type": "select",
+                "options": list(_SMA_COLUMNS),
+                "default": "sma_50",
+            },
+        ),
+    },
+    "PA_Engulfing": {
+        "label": "Engulfing",
+        "hint": "бычье/медвежье поглощение предыдущей свечи",
+        "category": "price_action",
+        "params": _signal_params(),
+    },
+    "PA_HangingMan": {
+        "label": "Hanging Man",
+        "hint": "медвежий молот: длинная нижняя тень, закрытие внизу",
+        "category": "price_action",
+        "params": _signal_params(
+            {
+                "key": "lower_shadow_mult",
+                "label": "Мин. нижняя тень (×тело)",
+                "type": "number",
+                "min": 1.0,
+                "max": 5.0,
+                "step": 0.1,
+                "default": 2.0,
+            },
+            {
+                "key": "upper_shadow_mult",
+                "label": "Макс. верхняя тень (×тело)",
+                "type": "number",
+                "min": 0.0,
+                "max": 1.0,
+                "step": 0.05,
+                "default": 0.5,
+            },
+        ),
+    },
+    "PA_Hammer": {
+        "label": "Hammer",
+        "hint": "бычий молот: длинная нижняя тень, закрытие вверху",
+        "category": "price_action",
+        "params": _signal_params(
+            {
+                "key": "lower_shadow_mult",
+                "label": "Мин. нижняя тень (×тело)",
+                "type": "number",
+                "min": 1.0,
+                "max": 5.0,
+                "step": 0.1,
+                "default": 2.0,
+            },
+            {
+                "key": "upper_shadow_mult",
+                "label": "Макс. верхняя тень (×тело)",
+                "type": "number",
+                "min": 0.0,
+                "max": 1.0,
+                "step": 0.05,
+                "default": 0.5,
+            },
+        ),
+    },
+    "PA_ThreeBlackCrows": {
+        "label": "Three Black Crows",
+        "hint": "три последовательные медвежьи свечи с падающим закрытием",
+        "category": "price_action",
+        "params": _signal_params(
+            {
+                "key": "min_body_range_ratio",
+                "label": "Мин. тело / диапазон",
+                "type": "number",
+                "min": 0.3,
+                "max": 1.0,
+                "step": 0.05,
+                "default": 0.7,
+            },
+        ),
+    },
+    "PA_ThreeWhiteSoldiers": {
+        "label": "Three White Soldiers",
+        "hint": "три последовательные бычьи свечи с растущим закрытием",
+        "category": "price_action",
+        "params": _signal_params(
+            {
+                "key": "min_body_range_ratio",
+                "label": "Мин. тело / диапазон",
+                "type": "number",
+                "min": 0.3,
+                "max": 1.0,
+                "step": 0.05,
+                "default": 0.7,
+            },
+        ),
+    },
+    "VOL_Spike": {
+        "label": "Volume Spike",
+        "hint": "аномальный объём и закрытие у края диапазона",
+        "category": "volume",
+        "params": _signal_params(
+            {
+                "key": "min_volume_ratio",
+                "label": "Мин. volume_ratio",
+                "type": "number",
+                "min": 0.5,
+                "max": 10.0,
+                "step": 0.1,
+                "default": 1.8,
+            },
+            {
+                "key": "spike_ratio",
+                "label": "Spike volume_ratio",
+                "type": "number",
+                "min": 1.0,
+                "max": 10.0,
+                "step": 0.1,
+                "default": 2.0,
+            },
+        ),
+    },
+    "VOL_Low_Pullback": {
+        "label": "Low Volume Pullback",
+        "hint": "откат против тренда на низком объёме",
+        "category": "volume",
+        "params": _signal_params(
+            {
+                "key": "low_volume_ratio",
+                "label": "Порог низкого объёма",
+                "type": "number",
+                "min": 0.1,
+                "max": 1.0,
+                "step": 0.05,
+                "default": 0.7,
+            },
+            {
+                "key": "min_trend_strength",
+                "label": "Мин. сила тренда",
+                "type": "number",
+                "min": 0.001,
+                "max": 0.2,
+                "step": 0.001,
+                "default": 0.03,
+            },
+        ),
+    },
+    "MR_RSI_Reversal": {
+        "label": "RSI Reversal",
+        "hint": "пересечение RSI порога перепроданности/перекупленности",
+        "category": "mean_reversion",
+        "params": _signal_params(
+            {
+                "key": "oversold",
+                "label": "RSI перепроданность",
+                "type": "number",
+                "min": 1,
+                "max": 50,
+                "step": 1,
+                "default": 30,
+            },
+            {
+                "key": "overbought",
+                "label": "RSI перекупленность",
+                "type": "number",
+                "min": 50,
+                "max": 99,
+                "step": 1,
+                "default": 70,
+            },
+        ),
+    },
+    "BO_BB_Squeeze": {
+        "label": "BB Squeeze",
+        "hint": "сжатие bb_width и пробой полосы Боллинджера",
+        "category": "breakout",
+        "params": _signal_params(
+            {
+                "key": "squeeze_percentile",
+                "label": "Перцентиль сжатия",
+                "type": "number",
+                "min": 1,
+                "max": 50,
+                "step": 1,
+                "default": 20,
+            },
+            {
+                "key": "lookback",
+                "label": "Окно lookback (баров)",
+                "type": "number",
+                "min": 20,
+                "max": 200,
+                "step": 1,
+                "default": 50,
+            },
+        ),
+    },
+}
+
+PATTERN_REGISTRY.update(SIGNAL_ENGINE_PATTERN_SCHEMAS)
+
 
 def is_signal_engine_pattern(pattern_id: str) -> bool:
     return pattern_id in SIGNAL_ENGINE_PATTERN_IDS
@@ -172,10 +397,12 @@ def resolve_signal_timeframe(value: Any) -> str:
 def apply_signal_pattern_defaults(
     pattern_id: str, params: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
-    """Ensure SignalEngine patterns have a resolved ``timeframe`` param."""
-    out = copy.deepcopy(params) if isinstance(params, dict) else {}
+    """Fill SignalEngine registry defaults and resolve ``timeframe``."""
+    provided = copy.deepcopy(params) if isinstance(params, dict) else {}
     if not is_signal_engine_pattern(pattern_id):
-        return out
+        return provided
+    out = get_pattern_defaults(pattern_id)
+    out.update(provided)
     out["timeframe"] = resolve_signal_timeframe(out.get("timeframe"))
     return out
 

@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-19 (задача #79 SignalEngine-фильтры в StrategyEvaluator; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-19 (задача #80 схемы паттернов SignalEngine в pattern_registry; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -53,7 +53,7 @@ trading-terminal/
 │ │ │ ├── online_data.py # Стриминг: 1min свечи + стакан -> online_* таблицы
 │ │ │ ├── orderbook_imbalance.py # Отношение bid/ask depth + обязательный live-фильтр
 │ │ │ ├── online_signals.py # Движок онлайн-сигналов (paper trading, A/B arms)
-│   │   ├── pattern_registry.py      # Реестр паттернов + normalize_patterns (Эпик #11); контракт timeframe SignalEngine (#79)
+│   │   ├── pattern_registry.py      # Реестр паттернов + normalize_patterns (Эпик #11); схемы SignalEngine + timeframe (#80)
 │   │   ├── signal_pattern_filters.py # Inline SignalEngine AND-фильтры для StrategyEvaluator (задача #79)
 │ │ │ ├── paper_trader.py # Движок paper trading (market+limit, stop/take, equity)
 │   │   ├── paper_strategy.py        # Читатель активной paper-стратегии (из trading.strategies)
@@ -209,7 +209,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | Ценовое действие | PA_ThreeWhiteSoldiers | Три белых солдата (бычий) |
 | Ценовое действие | PA_ThreeBlackCrows | Три чёрные вороны (медвежий) |
 
-Паттерны Strategy Lab (config-driven, логика AND): `levels_reversal` (4h зона поддержки + подтверждение; обязателен, задаёт stop/take), `signal_4h_buy` (активный 4h BUY из `trading.signals`; не рефакторится), `rsi_oversold` / `macd_bullish` / `bb_lower` (1min индикаторные AND-фильтры) и десять id SignalEngine (`Trend_SMA_Alignment`, `PA_Hammer`, `PA_HangingMan`, `PA_Engulfing`, `PA_ThreeWhiteSoldiers`, `PA_ThreeBlackCrows`, `VOL_Spike`, `VOL_Low_Pullback`, `MR_RSI_Reversal`, `BO_BB_Squeeze`) как AND-фильтры на последней закрытой HTF-свече через inline `BasePattern.evaluate`. У каждого SignalEngine-фильтра есть select `timeframe` (30min, 1h, 2h, 4h, 1d, 1w; по умолчанию 4h). `rsi_oversold` не заменяет `MR_RSI_Reversal`. Полные схемы GET `/api/patterns` появятся в #80.
+Паттерны Strategy Lab (config-driven, логика AND): `levels_reversal` (4h зона поддержки + подтверждение; обязателен, задаёт stop/take), `signal_4h_buy` (активный 4h BUY из `trading.signals`; не рефакторится), `rsi_oversold` / `macd_bullish` / `bb_lower` (1min индикаторные AND-фильтры) и десять id SignalEngine (`Trend_SMA_Alignment`, `PA_Hammer`, `PA_HangingMan`, `PA_Engulfing`, `PA_ThreeWhiteSoldiers`, `PA_ThreeBlackCrows`, `VOL_Spike`, `VOL_Low_Pullback`, `MR_RSI_Reversal`, `BO_BB_Squeeze`) как AND-фильтры на последней закрытой HTF-свече через inline `BasePattern.evaluate`. Каждый SignalEngine-фильтр есть в `GET /api/patterns` с `timeframe` (30min, 1h, 2h, 4h, 1d, 1w; по умолчанию 4h), категорией и числовыми/select-дефолтами 4h из текущей реализации `BasePattern`. `rsi_oversold` не заменяет `MR_RSI_Reversal`. Группировка десяти id в UI — задача #82.
 
 ## 7. Известные проблемы и статус
 
@@ -241,7 +241,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | J | Отчёт анализа A/B теста (signal_source x window x rr x entry) | Ожидает (накопить закрытые сделки) |
 | O | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Готово (Эпик #39) |
 | P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, alerting, панель управления) | Backend-исполнение #59-#62, Telegram #64, monitoring panel #65, live-вселенная #66, логи отказов #73 и первая sandbox canary #74 готовы |
-| Q | Паттерны SignalEngine в Strategy Lab (эпик #78) | Фундамент #79 (evaluator + HTF timeframe) готов; далее #80 схемы registry / #81 e2e / #82 UI |
+| Q | Паттерны SignalEngine в Strategy Lab (эпик #78) | Фундамент #79 и схемы registry #80 готовы; далее #81 e2e / #82 UI |
 
 ## 9. Важные замечания
 
@@ -314,6 +314,6 @@ Take-profit сразу выставляется как ожидающий sell-l
 - id SignalEngine считаются **inline** через `SignalEngine.process_dataframe` / `BasePattern.evaluate` по `trading.indicators` выбранного HTF. Lookup `trading.signals` по `pattern_name` не используется.
 - `rsi_oversold` остаётся 1min-фильтром RSI<30 и не заменяет `MR_RSI_Reversal`.
 
-`timeframe` — select, как `level_timeframe`. Поддерживаемые ТФ совпадают с порогами SignalEngine: 30min, 1h, 2h, 4h, 1d, 1w (по умолчанию 4h). Контракт живёт в `SIGNAL_PATTERN_TIMEFRAME_PARAM` / `SIGNAL_ENGINE_TIMEFRAMES` файла `pattern_registry.py` для registry #80. Фильтр смотрит последнюю *закрытую* HTF-свечу (open бара + длительность ТФ <= текущий 1min ts), чтобы бэктест не заглядывал в ещё формирующийся бакет. Отсутствующие HTF-индикаторы отклоняют вход. `2h` есть в контракте, потому что у паттернов есть пороги, но пайплайн свечей/индикаторов сейчас 2h не пишет — выбор этого ТФ не даёт сделок.
+`timeframe` — select, как `level_timeframe`. Поддерживаемые ТФ совпадают с порогами SignalEngine: 30min, 1h, 2h, 4h, 1d, 1w (по умолчанию 4h). Полные схемы Lab живут в `SIGNAL_ENGINE_PATTERN_SCHEMAS` / `PATTERN_REGISTRY` (`pattern_registry.py`); числовые дефолты — 4h `get_thresholds` (для PA — литералы `evaluate`). `normalize_patterns` сохраняет эти параметры, а `StrategyEvaluator` сейчас ключует inline evaluate только по `timeframe`. Фильтр смотрит последнюю *закрытую* HTF-свечу (open бара + длительность ТФ <= текущий 1min ts), чтобы бэктест не заглядывал в ещё формирующийся бакет. Отсутствующие HTF-индикаторы отклоняют вход. `2h` есть в контракте, потому что у паттернов есть пороги, но пайплайн свечей/индикаторов сейчас 2h не пишет — выбор этого ТФ не даёт сделок.
 
 `build_strategy_context` заранее считает BUY-метки по каждому включённому фильтру и передаёт `signal_filter_series` в `StrategyEvaluator.load_context` (бэктест, paper, live). Дефолт `levels_reversal` + `signal_4h_buy` (включая locked `test_20260731`) не включает ни один SignalEngine id, поэтому список сделок не меняется.

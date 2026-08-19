@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-19 (задача #79 SignalEngine-фильтры; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-19 (задача #80 схемы паттернов SignalEngine; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -196,7 +196,7 @@ ORDER BY id DESC LIMIT 20;
 
 - Точки входа: `app.analytics.signal_pattern_filters` (inline evaluate + последний закрытый HTF) и `StrategyEvaluator.check_entry`. Контекст собирает `build_strategy_context`.
 - Правило пути: `signal_4h_buy` читает `trading.signals`; десять id SignalEngine вызывают `BasePattern.evaluate` на `trading.indicators`. Не подмешивать lookup по `pattern_name`. Не подменять `MR_RSI_Reversal` фильтром `rsi_oversold`.
-- Контракт `timeframe`: `SIGNAL_PATTERN_TIMEFRAME_PARAM` в `pattern_registry.py` (select, 30min/1h/2h/4h/1d/1w, по умолчанию 4h). #80 добавит полные схемы с этим параметром.
+- Контракт `timeframe`: `SIGNAL_PATTERN_TIMEFRAME_PARAM` в `pattern_registry.py` (select, 30min/1h/2h/4h/1d/1w, по умолчанию 4h). Полные схемы — в `SIGNAL_ENGINE_PATTERN_SCHEMAS`; дефолты 4h совпадают с текущими `get_thresholds` SignalEngine / литералами `evaluate` у PA. `normalize_patterns` их заполняет; evaluator по-прежнему ключует inline evaluate только по `timeframe`.
 - Фильтр смотрит последнюю закрытую HTF-свечу. Нет строк индикаторов — вход отклоняется. `2h` есть в контракте, но текущий пайплайн агрегации/индикаторов его не пишет.
 - Locked paper-стратегия `test_20260731` должна оставаться только `levels_reversal` + `signal_4h_buy`.
 - Unit-тесты: `cd backend && python -m pytest -q tests/test_signal_engine_filters.py tests/test_pattern_registry.py`.
