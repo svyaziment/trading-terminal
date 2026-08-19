@@ -2,9 +2,37 @@
 set -u
 export PYTHONUNBUFFERED=1
 DURATION=${DURATION_MINUTES:-1200}
+PRESERVE_PAPER=${PRESERVE_PAPER_PROCESSES:-0}
 
-echo "=== Step 0: Stop all existing processes ==="
-docker compose exec -T backend python -c "
+if [[ "${PRESERVE_PAPER}" == "1" ]]; then
+    if [[ "${START_LIVE_EXECUTOR:-0}" != "1" ]]; then
+        echo "PRESERVE_PAPER_PROCESSES=1 requires START_LIVE_EXECUTOR=1"
+        exit 1
+    fi
+    echo "=== Steps 0-5: Preserve existing paper processes ==="
+    docker compose exec -T backend python -c "
+import os, sys
+targets = {'run_data_refresher': 0, 'run_online_data': 0, 'run_live_engine': 0, 'run_paper_trader': 0}
+for pid_dir in os.listdir('/proc'):
+    if not pid_dir.isdigit(): continue
+    pid = int(pid_dir)
+    if pid == os.getpid(): continue
+    try:
+        with open(f'/proc/{pid_dir}/cmdline','rb') as f:
+            cmd = f.read().decode('utf-8', errors='replace').replace('\x00',' ')
+        for target in targets:
+            if target in cmd: targets[target] += 1
+    except: pass
+for target, count in targets.items():
+    print(f'{target}: {count}')
+if any(count != 1 for count in targets.values()):
+    print('Preflight failed: expected exactly one of each paper process')
+    sys.exit(1)
+print('Paper processes will remain running')
+"
+else
+    echo "=== Step 0: Stop all existing processes ==="
+    docker compose exec -T backend python -c "
 import os, signal
 targets = ['run_data_refresher', 'run_online_data', 'run_signal_engine', 'run_live_engine', 'run_paper_trader', 'run_levels_refresher', 'LiveExecutor']
 killed = []
@@ -24,10 +52,10 @@ for pid, cmd in killed:
 if not killed:
     print('No processes to kill')
 "
-sleep 3
+    sleep 3
 
-echo "=== Step 1: Catch-up pending+open positions (fill/cancel pending, then stop/take) ==="
-docker compose exec -T backend python -c "
+    echo "=== Step 1: Catch-up pending+open positions (fill/cancel pending, then stop/take) ==="
+    docker compose exec -T backend python -c "
 import logging, sys
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(asctime)s %(levelname)s %(message)s')
 from app.analytics.position_catchup import catch_up_positions
@@ -35,25 +63,26 @@ result = catch_up_positions()
 print(f'CATCHUP_RESULT: {result}')
 "
 
-echo "=== Step 2: Start data refresher (MOEX 1min + aggregation + FIGI) ==="
-mkdir -p reports/data-refresher
-nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.data_refresher import run_data_refresher; run_data_refresher(duration_minutes=${DURATION})" > reports/data-refresher/refresher.log 2>&1 &
-sleep 1
+    echo "=== Step 2: Start data refresher (MOEX 1min + aggregation + FIGI) ==="
+    mkdir -p reports/data-refresher
+    nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.data_refresher import run_data_refresher; run_data_refresher(duration_minutes=${DURATION})" > reports/data-refresher/refresher.log 2>&1 &
+    sleep 1
 
-echo "=== Step 3: Start streaming (1min candles + order book) ==="
-mkdir -p reports/streaming
-nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.online_data import run_online_data; run_online_data(duration_minutes=${DURATION})" > reports/streaming/streaming.log 2>&1 &
-sleep 1
+    echo "=== Step 3: Start streaming (1min candles + order book) ==="
+    mkdir -p reports/streaming
+    nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.online_data import run_online_data; run_online_data(duration_minutes=${DURATION})" > reports/streaming/streaming.log 2>&1 &
+    sleep 1
 
-echo "=== Step 4: Start live strategy engine (unified brain) ==="
-mkdir -p reports/live-engine
-nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.live_engine import run_live_engine; run_live_engine(duration_minutes=${DURATION})" > reports/live-engine/live.log 2>&1 &
-sleep 1
+    echo "=== Step 4: Start live strategy engine (unified brain) ==="
+    mkdir -p reports/live-engine
+    nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.live_engine import run_live_engine; run_live_engine(duration_minutes=${DURATION})" > reports/live-engine/live.log 2>&1 &
+    sleep 1
 
-echo "=== Step 5: Start paper trader ==="
-mkdir -p reports/paper-trader
-nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.paper_trader import run_paper_trader; run_paper_trader(duration_minutes=${DURATION})" > reports/paper-trader/trader.log 2>&1 &
-sleep 3
+    echo "=== Step 5: Start paper trader ==="
+    mkdir -p reports/paper-trader
+    nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.paper_trader import run_paper_trader; run_paper_trader(duration_minutes=${DURATION})" > reports/paper-trader/trader.log 2>&1 &
+    sleep 3
+fi
 
 echo "=== Step 6: Start sandbox live executor when explicitly requested ==="
 if [[ "${START_LIVE_EXECUTOR:-0}" == "1" ]]; then

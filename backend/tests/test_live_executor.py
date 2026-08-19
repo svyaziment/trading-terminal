@@ -155,16 +155,17 @@ def test_token_bucket_rejects_unsafe_rate(rate):
         TokenBucket(rate)
 
 
-def test_buy_flow_checks_balance_sizes_entry_and_places_take_limit():
+def test_buy_flow_checks_balance_sizes_entry_and_places_take_limit(caplog):
     db = FakeDB()
     broker = FakeBroker()
     executor = make_executor(db=db, broker=broker)
 
-    result = executor.process_signal(
-        "SBER",
-        {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
-        imbalance=1.5,
-    )
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal(
+            "SBER",
+            {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
+            imbalance=1.5,
+        )
 
     assert result == {
         "executed": True,
@@ -192,6 +193,10 @@ def test_buy_flow_checks_balance_sizes_entry_and_places_take_limit():
         for call in broker.calls
         if call[0] == "execute_order"
     )
+    assert (
+        "Live BUY submitted: ticker=SBER status=open "
+        "size_lots=10 position_id=41"
+    ) in caplog.text
 
 
 def test_imbalance_is_mandatory_before_any_broker_request(caplog):
