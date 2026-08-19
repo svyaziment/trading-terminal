@@ -490,6 +490,13 @@ class LiveExecutor:
                     "position_id": position_id,
                 }
 
+        logger.info(
+            "Live BUY submitted: ticker=%s status=%s size_lots=%s position_id=%s",
+            ticker,
+            status,
+            stored_lots,
+            position_id,
+        )
         return {
             "executed": True,
             "reason": status,
@@ -852,8 +859,10 @@ class LiveExecutor:
         check_interval = float(self.config["check_interval_seconds"])
         context_interval = float(self.config["context_refresh_seconds"])
         logger.info(
-            "Sandbox LiveExecutor started: strategy=%s tickers=%s rate=%.1f/s",
+            "Sandbox LiveExecutor started: strategy=%s tickers=%s "
+            "ticker_count=%s rate=%.1f/s",
             self.strategy_name,
+            ",".join(self.evaluators),
             len(self.evaluators),
             self.rate_limiter.rate,
         )
