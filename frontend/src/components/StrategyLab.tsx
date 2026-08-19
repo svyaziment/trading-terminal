@@ -4,6 +4,8 @@ import DataTable, { type ColumnDef, type FilterState, type FilterValue, formatFi
 import FilterChips from "./ui/FilterChips";
 import DatePicker, { localTodayIso } from "./ui/DatePicker";
 import PatternSettingsModal from "./PatternSettingsModal";
+import PatternPreviewModal from "./PatternPreviewModal";
+import { resolveLabPreviewWindow } from "../previewWindow";
 import {
   saveStrategy,
   listStrategies,
@@ -189,6 +191,13 @@ export default function StrategyLab() {
     signal_4h_buy: {},
   });
   const [settingsTarget, setSettingsTarget] = useState<string | null>(null);
+  const [previewSession, setPreviewSession] = useState<{
+    def: PatternDef;
+    draft: Record<string, unknown>;
+    dateFrom: string;
+    dateTo: string;
+  } | null>(null);
+  const [previewWindowError, setPreviewWindowError] = useState<string | null>(null);
   const [strategyName, setStrategyName] = useState<string>("levels_reversal");
   const [availablePlugins, setAvailablePlugins] = useState<string[]>([]);
   const [commission, setCommission] = useState("0.06");
@@ -385,6 +394,22 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
   function applySettings(id: string, values: Record<string, unknown>) {
     setPatternConfigs((pc) => ({ ...pc, [id]: values }));
     setSettingsTarget(null);
+    setPreviewWindowError(null);
+  }
+  function handleShowChart(draft: Record<string, unknown>) {
+    if (!settingsDef) return;
+    const window = resolveLabPreviewWindow(depth, dateFrom, dateTo, dataRange);
+    if (!window.ok) {
+      setPreviewWindowError(window.error);
+      return;
+    }
+    setPreviewWindowError(null);
+    setPreviewSession({
+      def: settingsDef,
+      draft,
+      dateFrom: window.date_from,
+      dateTo: window.date_to,
+    });
   }
   function toggleMethod(id: string) {
     setMethods((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
@@ -581,6 +606,11 @@ const progressPct =
       }
       return out;
     }, [bigTickers, tickers]);
+    const previewTickers = useMemo(() => {
+      if (tickers.length > 0) return tickers;
+      if (bigTickers.length > 0) return bigTickers;
+      return tickerOptions;
+    }, [tickers, bigTickers, tickerOptions]);
   const [labFilters, setLabFilters] = useState<FilterState>({});
   const [tradeStats, setTradeStats] = useState({ wins: 0, losses: 0, totalNet: 0 });
 
@@ -1286,7 +1316,19 @@ const progressPct =
           values={effectiveParams(settingsDef.id)}
           locked={isLocked}
           onSave={(v) => applySettings(settingsDef.id, v)}
-          onClose={() => setSettingsTarget(null)}
+          onClose={() => { setSettingsTarget(null); setPreviewWindowError(null); }}
+          onShowChart={handleShowChart}
+          previewError={previewWindowError}
+        />
+      )}
+      {previewSession && (
+        <PatternPreviewModal
+          def={previewSession.def}
+          draftParams={previewSession.draft}
+          tickers={previewTickers}
+          dateFrom={previewSession.dateFrom}
+          dateTo={previewSession.dateTo}
+          onClose={() => setPreviewSession(null)}
         />
       )}
       {deleteTarget && createPortal(
