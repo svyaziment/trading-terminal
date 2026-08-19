@@ -488,6 +488,7 @@ def test_initialize_builds_unmodified_strategy_evaluator(monkeypatch):
         {"ts": 1},
         [],
         [],
+        [],
     )
     assert isinstance(executor.evaluators["SBER"], Evaluator)
 

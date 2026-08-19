@@ -51,9 +51,11 @@ def build_strategy_context(
 
     Returns:
         Dict with keys: status, levels, ts_htf, atr_by_ts, buy_ts,
-        confirm_series, confirm_windows, config (normalized).
+        confirm_series, confirm_windows, config (normalized),
+        signal_filter_series (SignalEngine HTF BUY timestamps, Issue #79).
     """
     from app.analytics.pattern_registry import normalize_patterns
+    from app.analytics.signal_pattern_filters import build_signal_filter_series
 
     cfg = normalize_patterns(config)
     patterns = cfg.get("patterns", {})
@@ -107,9 +109,11 @@ def build_strategy_context(
     ts_htf = df_htf["timestamp"].tolist()
     atr_by_ts = dict(zip(df_htf["timestamp"], df_htf["atr"]))
 
-    # 4h BUY signals
+    # 4h BUY signals (trading.signals lookup; not mixed with SignalEngine filters)
     use_4h_buy = "signal_4h_buy" in patterns
     buy_ts = load_4h_buy_ts(db, ticker) if use_4h_buy else []
+
+    signal_filter_series = build_signal_filter_series(db, ticker, patterns)
 
     # Confirmation series (from 1min data, if provided)
     confirm_series = []
@@ -124,6 +128,7 @@ def build_strategy_context(
         "ts_htf": ts_htf,
         "atr_by_ts": atr_by_ts,
         "buy_ts": buy_ts,
+        "signal_filter_series": signal_filter_series,
         "confirm_series": confirm_series,
         "confirm_windows": confirm_windows,
         "config": cfg,

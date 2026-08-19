@@ -365,7 +365,8 @@ def run_signal_engine(tickers: List[str] = None, duration_minutes: int = 60,
             logger.warning(f"No 4h context for {tk}; skipping ticker")
             continue
         ev = StrategyEvaluator(config)
-        ev.load_context(ctx['levels'], ctx['ts_htf'], ctx['atr_by_ts'], ctx['buy_ts'], [])
+        ev.load_context(ctx['levels'], ctx['ts_htf'], ctx['atr_by_ts'], ctx['buy_ts'], [],
+                        ctx.get('signal_filter_series') or [])
         evaluators[tk] = ev
         last_processed[tk] = None
 
@@ -389,7 +390,8 @@ def run_signal_engine(tickers: List[str] = None, duration_minutes: int = 60,
                 ctx = build_strategy_context(db, tk, config)
                 if ctx.get('status') != 'failed':
                     ev.update_context(levels=ctx['levels'], ts_4h=ctx['ts_htf'],
-                                      atr_by_ts=ctx['atr_by_ts'], buy_ts=ctx['buy_ts'])
+                                      atr_by_ts=ctx['atr_by_ts'], buy_ts=ctx['buy_ts'],
+                                      signal_filter_series=ctx.get('signal_filter_series') or [])
             last_context_refresh = now
             logger.info("4h context refreshed")
 

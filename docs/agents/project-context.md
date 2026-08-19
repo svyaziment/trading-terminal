@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-19 (Issues #73-#74 sandbox canary on top of #59-#66). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-19 (Issue #79 SignalEngine filters in StrategyEvaluator). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -53,7 +53,8 @@ trading-terminal/
 │ │ │ ├── online_data.py # Streaming: 1min candles + order book -> online_* tables
 │ │ │ ├── orderbook_imbalance.py # Bid/ask depth ratio + mandatory live filter
 │ │ │ ├── online_signals.py # Online signal engine (paper trading, A/B arms)
-│   │   ├── pattern_registry.py      # Pattern registry + normalize_patterns (Epic #11)
+│   │   ├── pattern_registry.py      # Pattern registry + normalize_patterns (Epic #11); SignalEngine timeframe contract (#79)
+│   │   ├── signal_pattern_filters.py # Inline SignalEngine AND-filters for StrategyEvaluator (Issue #79)
 │ │ │ ├── paper_trader.py # Paper trading engine (market+limit, stop/take, equity)
 │   │   ├── paper_strategy.py        # Active paper strategy reader (from trading.strategies)
 │   │   ├── strategies/            # StrategyPlugin architecture (Epic #39)
@@ -208,7 +209,7 @@ Shared lock: jobs_state.py (in-process). Only one heavy job runs at a time; othe
 | Price Action | PA_ThreeWhiteSoldiers | Three white soldiers (bullish) |
 | Price Action | PA_ThreeBlackCrows | Three black crows (bearish) |
 
-Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support zone + confirmation), `signal_4h_buy` (active 4h BUY), `rsi_oversold`, `macd_bullish`, `bb_lower`. `levels_reversal` is required (defines stop/take); the others are AND-filters.
+Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support zone + confirmation; required, defines stop/take), `signal_4h_buy` (active 4h BUY from `trading.signals`; not refactored), `rsi_oversold` / `macd_bullish` / `bb_lower` (1min indicator AND-filters), and the ten SignalEngine ids (`Trend_SMA_Alignment`, `PA_Hammer`, `PA_HangingMan`, `PA_Engulfing`, `PA_ThreeWhiteSoldiers`, `PA_ThreeBlackCrows`, `VOL_Spike`, `VOL_Low_Pullback`, `MR_RSI_Reversal`, `BO_BB_Squeeze`) as AND-filters on the last closed HTF bar via inline `BasePattern.evaluate`. Each SignalEngine filter has a `timeframe` select (30min, 1h, 2h, 4h, 1d, 1w; default 4h). `rsi_oversold` is not a substitute for `MR_RSI_Reversal`. Full GET `/api/patterns` schemas land in #80.
 
 ## 7. Known Issues & Status
 
@@ -240,6 +241,7 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 | J | A/B test analysis report (signal_source x window x rr x entry) | Pending (accumulate closed trades) |
 | O  | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Done (Epic #39) |
 | P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, alerting, control panel) | Backend execution #59-#62, Telegram #64, monitoring panel #65, live-universe #66, skip-reason logging #73, and first sandbox canary #74 done |
+| Q | SignalEngine patterns in Strategy Lab (Epic #78) | #79 foundation (evaluator + HTF timeframe) done; #80 registry schemas / #81 e2e / #82 UI next |
 
 ## 9. Important Notes
 
@@ -303,3 +305,15 @@ Delivery is serialized and limited to one attempt per second. Network/API errors
 `frontend/src/components/LiveTradingPanel.tsx` is available from the `Live Trading` tab. It polls `trading.live_positions` through the live monitoring API every 10 seconds and shows open positions with the latest best bid (best ask fallback), unrealized RUB/% PnL, paginated and sortable trade history, cumulative realized PnL, and Telegram connectivity. Both tables use the shared `ui/DataTable` and `FilterChips`; date filters use the shared `ui/DatePicker` extracted from Strategy Lab.
 
 `/api/live-trading/positions` and `/api/live-trading/dynamics` keep sandbox execution data separate from paper trading. They support ticker/date/status filters; the special `status=closed` value selects both stop and take closures. `/api/notifications/status` performs a read-only Telegram `getMe` probe and caches the result for 30 seconds. It never returns credentials.
+
+## 16. SignalEngine AND-filters in StrategyEvaluator
+
+Issue #79 connects the ten Signals-tab `BasePattern` classes to `StrategyEvaluator` as AND-filters after `levels_reversal` (stop/take stay levels-only). The path is fixed and must not be mixed:
+
+- `signal_4h_buy` continues to look up `trading.signals` (4h BUY aggregate). It is not refactored.
+- SignalEngine ids are evaluated **inline** with `SignalEngine.process_dataframe` / `BasePattern.evaluate` on `trading.indicators` for the selected HTF. They never look up `trading.signals` by `pattern_name`.
+- `rsi_oversold` remains the 1min RSI<30 filter and is not a substitute for `MR_RSI_Reversal`.
+
+`timeframe` is a select like `level_timeframe`. Supported values match SignalEngine thresholds: 30min, 1h, 2h, 4h, 1d, 1w (default 4h). The contract lives in `SIGNAL_PATTERN_TIMEFRAME_PARAM` / `SIGNAL_ENGINE_TIMEFRAMES` in `pattern_registry.py` for registry #80. The filter uses the last *closed* HTF bar (bar open + TF delta <= current 1min ts) so backtests do not look ahead into a still-forming bucket. Missing HTF indicator rows reject the entry. `2h` is in the contract because patterns define thresholds for it, but the current candle/indicator pipeline does not persist 2h, so that selection currently yields no trades.
+
+`build_strategy_context` precomputes BUY timestamps per enabled filter and passes `signal_filter_series` into `StrategyEvaluator.load_context` (backtest, paper, live). Default `levels_reversal` + `signal_4h_buy` (including locked `test_20260731`) does not enable any SignalEngine id, so trade lists stay unchanged.

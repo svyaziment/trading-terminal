@@ -8,12 +8,15 @@
 - normalize_patterns() для старого формата patterns: list и нового patterns: dict;
 - обратная совместимость: confirm_windows дублируется на верхний уровень config,
   потому что StrategyEvaluator пока читает confirm_windows сверху.
+
+Issue #79: timeframe contract for SignalEngine AND-filters is stable here.
+Full ten-pattern schemas are added in #80 using SIGNAL_PATTERN_TIMEFRAME_PARAM.
 """
 
 from __future__ import annotations
 
 import copy
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 PATTERN_REGISTRY: Dict[str, Dict[str, Any]] = {
@@ -117,6 +120,65 @@ PATTERN_REGISTRY: Dict[str, Dict[str, Any]] = {
     },
 }
 
+# Issue #79: stable SignalEngine filter id + timeframe contract for registry #80.
+# These ten ids are AND-filters in StrategyEvaluator; they are not listed in
+# PATTERN_REGISTRY until #80 adds full schemas. Do not treat rsi_oversold as
+# MR_RSI_Reversal. Do not fold signal_4h_buy into this set (it stays a 4h
+# trading.signals lookup).
+SIGNAL_ENGINE_PATTERN_IDS: Tuple[str, ...] = (
+    "Trend_SMA_Alignment",
+    "PA_Engulfing",
+    "PA_HangingMan",
+    "PA_Hammer",
+    "PA_ThreeBlackCrows",
+    "PA_ThreeWhiteSoldiers",
+    "VOL_Spike",
+    "VOL_Low_Pullback",
+    "MR_RSI_Reversal",
+    "BO_BB_Squeeze",
+)
+
+SIGNAL_ENGINE_TIMEFRAMES: Tuple[str, ...] = (
+    "30min",
+    "1h",
+    "2h",
+    "4h",
+    "1d",
+    "1w",
+)
+
+DEFAULT_SIGNAL_TIMEFRAME = "4h"
+
+SIGNAL_PATTERN_TIMEFRAME_PARAM: Dict[str, Any] = {
+    "key": "timeframe",
+    "label": "Таймфрейм",
+    "type": "select",
+    "options": list(SIGNAL_ENGINE_TIMEFRAMES),
+    "default": DEFAULT_SIGNAL_TIMEFRAME,
+}
+
+
+def is_signal_engine_pattern(pattern_id: str) -> bool:
+    return pattern_id in SIGNAL_ENGINE_PATTERN_IDS
+
+
+def resolve_signal_timeframe(value: Any) -> str:
+    """Return a supported SignalEngine timeframe, else the default (4h)."""
+    if isinstance(value, str) and value in SIGNAL_ENGINE_TIMEFRAMES:
+        return value
+    return DEFAULT_SIGNAL_TIMEFRAME
+
+
+def apply_signal_pattern_defaults(
+    pattern_id: str, params: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Ensure SignalEngine patterns have a resolved ``timeframe`` param."""
+    out = copy.deepcopy(params) if isinstance(params, dict) else {}
+    if not is_signal_engine_pattern(pattern_id):
+        return out
+    out["timeframe"] = resolve_signal_timeframe(out.get("timeframe"))
+    return out
+
 
 def list_patterns() -> List[Dict[str, Any]]:
     """Вернуть весь реестр в формате, ожидаемом GET /api/patterns."""
@@ -206,7 +268,9 @@ def normalize_patterns(config: Dict[str, Any]) -> Dict[str, Any]:
             if pattern_id == "levels_reversal" and top_confirm is not None:
                 defaults["confirm_windows"] = copy.deepcopy(top_confirm)
 
-            normalized[pattern_id] = defaults
+            normalized[pattern_id] = apply_signal_pattern_defaults(
+                pattern_id, defaults
+            )
 
     elif isinstance(raw_patterns, dict):
         for pattern_id, params in raw_patterns.items():
@@ -224,7 +288,9 @@ def normalize_patterns(config: Dict[str, Any]) -> Dict[str, Any]:
             ):
                 defaults["confirm_windows"] = copy.deepcopy(top_confirm)
 
-            normalized[pattern_id] = defaults
+            normalized[pattern_id] = apply_signal_pattern_defaults(
+                pattern_id, defaults
+            )
     else:
         normalized = {}
 

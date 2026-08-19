@@ -18,6 +18,10 @@ Usage (backtest):
 
 Live-only patterns (e.g. orderbook_imbalance) are AND-filters that only apply in
 live mode; in backtest they are skipped (no historical order book).
+
+SignalEngine pattern ids (PA_Hammer, MR_RSI_Reversal, ...) are AND-filters evaluated
+inline on the selected HTF (Issue #79). ``signal_4h_buy`` remains a trading.signals
+lookup and is not mixed into that path.
 """
 from __future__ import annotations
 
@@ -25,6 +29,10 @@ import bisect
 import pandas as pd
 
 from app.analytics.levels_engine import nearest_level_at
+from app.analytics.signal_pattern_filters import (
+    enabled_signal_filters,
+    signal_engine_filters_pass,
+)
 
 
 def _4h_buy_active(buy_ts, ts_4h, ts) -> bool:
@@ -59,6 +67,7 @@ class StrategyEvaluator:
         self.use_macd = 'macd_bullish' in self.patterns
         self.use_bb = 'bb_lower' in self.patterns
         self.use_4h_buy = 'signal_4h_buy' in self.patterns
+        self.signal_filter_specs = enabled_signal_filters(self.patterns)
 
         # context (filled via load_context / update_context)
         self.levels = None
@@ -66,11 +75,26 @@ class StrategyEvaluator:
         self.atr_by_ts = {}
         self.buy_ts = []
         self.confirm_series = []  # list of (times, closes)
+        self.signal_filter_series = []
 
         # position state
         self.position = None
 
-    def load_context(self, levels, ts_4h, atr_by_ts, buy_ts, confirm_series) -> None:
+    def _set_signal_filter_series(self, series) -> None:
+        prepared = []
+        for item in series or []:
+            times = [pd.Timestamp(ts) for ts in item.get('times') or []]
+            buy_set = {pd.Timestamp(ts) for ts in item.get('buy_ts') or []}
+            prepared.append({
+                'pattern_id': item.get('pattern_id'),
+                'timeframe': item.get('timeframe'),
+                'times': times,
+                'buy_set': buy_set,
+            })
+        self.signal_filter_series = prepared
+
+    def load_context(self, levels, ts_4h, atr_by_ts, buy_ts, confirm_series,
+                     signal_filter_series=None) -> None:
         """Set the 4h context used for entry decisions. Called once for backtest;
         refreshed periodically in live mode via update_context."""
         self.levels = levels
@@ -78,9 +102,12 @@ class StrategyEvaluator:
         self.atr_by_ts = atr_by_ts
         self.buy_ts = buy_ts
         self.confirm_series = confirm_series
+        self._set_signal_filter_series(signal_filter_series)
 
     def update_context(self, **kwargs) -> None:
         """Partial context refresh for live mode (new 4h levels / BUY signals / confirms)."""
+        if 'signal_filter_series' in kwargs:
+            self._set_signal_filter_series(kwargs['signal_filter_series'])
         for k in ('levels', 'ts_4h', 'atr_by_ts', 'buy_ts', 'confirm_series'):
             if k in kwargs:
                 setattr(self, k, kwargs[k])
@@ -119,6 +146,12 @@ class StrategyEvaluator:
             if hc is None or hc <= zu:
                 return None
         if self.use_4h_buy and not _4h_buy_active(self.buy_ts, self.ts_4h, ts):
+            return None
+        # SignalEngine AND-filters on last closed HTF bar (inline evaluate).
+        # No-op when no SignalEngine pattern is enabled (default strategies).
+        if not signal_engine_filters_pass(
+            self.signal_filter_specs, self.signal_filter_series, ts
+        ):
             return None
         stop = float(sup['level_price'])
         if stop >= price:

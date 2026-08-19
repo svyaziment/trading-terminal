@@ -14,9 +14,10 @@ One selected pattern = backtest on that pattern alone.
 | `rsi_oversold` | RSI-14 < 30 | indicator AND-filter |
 | `macd_bullish` | MACD histogram > 0 | indicator AND-filter |
 | `bb_lower` | close below Bollinger(20,2) lower band | indicator AND-filter |
+| SignalEngine ids (`PA_Hammer`, `MR_RSI_Reversal`, ...) | BUY on last closed HTF bar via inline `evaluate` | AND-filter; `timeframe` select (30min/1h/2h/4h/1d/1w, default 4h). Not a `trading.signals` lookup. Not a substitute for `rsi_oversold`. |
 
-`levels_reversal` is required for a trade (it defines stop/take). Indicator patterns
-act as additional AND-filters on top of it.
+`levels_reversal` is required for a trade (it defines stop/take). Indicator and SignalEngine patterns
+act as additional AND-filters on top of it. `signal_4h_buy` stays a 4h BUY lookup in `trading.signals`.
 
 ## 2. Confirmation windows (for `levels_reversal`)
 

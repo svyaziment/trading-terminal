@@ -125,6 +125,7 @@ def _backtest_ticker_plugin(
         atr_by_ts=ctx['atr_by_ts'],
         buy_ts=ctx['buy_ts'],
         confirm_series=ctx['confirm_series'],
+        signal_filter_series=ctx.get('signal_filter_series') or [],
         volume_current=float(df_1m.iloc[0]['volume'])
         if pd.notna(df_1m.iloc[0]['volume']) else None,
         volume_sma_20=float(df_1m.iloc[0]['_volume_sma_20'])
@@ -151,6 +152,7 @@ def _backtest_ticker_plugin(
             atr_by_ts=ctx['atr_by_ts'],
             buy_ts=ctx['buy_ts'],
             confirm_series=ctx['confirm_series'],
+            signal_filter_series=ctx.get('signal_filter_series') or [],
             volume_current=float(row['volume']) if pd.notna(row['volume']) else None,
             volume_sma_20=float(row['_volume_sma_20'])
             if pd.notna(row['_volume_sma_20']) else None,

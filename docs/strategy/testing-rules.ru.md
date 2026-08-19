@@ -14,9 +14,10 @@
 | `rsi_oversold` | RSI-14 < 30 | индикаторный AND-фильтр |
 | `macd_bullish` | гистограмма MACD > 0 | индикаторный AND-фильтр |
 | `bb_lower` | close ниже нижней полосы Bollinger(20,2) | индикаторный AND-фильтр |
+| id SignalEngine (`PA_Hammer`, `MR_RSI_Reversal`, ...) | BUY на последней закрытой HTF-свече через inline `evaluate` | AND-фильтр; select `timeframe` (30min/1h/2h/4h/1d/1w, по умолчанию 4h). Не lookup `trading.signals`. Не замена `rsi_oversold`. |
 
-`levels_reversal` обязателен для сделки (задаёт стоп/тейк). Индикаторные паттерны
-работают как дополнительные AND-фильтры поверх него.
+`levels_reversal` обязателен для сделки (задаёт стоп/тейк). Индикаторные и SignalEngine-паттерны
+работают как дополнительные AND-фильтры поверх него. `signal_4h_buy` остаётся lookup 4h BUY в `trading.signals`.
 
 ## 2. Окна подтверждения (для `levels_reversal`)
 
