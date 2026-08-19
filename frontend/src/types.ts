@@ -260,3 +260,64 @@ export interface PatternDef {
   category?: string;
   params: PatternParam[];
 }
+
+// ---- Pattern chart preview (Epic #87, Issue #89) ----
+export interface OverlayRay {
+  type: "ray";
+  from_ts: string;
+  to_ts: string;
+  price: number;
+  level_type?: string;
+  method?: string;
+  color?: string;
+}
+
+export interface OverlayBand {
+  type: "band";
+  from_ts: string;
+  to_ts: string;
+  lower: number;
+  upper: number;
+  level_type?: string;
+  method?: string;
+  color?: string;
+}
+
+export interface OverlayLinePoint {
+  ts?: string;
+  timestamp?: string;
+  value: number;
+}
+
+export interface OverlayLine {
+  type: "line";
+  color?: string;
+  label?: string;
+  points: OverlayLinePoint[];
+}
+
+export interface OverlayMarker {
+  type: "marker";
+  ts?: string;
+  timestamp?: string;
+  position?: "aboveBar" | "belowBar" | "inBar";
+  color?: string;
+  shape?: "arrowUp" | "arrowDown" | "circle" | "square";
+  text?: string;
+  signal?: string;
+}
+
+export type ChartOverlay = OverlayRay | OverlayBand | OverlayLine | OverlayMarker;
+
+export interface PatternPreviewResponse {
+  status: "ok" | "empty" | "error" | "unsupported";
+  ticker: string;
+  pattern_id: string;
+  timeframe: string | null;
+  date_from: string;
+  date_to: string;
+  candles: Candle[];
+  overlays: ChartOverlay[];
+  error?: string;
+  meta?: Record<string, unknown>;
+}
