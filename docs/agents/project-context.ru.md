@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-17 (задачи #59-#66 Live Trading Infrastructure; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-19 (задачи #73-#74 sandbox canary поверх #59-#66; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -49,6 +49,7 @@ trading-terminal/
 │ │ │ ├── trading_config.py # ЕДИНЫЙ ИСТОЧНИК ИСТИНЫ: вселенная, live top-5, стратегии, live risk policy
 │ │ │ ├── position_sizer.py # Гибридный sizing по риску/концентрации + округление лотов
 │ │ │ ├── live_executor.py # Sandbox-исполнение, защита, сверка позиций, shutdown
+│ │ │ ├── live_executor_preflight.py # Read-only проверки перед sandbox canary
 │ │ │ ├── online_data.py # Стриминг: 1min свечи + стакан -> online_* таблицы
 │ │ │ ├── orderbook_imbalance.py # Отношение bid/ask depth + обязательный live-фильтр
 │ │ │ ├── online_signals.py # Движок онлайн-сигналов (paper trading, A/B arms)
@@ -214,6 +215,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 - **Активная paper-стратегия**: `test_20260731` (id=36 в `trading.strategies`, `in_paper_test=true`, `locked=true`). Конфиг: levels_reversal (4h, swing+impulse, window 10, body 0.7, impulse 1.5, zone 0.5) + signal_4h_buy, confirm [10], RR 1:2, комиссия 0.06%. Вселенная: 28 тикеров из run_params. Верифицирована: 72 сигнала сгенерировано, 62 позиции открыто, первая закрытая сделка PnL +0.77%. Предыдущая валидированная стратегия `levels_reversal_4hbuy` остаётся в trading_config.py как reference.
 - **Legacy pattern-matrix backtest**: rule-based стратегии НЕ прибыльны после комиссии на MOEX top-3 за 2 года (все PF < 1). Заменены подходом levels.
 - **Вселенная**: top-15 по PF (`trading_universe`) остаётся вселенной paper/data-refresh через `get_trading_universe()`. Sandbox live execution использует топ-5 из задачи #66 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP через `get_live_trading_universe()`. На снимке #66 таблица `paper_positions` была пуста (equity плоская 100 000 RUB), поэтому live-список построен по бэктесту, ликвидности и ATR, а не по forward PnL.
+- **Sandbox canary (задача #74, 2026-08-19)**: `LiveExecutor` инициализировал топ-5 на locked-стратегии `test_20260731` и отправил sandbox market BUY по RUAL (37 лотов по 26.73, take 28.02, stop 26.19). Следующий сигнал по тому же тикеру был пропущен с `reason=duplicate_ticker`. `paper_equity` продолжала писаться во время сессии. Runbook — в handover §19.
 - **Таймзона сессии**: timestamp свечей naive (в торговой логике считается MSK). session_only принудительно False в backtest v1.
 - **Комиссия**: 0.06% round-trip (0.03% на сторону). Биржевой сбор не включён отдельно.
 - **Индикаторы 1d**: нужно >=200 свечей; у некоторых тикеров меньше (warning, пропускаются).
@@ -237,7 +239,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | I | ML (CatBoost/LightGBM) | Не начато |
 | J | Отчёт анализа A/B теста (signal_source x window x rr x entry) | Ожидает (накопить закрытые сделки) |
 | O | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Готово (Эпик #39) |
-| P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, alerting, панель управления) | Backend-исполнение #59-#62, Telegram #64, monitoring panel #65 и анализ live-вселенной #66 готовы |
+| P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, alerting, панель управления) | Backend-исполнение #59-#62, Telegram #64, monitoring panel #65, live-вселенная #66, логи отказов #73 и первая sandbox canary #74 готовы |
 
 ## 9. Важные замечания
 
@@ -284,7 +286,7 @@ Live-проверка 2026-08-16: оператор открыл sandbox-счёт
 
 ## 13. Sandbox live executor
 
-`backend/app/analytics/live_executor.py` реализует `LiveExecutor` без изменений `StrategyEvaluator`. При инициализации он пересекает тикеры locked paper-стратегии с `get_live_trading_universe()` (задача #66: SBER, LKOH, RUAL, NVTK, GAZP), чтобы sandbox-ордера оставались на именах со свежим стаканом. Для каждого тикера он загружает активную заблокированную стратегию и 4h-контекст, передаёт последнюю закрытую строку из `online_candles_1min` в `check_entry` и до любого обращения к брокеру применяет обязательный фильтр свежего imbalance. Прошедший BUY проверяет свободные RUB, рассчитывает размер через `calculate_position_size`, отправляет sandbox market-ордер и сохраняет broker IDs и состояние в `trading.live_positions`.
+`backend/app/analytics/live_executor.py` реализует `LiveExecutor` без изменений `StrategyEvaluator`. При инициализации он пересекает тикеры locked paper-стратегии с `get_live_trading_universe()` (задача #66: SBER, LKOH, RUAL, NVTK, GAZP), чтобы sandbox-ордера оставались на именах со свежим стаканом. Для каждого тикера он загружает активную заблокированную стратегию и 4h-контекст, передаёт последнюю закрытую строку из `online_candles_1min` в `check_entry` и до любого обращения к брокеру применяет обязательный фильтр свежего imbalance. Прошедший BUY проверяет свободные RUB, рассчитывает размер через `calculate_position_size`, отправляет sandbox market-ордер и сохраняет broker IDs и состояние в `trading.live_positions`. Каждый отказ BUY пишется одной структурированной строкой с тикером, стабильным кодом `reason` и релевантными числами; тишина в `executor.log` означает, что `StrategyEvaluator` не дал BUY, а не то, что фильтр мёртв. Read-only preflight — в `live_executor_preflight.py`; runbook первой сессии — handover §19.
 
 Take-profit сразу выставляется как ожидающий sell-limit. Stop-loss намеренно реализован как синтетический триггер: sell-limit ниже текущего рынка исполнился бы сразу, поэтому executor ждёт, когда текущая цена брокера достигнет stop, отменяет take и только затем выставляет stop sell-limit по наблюдаемой цене. Сверка позиций опрашивает `get_positions()`; исчезновение позиции после take или сработавшего stop закрывает строку БД и рассчитывает PnL. Внешний SELL отменяет защитные заявки и закрывает позицию sandbox market-ордером.
 

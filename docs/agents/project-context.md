@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-17 (Issues #59-#66 Live Trading Infrastructure). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-19 (Issues #73-#74 sandbox canary on top of #59-#66). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -49,6 +49,7 @@ trading-terminal/
 │ │ │ ├── trading_config.py # SINGLE SOURCE OF TRUTH: universe, live top-5, strategies, live risk policy
 │ │ │ ├── position_sizer.py # Hybrid risk/concentration sizing + lot rounding
 │ │ │ ├── live_executor.py # Sandbox execution, protection, reconciliation, shutdown
+│ │ │ ├── live_executor_preflight.py # Read-only checks before a sandbox canary
 │ │ │ ├── online_data.py # Streaming: 1min candles + order book -> online_* tables
 │ │ │ ├── orderbook_imbalance.py # Bid/ask depth ratio + mandatory live filter
 │ │ │ ├── online_signals.py # Online signal engine (paper trading, A/B arms)
@@ -214,6 +215,7 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 - **Active paper strategy**: `test_20260731` (id=36 in `trading.strategies`, `in_paper_test=true`, `locked=true`). Config: levels_reversal (4h, swing+impulse, window 10, body 0.7, impulse 1.5, zone 0.5) + signal_4h_buy, confirm [10], RR 1:2, commission 0.06%. Universe: 28 tickers from run_params. Verified: 72 signals emitted, 62 positions opened, first closed trade PnL +0.77%. Previous validated strategy `levels_reversal_4hbuy` remains in trading_config.py as reference.
 - **Legacy pattern-matrix backtest**: rule-based strategies NOT profitable after commission on MOEX top-3 over 2 years (all PF < 1). Superseded by the levels approach.
 - **Universe**: top-15 by PF (`trading_universe`) remains the paper/data-refresh universe via `get_trading_universe()`. Sandbox live execution uses Issue #66 top-5 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP via `get_live_trading_universe()`. Paper `paper_positions` was empty at the #66 snapshot (equity flat at 100,000 RUB), so the live list is backtest + liquidity + ATR, not forward PnL.
+- **Sandbox canary (Issue #74, 2026-08-19)**: `LiveExecutor` initialized the top-5 on locked strategy `test_20260731` and submitted a sandbox market BUY on RUAL (37 lots at 26.73, take 28.02, stop 26.19). The next signal for the same ticker was skipped with `reason=duplicate_ticker`. Paper equity kept updating during the session. The runbook lives in handover §19.
 - **Session timezone**: candles timestamps are naive (assumed MSK for trading logic). session_only forced False in backtest v1.
 - **Commission**: 0.06% round-trip (0.03%/side). Exchange fee not included separately.
 - **1d indicators**: need >=200 candles; some tickers have fewer (warning, skipped).
@@ -237,7 +239,7 @@ Strategy Lab patterns (config-driven, AND logic): `levels_reversal` (4h support 
 | I | ML (CatBoost/LightGBM) | Not started |
 | J | A/B test analysis report (signal_source x window x rr x entry) | Pending (accumulate closed trades) |
 | O  | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Done (Epic #39) |
-| P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, alerting, control panel) | Backend execution #59-#62, Telegram #64, monitoring panel #65, and live-universe analysis #66 done |
+| P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, alerting, control panel) | Backend execution #59-#62, Telegram #64, monitoring panel #65, live-universe #66, skip-reason logging #73, and first sandbox canary #74 done |
 
 ## 9. Important Notes
 
@@ -284,7 +286,7 @@ Default limits are centralized in `trading_config.py` (`POSITION_SIZING`): 1% ri
 
 ## 13. Sandbox Live Executor
 
-`backend/app/analytics/live_executor.py` implements `LiveExecutor` without changing `StrategyEvaluator`. On initialize it intersects the locked paper-strategy tickers with `get_live_trading_universe()` (Issue #66: SBER, LKOH, RUAL, NVTK, GAZP) so sandbox orders stay on names that have a live order book. Per ticker it loads the active locked strategy and 4h context, feeds the latest closed row from `online_candles_1min` into `check_entry`, and applies the mandatory fresh imbalance filter before any broker call. A passing BUY checks free RUB cash, sizes through `calculate_position_size`, submits a sandbox market order, and persists broker IDs and lifecycle state in `trading.live_positions`.
+`backend/app/analytics/live_executor.py` implements `LiveExecutor` without changing `StrategyEvaluator`. On initialize it intersects the locked paper-strategy tickers with `get_live_trading_universe()` (Issue #66: SBER, LKOH, RUAL, NVTK, GAZP) so sandbox orders stay on names that have a live order book. Per ticker it loads the active locked strategy and 4h context, feeds the latest closed row from `online_candles_1min` into `check_entry`, and applies the mandatory fresh imbalance filter before any broker call. A passing BUY checks free RUB cash, sizes through `calculate_position_size`, submits a sandbox market order, and persists broker IDs and lifecycle state in `trading.live_positions`. Each rejected BUY is logged as one structured line with ticker, a stable `reason` code, and the relevant numbers; silence in `executor.log` means `StrategyEvaluator` produced no BUY, not a dead filter. Read-only preflight lives in `live_executor_preflight.py`; the first-session runbook is handover §19.
 
 The take-profit is submitted immediately as a resting sell-limit. The stop-loss is intentionally synthetic: a sell-limit below the current market would execute immediately, so the executor waits until the broker's current price reaches the stop, cancels the take, and then submits the stop sell-limit at the observed price. Position reconciliation polls `get_positions()`; disappearance after a take or triggered stop closes the DB row and calculates PnL. External SELL handling cancels protection and closes through a sandbox market order.
 
