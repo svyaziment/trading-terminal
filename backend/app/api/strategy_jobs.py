@@ -41,6 +41,14 @@ class RunIn(BaseModel):
     date_to: Optional[str] = None
 
 
+class PatternPreviewIn(BaseModel):
+    ticker: str
+    pattern_id: str
+    params: Dict[str, Any] = {}
+    date_from: str
+    date_to: str
+
+
 def _validate_name(name: str) -> None:
     if not NAME_RE.match(name):
         raise HTTPException(status_code=400, detail="name must be English letters/digits/_/- (1-64 chars)")
@@ -186,10 +194,30 @@ def register_routes(app: FastAPI) -> None:
 
 
     @app.get("/api/patterns")
-
-
     def get_patterns():
         return {"patterns": list_patterns()}
+
+    @app.post("/api/patterns/preview")
+    def preview_pattern(payload: PatternPreviewIn):
+        from app.analytics.pattern_preview import preview_pattern as build_preview
+
+        ticker = (payload.ticker or "").strip().upper()
+        if not ticker:
+            raise HTTPException(status_code=400, detail="ticker is required")
+        if not payload.date_from or not payload.date_to:
+            raise HTTPException(status_code=400, detail="date_from and date_to are required")
+
+        db = _get_db()
+        result = build_preview(
+            db,
+            ticker=ticker,
+            pattern_id=payload.pattern_id,
+            params=payload.params,
+            date_from=payload.date_from,
+            date_to=payload.date_to,
+        )
+        return _json_safe(result)
+
     @app.get("/api/strategies/plugins")
     def strategy_plugins():
         from app.analytics.strategies.registry import get_registry, register_default_strategies
