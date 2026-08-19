@@ -23,7 +23,6 @@ import type {
   FullSampleMetrics,
   WalkforwardMetrics,
   PatternDef,
-  PatternParam,
 } from "../types";
 
 // issue-12 temporary compatibility helpers (UI modal is #15)
@@ -49,13 +48,66 @@ export function patternsFromArray(patterns: unknown): Record<string, Record<stri
 }
 
 
-const PATTERNS = [
-  { id: "levels_reversal", label: "Levels Reversal", hint: "цена в зоне 4h + подтверждение" },
-  { id: "signal_4h_buy", label: "4h BUY signal", hint: "активный BUY из trading.signals" },
-  { id: "rsi_oversold", label: "RSI oversold", hint: "RSI-14 < 30" },
-  { id: "macd_bullish", label: "MACD bullish", hint: "гистограмма > 0" },
-  { id: "bb_lower", label: "BB lower", hint: "close ниже нижней полосы" },
+/** Offline-only constructor surface. Never used to filter a live GET /api/patterns payload. */
+const FALLBACK_PATTERNS: PatternDef[] = [
+  { id: "levels_reversal", label: "Levels Reversal", hint: "цена в зоне 4h + подтверждение", category: "levels", params: [] },
+  { id: "signal_4h_buy", label: "4H Buy", hint: "активный BUY из trading.signals", category: "signal", params: [] },
 ];
+
+const PATTERN_CATEGORY_ORDER = [
+  "levels",
+  "signal",
+  "trend",
+  "price_action",
+  "volume",
+  "mean_reversion",
+  "breakout",
+] as const;
+
+const PATTERN_CATEGORY_LABELS_RU: Record<string, string> = {
+  levels: "Уровни",
+  signal: "Сигнал",
+  trend: "Тренд",
+  price_action: "Ценовое действие",
+  volume: "Объём",
+  mean_reversion: "Возврат к среднему",
+  breakout: "Пробой",
+  other: "Другие",
+};
+
+type PatternGroup = { category: string; label: string; patterns: PatternDef[] };
+
+function groupPatternsByCategory(defs: PatternDef[]): PatternGroup[] {
+  const buckets = new Map<string, PatternDef[]>();
+  for (const def of defs) {
+    const category = def.category || "other";
+    const list = buckets.get(category);
+    if (list) list.push(def);
+    else buckets.set(category, [def]);
+  }
+  const groups: PatternGroup[] = [];
+  const seen = new Set<string>();
+  for (const category of PATTERN_CATEGORY_ORDER) {
+    const patterns = buckets.get(category);
+    if (!patterns?.length) continue;
+    groups.push({
+      category,
+      label: PATTERN_CATEGORY_LABELS_RU[category] ?? category,
+      patterns,
+    });
+    seen.add(category);
+  }
+  for (const [category, patterns] of buckets) {
+    if (seen.has(category) || !patterns.length) continue;
+    groups.push({
+      category,
+      label: PATTERN_CATEGORY_LABELS_RU[category] ?? category,
+      patterns,
+    });
+  }
+  return groups;
+}
+
 const DEPTHS = [
   { id: "express", label: "Экспресс", hint: "6 мес · 3 тикера" },
   { id: "serious", label: "Серьёзный", hint: "6 мес · 15 · WF" },
@@ -196,14 +248,15 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
     return Array.isArray(w) ? (w as number[]) : ([] as number[]);
   }, [patternConfigs, registry, levelsOn]);
 
-  const patternDefs = useMemo(() => {
-    if (registry.length > 0) {
-      return registry.map((d) => ({ id: d.id, label: d.label, hint: d.hint ?? "", params: d.params }));
-    }
-    return PATTERNS.map((p) => ({ id: p.id, label: p.label, hint: p.hint, params: [] as PatternParam[] }));
-  }, [registry]);
+  const patternDefs = useMemo<PatternDef[]>(
+    () => (registry.length > 0 ? registry : FALLBACK_PATTERNS),
+    [registry],
+  );
+  const patternGroups = useMemo(() => groupPatternsByCategory(patternDefs), [patternDefs]);
 
-  const settingsDef = settingsTarget ? registry.find((d) => d.id === settingsTarget) ?? null : null;
+  const settingsDef = settingsTarget
+    ? registry.find((d) => d.id === settingsTarget) ?? patternDefs.find((d) => d.id === settingsTarget) ?? null
+    : null;
 
   const config: StrategyConfig = useMemo(() => {
     const full: Record<string, Record<string, unknown>> = {};
@@ -809,8 +862,13 @@ const progressPct =
           </Section>
 
           <Section title="Паттерны" badge={enabledIds.length > 1 ? "AND" : String(enabledIds.length)}>
-            <div className="space-y-1.5">
-              {patternDefs.map((p) => {
+            <div className="space-y-3">
+              {patternGroups.map((group) => (
+                <div key={group.category} className="space-y-1.5">
+                  <h4 className="font-display text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    {group.label}
+                  </h4>
+                  {group.patterns.map((p) => {
                 const on = p.id in patternConfigs;
                 const tuned = on && isTuned(p.id);
                 return (
@@ -867,8 +925,10 @@ const progressPct =
                       </button>
                     )}
                   </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              ))}
             </div>
             {enabledIds.length > 1 && (
               <p className="mt-2 rounded border border-amber-700/40 bg-amber-500/10 px-2 py-1 text-[10px] text-amber-200">

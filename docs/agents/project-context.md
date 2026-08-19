@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-19 (Issue #81 SignalEngine Lab E2E + docs). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-19 (Issue #82 Strategy Lab pattern grouping). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -215,7 +215,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 - `levels_reversal` — required; 4h support zone + confirmation; defines stop/take.
 - `signal_4h_buy` — 4h BUY aggregate from `trading.signals` (TF fixed; not refactored).
 - `rsi_oversold` / `macd_bullish` / `bb_lower` — 1min indicator AND-filters. `rsi_oversold` is not `MR_RSI_Reversal`.
-- The ten SignalEngine ids above — AND-filters on the last closed HTF bar via inline `BasePattern.evaluate` on `trading.indicators`. Schemas come from `GET /api/patterns` (`timeframe` select 30min/1h/2h/4h/1d/1w, default 4h, plus 4h numeric defaults). Timeframe is set in the pattern settings modal. UI grouping of chips is #82.
+- The ten SignalEngine ids above — AND-filters on the last closed HTF bar via inline `BasePattern.evaluate` on `trading.indicators`. Schemas come from `GET /api/patterns` (`timeframe` select 30min/1h/2h/4h/1d/1w, default 4h, plus 4h numeric defaults). Timeframe is set in the pattern settings modal. `StrategyLab.tsx` groups chips by API `category` (RU titles: levels / signal / trend / price_action / volume / mean_reversion / breakout). It does not hardcode the ten SignalEngine ids; the two-chip fallback is only used when `GET /api/patterns` is empty.
 
 ## 7. Known Issues & Status
 
@@ -247,7 +247,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | J | A/B test analysis report (signal_source x window x rr x entry) | Pending (accumulate closed trades) |
 | O  | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Done (Epic #39) |
 | P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, alerting, control panel) | Backend execution #59-#62, Telegram #64, monitoring panel #65, live-universe #66, skip-reason logging #73, and first sandbox canary #74 done |
-| Q | SignalEngine patterns in Strategy Lab (Epic #78) | #79–#81 done (evaluator, registry schemas, E2E/docs); #82 UI grouping next |
+| Q | SignalEngine patterns in Strategy Lab (Epic #78) | #79–#82 done (evaluator, registry schemas, E2E/docs, Lab UI grouping) |
 
 ## 9. Important Notes
 

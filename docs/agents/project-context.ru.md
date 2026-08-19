@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-19 (задача #81 E2E и документация SignalEngine Lab; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-19 (задача #82 группировка паттернов Strategy Lab; синхронизировано с английской версией). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -215,7 +215,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 - `levels_reversal` — обязателен; 4h зона поддержки + подтверждение; задаёт stop/take.
 - `signal_4h_buy` — агрегат 4h BUY из `trading.signals` (ТФ фиксирован; не рефакторится).
 - `rsi_oversold` / `macd_bullish` / `bb_lower` — 1min индикаторные AND-фильтры. `rsi_oversold` не является `MR_RSI_Reversal`.
-- Десять id SignalEngine выше — AND-фильтры на последней закрытой HTF-свече через inline `BasePattern.evaluate` по `trading.indicators`. Схемы из `GET /api/patterns` (select `timeframe` 30min/1h/2h/4h/1d/1w, по умолчанию 4h, плюс числовые дефолты 4h). Таймфрейм задаётся в модалке настроек. Группировка чипов в UI — задача #82.
+- Десять id SignalEngine выше — AND-фильтры на последней закрытой HTF-свече через inline `BasePattern.evaluate` по `trading.indicators`. Схемы из `GET /api/patterns` (select `timeframe` 30min/1h/2h/4h/1d/1w, по умолчанию 4h, плюс числовые дефолты 4h). Таймфрейм задаётся в модалке настроек. `StrategyLab.tsx` группирует чипы по `category` из API (RU-заголовки: levels / signal / trend / price_action / volume / mean_reversion / breakout). Десять id SignalEngine не хардкодятся; fallback из двух чипов используется только если `GET /api/patterns` пуст.
 
 ## 7. Известные проблемы и статус
 
@@ -247,7 +247,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | J | Отчёт анализа A/B теста (signal_source x window x rr x entry) | Ожидает (накопить закрытые сделки) |
 | O | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Готово (Эпик #39) |
 | P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, alerting, панель управления) | Backend-исполнение #59-#62, Telegram #64, monitoring panel #65, live-вселенная #66, логи отказов #73 и первая sandbox canary #74 готовы |
-| Q | Паттерны SignalEngine в Strategy Lab (эпик #78) | #79–#81 готовы (evaluator, схемы registry, E2E/docs); далее группировка UI #82 |
+| Q | Паттерны SignalEngine в Strategy Lab (эпик #78) | #79–#82 готовы (evaluator, схемы registry, E2E/docs, группировка UI Lab) |
 
 ## 9. Важные замечания
 
