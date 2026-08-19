@@ -123,3 +123,27 @@ def test_get_pattern_defaults():
     assert defaults["level_timeframe"] == "4h"
     assert defaults["confirm_windows"] == [10]
     assert get_pattern_defaults("nonexistent") == {}
+
+
+def test_signal_engine_timeframe_contract():
+    from app.analytics.pattern_registry import (
+        DEFAULT_SIGNAL_TIMEFRAME,
+        SIGNAL_ENGINE_PATTERN_IDS,
+        SIGNAL_ENGINE_TIMEFRAMES,
+        SIGNAL_PATTERN_TIMEFRAME_PARAM,
+        apply_signal_pattern_defaults,
+        is_signal_engine_pattern,
+        resolve_signal_timeframe,
+    )
+
+    assert SIGNAL_PATTERN_TIMEFRAME_PARAM["key"] == "timeframe"
+    assert SIGNAL_PATTERN_TIMEFRAME_PARAM["options"] == list(SIGNAL_ENGINE_TIMEFRAMES)
+    assert SIGNAL_PATTERN_TIMEFRAME_PARAM["default"] == DEFAULT_SIGNAL_TIMEFRAME
+    assert is_signal_engine_pattern("PA_Hammer")
+    assert not is_signal_engine_pattern("rsi_oversold")
+    assert not is_signal_engine_pattern("signal_4h_buy")
+    assert resolve_signal_timeframe("1h") == "1h"
+    assert resolve_signal_timeframe("1min") == "4h"
+    assert apply_signal_pattern_defaults("PA_Hammer", {})["timeframe"] == "4h"
+    assert "timeframe" not in apply_signal_pattern_defaults("rsi_oversold", {"threshold": 30})
+    assert len(SIGNAL_ENGINE_PATTERN_IDS) == 10

@@ -52,6 +52,9 @@ class MarketContext:
     # Multi-window confirmation series: list of (timestamps, closes)
     confirm_series: List[Tuple] = field(default_factory=list)
 
+    # SignalEngine AND-filters (Issue #79): precomputed HTF BUY timestamps
+    signal_filter_series: List = field(default_factory=list)
+
     # Volume data
     volume_current: Optional[float] = None
     volume_sma_20: Optional[float] = None

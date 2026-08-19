@@ -47,6 +47,7 @@ class LevelsReversalStrategy(StrategyPlugin):
             atr_by_ts=context.atr_by_ts,
             buy_ts=context.buy_ts,
             confirm_series=context.confirm_series,
+            signal_filter_series=getattr(context, "signal_filter_series", None),
         )
         self._context_loaded = True
 

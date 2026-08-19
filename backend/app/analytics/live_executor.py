@@ -226,6 +226,7 @@ class LiveExecutor:
                 context["atr_by_ts"],
                 context["buy_ts"],
                 [],
+                context.get("signal_filter_series") or [],
             )
             self.evaluators[ticker] = evaluator
             self.last_processed[ticker] = None
@@ -613,6 +614,7 @@ class LiveExecutor:
                     ts_4h=context["ts_4h"],
                     atr_by_ts=context["atr_by_ts"],
                     buy_ts=context["buy_ts"],
+                    signal_filter_series=context.get("signal_filter_series") or [],
                 )
 
     @staticmethod

@@ -7,6 +7,9 @@ Patterns (AND logic): all selected patterns must fire on the same 1min bar for e
   - rsi_oversold    : RSI-14 < 30 (computed on 1min close).
   - macd_bullish    : MACD histogram > 0 (computed on 1min close).
   - bb_lower        : close below Bollinger(20,2) lower band (computed on 1min close).
+  - SignalEngine ids: AND-filters on last closed HTF bar (inline evaluate, Issue #79).
+                      ``timeframe`` select: 30min, 1h, 2h, 4h, 1d, 1w. Not a
+                      trading.signals lookup; not a replacement for rsi_oversold.
 
 Config keys:
   patterns        : list[str]   (AND). If 'levels_reversal' absent, stop/take undefined -> no trades.
@@ -166,7 +169,8 @@ def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to
     # Unified engine (single brain shared with paper/live trading)
     ev = StrategyEvaluator(ctx['config'])
     ev.load_context(levels=ctx['levels'], ts_4h=ctx['ts_htf'], atr_by_ts=ctx['atr_by_ts'],
-                    buy_ts=ctx['buy_ts'], confirm_series=ctx['confirm_series'])
+                    buy_ts=ctx['buy_ts'], confirm_series=ctx['confirm_series'],
+                    signal_filter_series=ctx.get('signal_filter_series'))
 
     trades = []
     for i in range(len(df_1m)):
