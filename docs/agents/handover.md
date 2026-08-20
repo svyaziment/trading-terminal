@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-19 (Issue #88 pattern preview API). Companion to project-context.md.
+Last refreshed: 2026-08-20 (Issue #97 ALRS resistance-zone veto). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -63,6 +63,7 @@ See project-context.md section 9.
 - **JSONB as string**: DBManager returns JSONB columns as Python-repr strings, not dicts. Normalize with `_to_dict` (json.loads, then ast.literal_eval fallback).
 - **Backtest matrix runtime**: full matrix takes ~10-15 min. Use quick=true for liveness.
 - **Reports mount**: backend mounts `./reports` (docker-compose). Strategy runs write `reports/strategy-lab/last_run.json` - send it on any Strategy Lab error.
+- **Resistance-zone veto (Issue #97)**: `levels_reversal` must not enter when the 1min close sits in an active resistance zone, even if `nearest_level_at(..., 'support')` returns a valid support and the 0.5×ATR extension covers the fill. That is a structural defect, not role-reversal (ALRS paper #711: fill 19.80 inside impulse resistance 19.67). Guard: `overlapping_resistance_zone_at` in `StrategyEvaluator.check_entry`. Do not rewrite locked `test_20260731`. Unit: `cd backend && python -m pytest -q tests/test_resistance_zone_veto.py`.
 
 ## 11. Collaboration Protocol (agents)
 

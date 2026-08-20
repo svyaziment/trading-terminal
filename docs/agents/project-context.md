@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-19 (Issue #88 pattern preview API). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-20 (Issue #97 ALRS resistance-zone veto). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -40,7 +40,7 @@ trading-terminal/
 │ │ │ ├── data_refresher.py # Background: MOEX 1min + aggregation + indicators + signals
 │ │ │ ├── backtest_engine.py # Deterministic backtest engine (legacy pattern matrix)
 │ │ │ ├── backtest_models.py # Backtest contract (BacktestParams, ExitRule)
-│ │ │ ├── levels_engine.py # 4h support/resistance levels + zones
+│ │ │ ├── levels_engine.py # 4h support/resistance levels + zones; overlapping_resistance_zone_at veto (#97)
 │ │ │ ├── levels_backtest.py # Levels backtest (entry modes, confirmation, RR)
 │ │ │ ├── levels_backtest_db.py # Levels backtest persistence
 │ │ │ ├── levels_refresher.py # Levels refresh
@@ -81,6 +81,7 @@ trading-terminal/
 │ ├── migrations/ # Idempotent PostgreSQL migrations (including live_positions)
 │ └── tests/
 │       ├── test_strategy_plugin.py    # Bit-for-bit regression test (levels_reversal)
+│       ├── test_resistance_zone_veto.py # Issue #97 ALRS #711 opposing-zone guard
 │       └── test_portfolio_simulator.py # Portfolio simulator unit + integration tests
 ├── frontend/
 │ ├── src/
@@ -214,14 +215,15 @@ The Signals tab still generates the ten `BasePattern` classes below into `tradin
 | Price Action | PA_ThreeBlackCrows | Three black crows (bearish) |
 
 Strategy Lab patterns (config-driven, AND logic, same config for backtest / paper / live):
-- `levels_reversal` — required; 4h support zone + confirmation; defines stop/take.
+- `levels_reversal` — required; 4h support zone + confirmation; defines stop/take. Issue #97: `check_entry` rejects the bar when the 1min close sits in an active resistance zone (`overlapping_resistance_zone_at`); this is a defect, not role-reversal.
 - `signal_4h_buy` — 4h BUY aggregate from `trading.signals` (TF fixed; not refactored).
 - `rsi_oversold` / `macd_bullish` / `bb_lower` — 1min indicator AND-filters. `rsi_oversold` is not `MR_RSI_Reversal`.
 - The ten SignalEngine ids above — AND-filters on the last closed HTF bar via inline `BasePattern.evaluate` on `trading.indicators`. Schemas come from `GET /api/patterns` (`timeframe` select 30min/1h/2h/4h/1d/1w, default 4h, plus 4h numeric defaults). Timeframe is set in the pattern settings modal. `StrategyLab.tsx` groups chips by API `category` (RU titles: levels / signal / trend / price_action / volume / mean_reversion / breakout). It does not hardcode the ten SignalEngine ids; the two-chip fallback is only used when `GET /api/patterns` is empty.
 
 ## 7. Known Issues & Status
 
-- **Active paper strategy**: `test_20260731` (id=36 in `trading.strategies`, `in_paper_test=true`, `locked=true`). Config: levels_reversal (4h, swing+impulse, window 10, body 0.7, impulse 1.5, zone 0.5) + signal_4h_buy, confirm [10], RR 1:2, commission 0.06%. Universe: 28 tickers from run_params. Verified: 72 signals emitted, 62 positions opened, first closed trade PnL +0.77%. Previous validated strategy `levels_reversal_4hbuy` remains in trading_config.py as reference.
+- **Active paper strategy**: `test_20260731` (id=36 in `trading.strategies`, `in_paper_test=true`, `locked=true`). Config: levels_reversal (4h, swing+impulse, window 10, body 0.7, impulse 1.5, zone 0.5) + signal_4h_buy, confirm [10], RR 1:2, commission 0.06%. Universe: 28 tickers from run_params. Verified: 72 signals emitted, 62 positions opened, first closed trade PnL +0.77%. Previous validated strategy `levels_reversal_4hbuy` remains in trading_config.py as reference. Locked DB row is not rewritten by Issue #97.
+- **Issue #97 (ALRS paper #711, 2026-08-20)**: `levels_reversal` printed a support entry at 19.80 while price sat in impulse resistance 19.67 [19.40, 19.94]. `nearest_level_at(..., 'support')` is one-sided; the 0.5×ATR support extension then passed the fill. Guard: `overlapping_resistance_zone_at` vetoes `StrategyEvaluator.check_entry`. Case write-up: `docs/strategy/levels-reversal-strategy.md` §10. Test: `tests/test_resistance_zone_veto.py`.
 - **Legacy pattern-matrix backtest**: rule-based strategies NOT profitable after commission on MOEX top-3 over 2 years (all PF < 1). Superseded by the levels approach.
 - **Universe**: top-15 by PF (`trading_universe`) remains the paper/data-refresh universe via `get_trading_universe()`. Sandbox live execution uses Issue #66 top-5 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP via `get_live_trading_universe()`. Paper `paper_positions` was empty at the #66 snapshot (equity flat at 100,000 RUB), so the live list is backtest + liquidity + ATR, not forward PnL.
 - **Sandbox canary (Issue #74, 2026-08-19)**: `LiveExecutor` initialized the top-5 on locked strategy `test_20260731` and submitted a sandbox market BUY on RUAL (37 lots at 26.73, take 28.02, stop 26.19). The next signal for the same ticker was skipped with `reason=duplicate_ticker`. Paper equity kept updating during the session. The runbook lives in handover §19.

@@ -1,8 +1,7 @@
 # Levels Reversal Strategy
 
-> Status: validated on SBER/GAZP/VTBR (2-year history). Prototype engine: `backend/app/analytics/levels_backtest.py`.
-> Production integration (DB persistence, matrix API) — in progress (task-078..080).
-> Last updated: 2026-07-26.
+> Status: validated on SBER/GAZP/VTBR (2-year history). Production brain: `StrategyEvaluator.check_entry`. Prototype: `backend/app/analytics/levels_backtest.py`.
+> Last refreshed: 2026-08-20 (Issue #97 ALRS resistance-zone veto).
 
 ## 1. Overview
 
@@ -24,6 +23,7 @@ This is the first strategy in the project that is **profitable after commission 
 3. **Reversal confirmation** (`confirm_tf`): the last **closed** higher-TF candle (5/10/30 min) closed **above** the support zone (`close > zone_upper`). This filters out "whipsaw" — false touches that hit the stop on the next bar.
 4. **Entry window:** 7:00–19:00 MSK (by 1min bar hour).
 5. **Risk-reward filter** (`risk_reward`, variant "a"): enter only if `(resistance − entry) ≥ risk_reward × (entry − stop) + commission_cost`. `risk_reward = 0` disables the filter.
+6. **Resistance-zone veto** (Issue #97): 1min close is **not** inside any active resistance zone `[zone_lower, zone_upper]`. This is not role-reversal. Buying inside resistance while the journal records a support stop is a defect (ALRS paper #711). `nearest_level_at(..., 'support')` stays one-sided; the veto is `overlapping_resistance_zone_at` in `levels_engine.py`, applied in `StrategyEvaluator.check_entry` (same path for backtest / paper / live).
 
 ### 2.3 Exit conditions
 - **Stop:** nearest support level below entry; triggered by 1min **low** (conservative fill at stop).
@@ -178,3 +178,50 @@ Tests whether the edge is **regime-independent** (not overfit to one market regi
 - 2025-H2 is a weak window for several tickers (SBER 0.74, MTSS 0.72, LKOH 0.87), but even there RUAL 2.46, PIKK 1.98, GAZP 1.56, SIBN 2.75 hold. Not a general collapse.
 - Small n per window (~15–50 trades) makes single-window PF noisy; the ≥3-of-4 criterion is the reliable signal.
 - **Conclusion:** the levels-reversal edge is stable across market regimes (bull/bear/flat 2024–2026), not overfit to one period.
+
+## 10. Case: ALRS paper #711 — entry inside a resistance zone (Issue #97)
+
+**Decision:** guard in `StrategyEvaluator.check_entry`. An entry whose 1min close sits in an active resistance zone is rejected. Role-reversal ("the old support became resistance, so buying here is fine") is **not** a rule of `levels_reversal`. Locked DB row `test_20260731` is unchanged.
+
+### Trade
+
+| Field | Value |
+|---|---|
+| `paper_positions.id` | 711 |
+| Ticker | ALRS |
+| Strategy | `test_20260731` (`levels_reversal` + `signal_4h_buy`, RR 1:2, confirm 10min) |
+| Entry | 2026-08-20 11:50:24 MSK @ **19.80** (market, 5 lots) |
+| Signal | `trading.alerts.id = 80`, `signal_source=imbalance`, px 19.79, imbalance 1.40 |
+| Stop / take | **19.61** / **20.90** |
+| Exit | 2026-08-20 12:01:00, `closed_stop`, **−10.09 RUB (−1.02%)**, 11 minutes |
+| Active 4h bar | 2026-08-20 08:00:00 (high 19.95; 4h BUY = `PA_Engulfing`) |
+
+Reconstruction: `build_levels` on `trading.candles_aggregated`, timeframe=4h, `swing_window=10`, `zone_atr=0.5`, impulse 0.7 / 1.5×ATR. ATR of the active 4h bar ≈ 0.5714.
+
+### The engine-named support is formally correct
+
+Impulse **green** 4h from **2026-07-27 08:00**: O 19.61 / H 20.43 / L 19.61 / C 20.27 (body/range 0.80, body 2.09×ATR). Per `detect_impulse_levels` a green candle → `type=support`, level = open. The bar is not a swing high/low. Age at entry: **24 days**.
+
+Support zone: **19.45–19.77**. Fill 19.80 is **outside** that zone. It only passes via the `zone_upper + 0.5×ATR` extension (to ~20.05) in `StrategyEvaluator.check_entry`.
+
+### The price was owned by a fresher resistance
+
+Nearest opposing level: impulse **resistance 19.67** from **2026-08-14 12:00** (open of a red 4h). Zone **19.40–19.94** covers fill 19.80. Distance to resistance **0.13** vs **0.19** to the chosen support.
+
+| Level | Type | Method | Defined | Zone | Dist. from 19.80 |
+|---|---|---|---|---|---|
+| 19.61 | support | impulse | 2026-07-27 08:00 | 19.45–19.77 | 0.19 |
+| 19.67 | resistance | impulse | 2026-08-14 12:00 | 19.40–19.94 | 0.13 |
+| 20.90 | resistance | swing | 2026-07-06 08:00 | 20.76–21.04 | 1.10 (take) |
+
+Broken swing supports 20.00 / 20.01 sit above the market (local ceiling). Intraday: high 19.95 at 11:30, entry on the pullback at 11:50, 12:00 bucket low 19.58 hit the stop.
+
+### Why `check_entry` / `nearest_level_at` let it through
+
+`nearest_level_at(..., 'support')` takes only `type=support` **below** price. Resistance below the market is never the stop and **does not veto** the entry, even when price is inside its zone. `nearest_level_at(..., 'resistance')` only searches **above** price, so 19.67 is skipped and take becomes 20.90. Old impulse levels are not invalidated by a newer opposite-side level nearby. The 0.5×ATR extension then prints a "support" entry that is structurally a buy into resistance.
+
+Journal (`support_level=19.61`) and strategy meaning ("enter at support") diverged. For `levels_reversal`, trade 711 is an **incorrect entry relative to current structure**. The type of 19.61 is not the bug; the missing opposing-zone veto is.
+
+### Rule going forward
+
+Entry in an active resistance zone while the claimed level is support is a **defect**, not "the role flipped". Guard: `overlapping_resistance_zone_at` in `levels_engine.py`, called from `StrategyEvaluator.check_entry` after the support-zone (plus 0.5×ATR) check. Native resistance zone only — the 0.5×ATR extension is not mirrored on the veto. Fixture / unit: `backend/tests/test_resistance_zone_veto.py` (`regression_match: true` between `StrategyEvaluator` and `LevelsReversalStrategy` on this geometry).

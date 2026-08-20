@@ -28,7 +28,7 @@ from __future__ import annotations
 import bisect
 import pandas as pd
 
-from app.analytics.levels_engine import nearest_level_at
+from app.analytics.levels_engine import nearest_level_at, overlapping_resistance_zone_at
 from app.analytics.signal_pattern_filters import (
     enabled_signal_filters,
     signal_engine_filters_pass,
@@ -139,6 +139,11 @@ class StrategyEvaluator:
         zl, zu = sup['zone_lower'], sup['zone_upper']
         atr_val = float(self.atr_by_ts.get(a4, 0.0) or 0.0)
         if not ((zl <= price <= zu) or (zu < price <= zu + 0.5 * atr_val)):
+            return None
+        # Issue #97: veto if price sits in an opposing resistance zone.
+        # Not role-reversal. Buying inside resistance while the journal records
+        # a support stop is a structural defect (ALRS paper #711).
+        if overlapping_resistance_zone_at(self.levels, a4, price) is not None:
             return None
         # multi-window confirmation (AND)
         for times, closes in self.confirm_series:
