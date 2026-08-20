@@ -8,6 +8,7 @@ Defines horizontal levels on a higher timeframe (e.g. 4h) using two methods:
 Rolling window, NO look-ahead: a swing level defined on bar i is available only from
 bar i+window (after confirmation); an impulse level on bar i is available from bar i.
 Zones: level_price +- zone_atr_mult * ATR(at definition).
+Entry veto for an opposing zone is overlapping_resistance_zone_at (Issue #97).
 """
 from __future__ import annotations
 import numpy as np
@@ -83,8 +84,14 @@ def build_levels(df: pd.DataFrame, swing_windows=(10,), body_ratio: float = 0.7,
 
 def nearest_level_at(levels_df: pd.DataFrame, bar_ts, bar_price: float, level_type: str):
     """Nearest active level of type at bar_ts. support: nearest below price; resistance: nearest above.
-    Active = available_from_ts <= bar_ts. Returns dict or None."""
-    if levels_df.empty:
+    Active = available_from_ts <= bar_ts. Returns dict or None.
+
+    One-sided on purpose: resistance below the market is never the take, and
+    support above the market is never the stop. It therefore cannot veto an
+    entry that sits inside an opposing zone — use overlapping_resistance_zone_at
+    for that (Issue #97 / ALRS paper #711).
+    """
+    if levels_df is None or levels_df.empty:
         return None
     active = levels_df[(levels_df['available_from_ts'] <= bar_ts) & (levels_df['type'] == level_type)]
     if active.empty:
@@ -102,3 +109,34 @@ def nearest_level_at(levels_df: pd.DataFrame, bar_ts, bar_price: float, level_ty
     row = active.loc[idx]
     return {'level_price': float(row['level_price']), 'zone_lower': float(row['zone_lower']),
             'zone_upper': float(row['zone_upper']), 'method': row['method']}
+
+
+def overlapping_resistance_zone_at(levels_df: pd.DataFrame, bar_ts, bar_price: float):
+    """Active resistance whose native ATR zone contains bar_price, or None.
+
+    Includes resistance BELOW the market. That is the ALRS #711 collision:
+    fill 19.80 sat inside impulse resistance 19.67 [19.40, 19.94] while
+    nearest_level_at(..., 'support') still returned the older 19.61 support.
+
+    Native zone only ([zone_lower, zone_upper]); the 0.5×ATR support-side
+    extension in check_entry is NOT mirrored here. If several zones overlap,
+    the closest level_price wins.
+    """
+    if levels_df is None or levels_df.empty:
+        return None
+    active = levels_df[
+        (levels_df['available_from_ts'] <= bar_ts)
+        & (levels_df['type'] == 'resistance')
+        & (levels_df['zone_lower'] <= bar_price)
+        & (levels_df['zone_upper'] >= bar_price)
+    ]
+    if active.empty:
+        return None
+    idx = (active['level_price'] - bar_price).abs().idxmin()
+    row = active.loc[idx]
+    return {
+        'level_price': float(row['level_price']),
+        'zone_lower': float(row['zone_lower']),
+        'zone_upper': float(row['zone_upper']),
+        'method': row['method'],
+    }

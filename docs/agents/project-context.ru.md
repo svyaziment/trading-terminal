@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-19 (задача #88 API превью паттернов). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-20 (задача #97 вето зоны сопротивления ALRS). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -40,7 +40,7 @@ trading-terminal/
 │ │ │ ├── data_refresher.py # Background: MOEX 1min + агрегация + индикаторы + сигналы
 │ │ │ ├── backtest_engine.py # Детерминированный backtest engine (legacy pattern matrix)
 │ │ │ ├── backtest_models.py # Контракт backtest (BacktestParams, ExitRule)
-│ │ │ ├── levels_engine.py # 4h support/resistance levels + zones
+│ │ │ ├── levels_engine.py # 4h support/resistance levels + zones; overlapping_resistance_zone_at veto (#97)
 │ │ │ ├── levels_backtest.py # Levels backtest (entry modes, confirmation, RR)
 │ │ │ ├── levels_backtest_db.py # Сохранение levels backtest
 │ │ │ ├── levels_refresher.py # Обновление levels
@@ -81,6 +81,7 @@ trading-terminal/
 │ ├── migrations/ # Идемпотентные PostgreSQL-миграции, включая live_positions
 │ └── tests/
 │       ├── test_strategy_plugin.py    # Бит-в-бит регрессионный тест (levels_reversal)
+│       ├── test_resistance_zone_veto.py # Задача #97 гард ALRS #711 по зоне сопротивления
 │       └── test_portfolio_simulator.py # Unit + integration тесты portfolio simulator
 ├── frontend/
 │ ├── src/
@@ -214,14 +215,15 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | Ценовое действие | PA_ThreeBlackCrows | Три чёрные вороны (медвежий) |
 
 Паттерны Strategy Lab (config-driven, логика AND, один конфиг для бэктеста / paper / live):
-- `levels_reversal` — обязателен; 4h зона поддержки + подтверждение; задаёт stop/take.
+- `levels_reversal` — обязателен; 4h зона поддержки + подтверждение; задаёт stop/take. Задача #97: `check_entry` отклоняет бар, если 1min close лежит в активной зоне сопротивления (`overlapping_resistance_zone_at`); это дефект, а не role-reversal.
 - `signal_4h_buy` — агрегат 4h BUY из `trading.signals` (ТФ фиксирован; не рефакторится).
 - `rsi_oversold` / `macd_bullish` / `bb_lower` — 1min индикаторные AND-фильтры. `rsi_oversold` не является `MR_RSI_Reversal`.
 - Десять id SignalEngine выше — AND-фильтры на последней закрытой HTF-свече через inline `BasePattern.evaluate` по `trading.indicators`. Схемы из `GET /api/patterns` (select `timeframe` 30min/1h/2h/4h/1d/1w, по умолчанию 4h, плюс числовые дефолты 4h). Таймфрейм задаётся в модалке настроек. `StrategyLab.tsx` группирует чипы по `category` из API (RU-заголовки: levels / signal / trend / price_action / volume / mean_reversion / breakout). Десять id SignalEngine не хардкодятся; fallback из двух чипов используется только если `GET /api/patterns` пуст.
 
 ## 7. Известные проблемы и статус
 
-- **Активная paper-стратегия**: `test_20260731` (id=36 в `trading.strategies`, `in_paper_test=true`, `locked=true`). Конфиг: levels_reversal (4h, swing+impulse, window 10, body 0.7, impulse 1.5, zone 0.5) + signal_4h_buy, confirm [10], RR 1:2, комиссия 0.06%. Вселенная: 28 тикеров из run_params. Верифицирована: 72 сигнала сгенерировано, 62 позиции открыто, первая закрытая сделка PnL +0.77%. Предыдущая валидированная стратегия `levels_reversal_4hbuy` остаётся в trading_config.py как reference.
+- **Активная paper-стратегия**: `test_20260731` (id=36 в `trading.strategies`, `in_paper_test=true`, `locked=true`). Конфиг: levels_reversal (4h, swing+impulse, window 10, body 0.7, impulse 1.5, zone 0.5) + signal_4h_buy, confirm [10], RR 1:2, комиссия 0.06%. Вселенная: 28 тикеров из run_params. Верифицирована: 72 сигнала сгенерировано, 62 позиции открыто, первая закрытая сделка PnL +0.77%. Предыдущая валидированная стратегия `levels_reversal_4hbuy` остаётся в trading_config.py как reference. Locked-строка БД задачей #97 не перезаписывается.
+- **Задача #97 (ALRS paper #711, 2026-08-20)**: `levels_reversal` напечатал вход от поддержки по 19.80, пока цена сидела в импульсном сопротивлении 19.67 [19.40, 19.94]. `nearest_level_at(..., 'support')` односторонний; расширение зоны поддержки на 0.5×ATR пропустило fill. Гард: `overlapping_resistance_zone_at` ветирует `StrategyEvaluator.check_entry`. Разбор: `docs/strategy/levels-reversal-strategy.ru.md` §10. Тест: `tests/test_resistance_zone_veto.py`.
 - **Legacy pattern-matrix backtest**: rule-based стратегии НЕ прибыльны после комиссии на MOEX top-3 за 2 года (все PF < 1). Заменены подходом levels.
 - **Вселенная**: top-15 по PF (`trading_universe`) остаётся вселенной paper/data-refresh через `get_trading_universe()`. Sandbox live execution использует топ-5 из задачи #66 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP через `get_live_trading_universe()`. На снимке #66 таблица `paper_positions` была пуста (equity плоская 100 000 RUB), поэтому live-список построен по бэктесту, ликвидности и ATR, а не по forward PnL.
 - **Sandbox canary (задача #74, 2026-08-19)**: `LiveExecutor` инициализировал топ-5 на locked-стратегии `test_20260731` и отправил sandbox market BUY по RUAL (37 лотов по 26.73, take 28.02, stop 26.19). Следующий сигнал по тому же тикеру был пропущен с `reason=duplicate_ticker`. `paper_equity` продолжала писаться во время сессии. Runbook — в handover §19.
