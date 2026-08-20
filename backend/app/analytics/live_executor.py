@@ -897,6 +897,8 @@ class LiveExecutor:
 if __name__ == "__main__":
     import sys
 
-    logging.basicConfig(level=logging.INFO, stream=sys.stdout)
+    from app.core.msk_logging import configure_msk_logging
+
+    configure_msk_logging()
     duration = int(sys.argv[1]) if len(sys.argv) > 1 else None
     LiveExecutor().run(duration_minutes=duration)

@@ -20,6 +20,10 @@ from typing import Any, Dict
 import yaml
 from pydantic import BaseModel, Field
 
+from app.core.msk_logging import MskFormatter, install_msk_log_timestamps
+
+install_msk_log_timestamps()
+
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 CONFIG_DIR = ROOT_DIR / "config"
@@ -176,7 +180,7 @@ def setup_logger(name: str = "TradingTerminal") -> logging.Logger:
     if not logger.handlers:
         logger.setLevel(logging.INFO)
 
-        formatter = logging.Formatter(
+        formatter = MskFormatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
         )
 

@@ -58,7 +58,7 @@ See project-context.md section 9.
 - **close_pool()**: never call `db.close_pool()` in FastAPI handlers or long-lived background loops (process-wide pool). Only in standalone scripts that exit. In data_refresher the pool is kept alive across cycles.
 - **Heredoc loss**: large bash heredocs can lose blocks when copied in Git Bash. Always verify file size after creation (`wc -c`). If bytes < expected, re-copy.
 - **Docker rebuild**: after backend code changes, MUST rebuild (`docker compose up -d --build backend`).
-- **Unbuffered logging**: Background processes (start_processes.sh) use `python -u` + `logging.basicConfig(level=INFO, stream=sys.stdout)` for immediate log writing to files. Without this, logs are block-buffered and appear empty until the buffer fills.
+- **Unbuffered logging**: Background processes (start_processes.sh) use `python -u` + `configure_msk_logging()` for immediate log writing to files. Without this, logs are block-buffered and appear empty until the buffer fills. `asctime` is MSK (UTC+3), not container UTC. Do not set `TZ=Europe/Moscow` to achieve this: that would change `datetime.now()` and mix timezones in trading logic.
 - **JSON NaN**: pandas produces NaN/NaT that `json.dumps` rejects ("Out of range float values"). Sanitize API responses (see `_json_safe` in strategy_jobs.py / paper_trading_jobs.py) and cast timestamps to text in SQL (`created_at::text`).
 - **JSONB as string**: DBManager returns JSONB columns as Python-repr strings, not dicts. Normalize with `_to_dict` (json.loads, then ast.literal_eval fallback).
 - **Backtest matrix runtime**: full matrix takes ~10-15 min. Use quick=true for liveness.

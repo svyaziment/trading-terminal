@@ -263,6 +263,7 @@ def run_online_data(tickers: List[str] = None, duration_minutes: int = 60):
 
 if __name__ == '__main__':
     import sys
-    logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+    from app.core.msk_logging import configure_msk_logging
+    configure_msk_logging(stream=sys.stderr)
     duration = int(sys.argv[1]) if len(sys.argv) > 1 else 60
     run_online_data(duration_minutes=duration)

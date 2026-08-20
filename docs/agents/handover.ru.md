@@ -57,7 +57,7 @@
 - **Экранирование %% в SQL**: psycopg2 воспринимает `%` как начало placeholder. Экранируйте modulo как `%%`.
 - **close_pool()**: никогда не вызывайте `db.close_pool()` в FastAPI-хендлерах или долгоживущих фоновых циклах (pool на весь процесс). Только в standalone-скриптах, которые завершаются. В `data_refresher` pool живёт между циклами.
 - **Heredoc loss**: большие bash heredocs могут терять блоки при копировании в Git Bash. Всегда проверяйте размер файла после создания (`wc -c`). Если байт меньше ожидаемого, повторите копирование.
-- **Буферизация логов**: фоновые процессы (start_processes.sh) используют `python -u` + `logging.basicConfig(level=INFO, stream=sys.stdout)` для немедленной записи логов в файлы. Без этого логи блочно буферизуются и кажутся пустыми до заполнения буфера.
+- **Буферизация логов**: фоновые процессы (start_processes.sh) используют `python -u` + `configure_msk_logging()` для немедленной записи логов в файлы. Без этого логи блочно буферизуются и кажутся пустыми до заполнения буфера. `asctime` — МСК (UTC+3), не UTC контейнера. Не ставьте `TZ=Europe/Moscow` ради логов: это изменит `datetime.now()` и смешает пояса в торговой логике.
 - **Docker rebuild**: после изменений backend-кода ОБЯЗАТЕЛЬНО пересоберите (`docker compose up -d --build backend`).
 - **JSON NaN**: pandas создаёт NaN/NaT, которые `json.dumps` отклоняет ("Out of range float values"). Санируйте API-ответы (см. `_json_safe` в `strategy_jobs.py` / `paper_trading_jobs.py`) и приводите timestamp к тексту в SQL (`created_at::text`).
 - **JSONB as string**: DBManager возвращает JSONB-колонки как Python-repr строки, а не dict. Нормализуйте через `_to_dict` (json.loads, затем fallback ast.literal_eval).

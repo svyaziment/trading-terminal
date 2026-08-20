@@ -1,6 +1,9 @@
+from app.core.msk_logging import install_msk_log_timestamps
 from fastapi import FastAPI
 
 from app.api.market_data import register_routes
+
+install_msk_log_timestamps()
 
 
 def create_app() -> FastAPI:
