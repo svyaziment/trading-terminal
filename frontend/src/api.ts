@@ -240,6 +240,19 @@ export function getPatterns(): Promise<{ patterns: import("./types").PatternDef[
   return getJson<{ patterns: import("./types").PatternDef[] }>("/api/patterns");
 }
 
+export function postPatternPreview(payload: {
+  ticker: string;
+  pattern_id: string;
+  params: Record<string, unknown>;
+  date_from: string;
+  date_to: string;
+}) {
+  return postJson<import("./types").PatternPreviewResponse>(
+    "/api/patterns/preview",
+    payload
+  );
+}
+
 export function getStrategyPlugins(): Promise<{ plugins: string[] }> {
   return getJson<{ plugins: string[] }>("/api/strategies/plugins");
 }

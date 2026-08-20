@@ -17,6 +17,10 @@ export interface PatternSettingsModalProps {
   locked?: boolean;
   onSave: (values: Record<string, unknown>) => void;
   onClose: () => void;
+  /** Открыть превью на графике с текущим draft (Issue #90) */
+  onShowChart?: (draft: Record<string, unknown>) => void;
+  /** Ошибка окна превью (период Lab) — показывается в футере */
+  previewError?: string | null;
 }
 
 function clone(v: unknown): unknown {
@@ -170,7 +174,7 @@ function ParamField(props: {
 /* ---------- модалка ---------- */
 
 export default function PatternSettingsModal(props: PatternSettingsModalProps) {
-  const { def, values, locked, onSave, onClose } = props;
+  const { def, values, locked, onSave, onClose, onShowChart, previewError } = props;
   const isLocked = locked === true;
 
   const [draft, setDraft] = useState<Record<string, unknown>>(() => {
@@ -279,7 +283,13 @@ export default function PatternSettingsModal(props: PatternSettingsModalProps) {
         </div>
 
         {/* footer */}
-        <div className="flex items-center gap-2 border-t border-slate-800 bg-slate-950/50 px-4 py-3">
+        <div className="border-t border-slate-800 bg-slate-950/50 px-4 py-3">
+          {previewError && (
+            <div className="mb-2 rounded border border-amber-700/50 bg-amber-500/10 px-2.5 py-1.5 text-[10px] text-amber-200">
+              {previewError}
+            </div>
+          )}
+          <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={resetDefaults}
@@ -291,6 +301,15 @@ export default function PatternSettingsModal(props: PatternSettingsModalProps) {
               <span className="absolute -right-1 -top-1 h-2 w-2 rounded-full bg-amber-400 shadow-[0_0_6px_rgba(245,158,11,.6)]" />
             )}
           </button>
+          {onShowChart && (
+            <button
+              type="button"
+              onClick={() => onShowChart({ ...draft })}
+              className="rounded border border-violet-700/60 px-2.5 py-1.5 text-[11px] text-violet-200 transition hover:bg-violet-500/10"
+            >
+              Показать на графике
+            </button>
+          )}
           <div className="flex-1" />
           <button
             type="button"
@@ -307,6 +326,7 @@ export default function PatternSettingsModal(props: PatternSettingsModalProps) {
           >
             Применить
           </button>
+          </div>
         </div>
       </div>
     </div>,
