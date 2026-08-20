@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-20 (задача #97 вето зоны сопротивления ALRS). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-21 (задача #100 портфельный бэктест test_20260820). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -104,7 +104,8 @@ trading-terminal/
 │ └── package.json / tailwind.config.js / vite.config.js
 ├── analytics/ # Публикуемые аналитические результаты под контролем Git
 │ ├── issue-44-strategy-comparison/ # Notebook, отчёт, метрики и графики
-│ └── issue-66-live-universe/ # Рейтинг live top-5, отчёт и графики
+│ ├── issue-66-live-universe/ # Рейтинг live top-5, отчёт и графики
+│ └── issue-100-test-20260820-portfolio/ # Портфельный бэктест Lab-конфига test_20260820 (id=102) после вето #97
 ├── docs/
 │ ├── agents/ # project-context.md, handover.md (+ .ru versions), documentation-policy.md
 │ ├── strategy/ # levels-reversal-strategy.md, paper-trading.md, testing-rules.md, backtest-report.md (+ .ru)
@@ -224,6 +225,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 
 - **Активная paper-стратегия**: `test_20260731` (id=36 в `trading.strategies`, `in_paper_test=true`, `locked=true`). Конфиг: levels_reversal (4h, swing+impulse, window 10, body 0.7, impulse 1.5, zone 0.5) + signal_4h_buy, confirm [10], RR 1:2, комиссия 0.06%. Вселенная: 28 тикеров из run_params. Верифицирована: 72 сигнала сгенерировано, 62 позиции открыто, первая закрытая сделка PnL +0.77%. Предыдущая валидированная стратегия `levels_reversal_4hbuy` остаётся в trading_config.py как reference. Locked-строка БД задачей #97 не перезаписывается.
 - **Задача #97 (ALRS paper #711, 2026-08-20)**: `levels_reversal` напечатал вход от поддержки по 19.80, пока цена сидела в импульсном сопротивлении 19.67 [19.40, 19.94]. `nearest_level_at(..., 'support')` односторонний; расширение зоны поддержки на 0.5×ATR пропустило fill. Гард: `overlapping_resistance_zone_at` ветирует `StrategyEvaluator.check_entry`. Разбор: `docs/strategy/levels-reversal-strategy.ru.md` §10. Тест: `tests/test_resistance_zone_veto.py`.
+- **Задача #100 (портфель test_20260820, 2026-08-21)**: Lab-конфиг id=102 (`levels_reversal` + `signal_4h_buy`, `level_method=['swing']` без impulse) прогнан replay Issue #44 (50k/10k/5, volume rank, 2024-08-01…2026-08-20). После вето #97: equity 87 033.31 RUB, PnL +37 033.31 (+74.07%), 1721 сделка, PF 1.37, daily Max DD 7.16%, без GAME OVER. Бар ALRS 2026-08-20 11:50 @ 19.80 во входах отсутствует. Пакет: `analytics/issue-100-test-20260820-portfolio/`. Не lock/rename/overwrite этого конфига и locked `test_20260731`.
 - **Legacy pattern-matrix backtest**: rule-based стратегии НЕ прибыльны после комиссии на MOEX top-3 за 2 года (все PF < 1). Заменены подходом levels.
 - **Вселенная**: top-15 по PF (`trading_universe`) остаётся вселенной paper/data-refresh через `get_trading_universe()`. Sandbox live execution использует топ-5 из задачи #66 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP через `get_live_trading_universe()`. На снимке #66 таблица `paper_positions` была пуста (equity плоская 100 000 RUB), поэтому live-список построен по бэктесту, ликвидности и ATR, а не по forward PnL.
 - **Sandbox canary (задача #74, 2026-08-19)**: `LiveExecutor` инициализировал топ-5 на locked-стратегии `test_20260731` и отправил sandbox market BUY по RUAL (37 лотов по 26.73, take 28.02, stop 26.19). Следующий сигнал по тому же тикеру был пропущен с `reason=duplicate_ticker`. `paper_equity` продолжала писаться во время сессии. Runbook — в handover §19.
