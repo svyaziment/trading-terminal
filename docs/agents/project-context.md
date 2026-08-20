@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-19 (Issue #88 pattern preview API). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-20 (Issue #77 first full sandbox day). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -224,7 +224,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 - **Active paper strategy**: `test_20260731` (id=36 in `trading.strategies`, `in_paper_test=true`, `locked=true`). Config: levels_reversal (4h, swing+impulse, window 10, body 0.7, impulse 1.5, zone 0.5) + signal_4h_buy, confirm [10], RR 1:2, commission 0.06%. Universe: 28 tickers from run_params. Verified: 72 signals emitted, 62 positions opened, first closed trade PnL +0.77%. Previous validated strategy `levels_reversal_4hbuy` remains in trading_config.py as reference.
 - **Legacy pattern-matrix backtest**: rule-based strategies NOT profitable after commission on MOEX top-3 over 2 years (all PF < 1). Superseded by the levels approach.
 - **Universe**: top-15 by PF (`trading_universe`) remains the paper/data-refresh universe via `get_trading_universe()`. Sandbox live execution uses Issue #66 top-5 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP via `get_live_trading_universe()`. Paper `paper_positions` was empty at the #66 snapshot (equity flat at 100,000 RUB), so the live list is backtest + liquidity + ATR, not forward PnL.
-- **Sandbox canary (Issue #74, 2026-08-19)**: `LiveExecutor` initialized the top-5 on locked strategy `test_20260731` and submitted a sandbox market BUY on RUAL (37 lots at 26.73, take 28.02, stop 26.19). The next signal for the same ticker was skipped with `reason=duplicate_ticker`. Paper equity kept updating during the session. The runbook lives in handover §19.
+- **Sandbox canary (Issue #74, 2026-08-19)**: `LiveExecutor` initialized the top-5 on locked strategy `test_20260731` and submitted a sandbox market BUY on RUAL (37 lots at 26.73, take 28.02, stop 26.19). The next signal for the same ticker was skipped with `reason=duplicate_ticker`. Paper equity kept updating during the session. The runbook lives in handover §19. The 19.08 container later exited 255 (engine/host stop, not OOM); RUAL stayed `open` in DB and sandbox. Issue #77 leaves that leftover under monitor for the first full sandbox day (handover §22).
 - **Session timezone**: candles timestamps are naive (assumed MSK for trading logic). session_only forced False in backtest v1.
 - **Commission**: 0.06% round-trip (0.03%/side). Exchange fee not included separately.
 - **1d indicators**: need >=200 candles; some tickers have fewer (warning, skipped).
@@ -248,7 +248,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | I | ML (CatBoost/LightGBM) | Not started |
 | J | A/B test analysis report (signal_source x window x rr x entry) | Pending (accumulate closed trades) |
 | O  | Strategy Plugin System (StrategyPlugin ABC + registry + portfolio simulator) | Done (Epic #39) |
-| P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, alerting, control panel) | Backend execution #59-#62, Telegram #64, monitoring panel #65, live-universe #66, skip-reason logging #73, and first sandbox canary #74 done |
+| P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, alerting, control panel) | Backend execution #59-#62, Telegram #64, monitoring panel #65, live-universe #66, skip-reason logging #73, and first sandbox canary #74 done; first full sandbox day #77 in progress |
 | Q | SignalEngine patterns in Strategy Lab (Epic #78) | #79–#82 done (evaluator, registry schemas, E2E/docs, Lab UI grouping) |
 | R | Pattern chart preview in Lab + Signals (Epic #87) | #88 preview API + levels overlays done; #89–#92 pending |
 

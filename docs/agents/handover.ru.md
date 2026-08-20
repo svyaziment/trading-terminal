@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-19 (задача #88 API превью паттернов; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-20 (задача #77 первый полный sandbox-день; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -63,6 +63,7 @@
 - **JSONB as string**: DBManager возвращает JSONB-колонки как Python-repr строки, а не dict. Нормализуйте через `_to_dict` (json.loads, затем fallback ast.literal_eval).
 - **Backtest matrix runtime**: полная матрица занимает ~10-15 мин. Для liveness используйте quick=true.
 - **Reports mount**: backend монтирует `./reports` (docker-compose). Прогоны стратегий пишут `reports/strategy-lab/last_run.json` - отправляйте его при любой ошибке Strategy Lab.
+- **Backend Exit 255**: canary 19.08 и утренняя остановка 20.08 завершили `trading-terminal-backend` с ExitCode=255, OOMKilled=false и без traceback uvicorn. Это останов Docker engine/хоста, а не падение приложения. `restart: unless-stopped` поднимает uvicorn после возврата engine. Paper и LiveExecutor, запущенные через `docker compose exec`, всё равно умирают вместе с контейнером — их нужно перезапускать отдельно. Не вызывайте полный `start_processes.sh`, пока LiveExecutor должен жить: шаг 0 его убьёт. Для executor используйте `PRESERVE_PAPER_PROCESSES=1`, а отсутствующие paper-воркеры поднимайте по одному, как в §19.7 / §22.
 
 ## 11. Протокол сотрудничества (агенты)
 
@@ -210,3 +211,23 @@ ORDER BY id DESC LIMIT 20;
 - Неизвестный `pattern_id` → `status=error` без 500. Нет свечей (в т.ч. неподдерживаемый `2h`) → `status=empty` с понятным сообщением.
 - Остальные id паттернов → `status=unsupported` только со свечами, пока #91 не добавит renderer'ы. Frontend — #89–#92.
 - Unit-тест: `cd backend && python -m pytest -q tests/test_pattern_preview.py`.
+
+## 22. Первый полный sandbox-день (задача #77)
+
+Основная сессия MOEX **10:00–19:00 МСК**, около 540 минут. Это не ночной дефолт `DURATION_MINUTES=1200` и не `allow_real_trading=true`. Цель — LiveExecutor переживает полный кэш-день рядом с paper.
+
+Leftover с canary #74: в sandbox остался **RUAL 37 лотов** (вход 26.73, take 28.02, stop 26.19) со статусом `open` после Exit 255 контейнера 19.08. **Оставить под монитор** (`close_positions_on_shutdown=false`). Не закрывать руками. `LiveExecutor.monitor_positions()` восстановит take-limit, если `broker_take_id` пуст; новый BUY по RUAL ожидаемо уйдёт в `reason=duplicate_ticker`.
+
+1. Пересоберите backend: `docker compose up -d --build backend`. Убедитесь, что `http://localhost:8000/health` возвращает `status=ok` и `RestartPolicy=unless-stopped`.
+2. Поднимите paper-стек так, чтобы он покрывал 10:00–19:00, либо стартуйте его в 10:00 на те же 540 минут. Не останавливайте paper ради live. `trading.trading_universe` оставляйте на 15 строках.
+3. Непосредственно перед executor выполните:
+   `docker compose exec -T backend python -m app.analytics.live_executor_preflight`.
+   В 10:00 МСК пять стаканов могут быть ещё старыми; повторяйте, пока возраст ≤5 минут, затем запишите payload в Issue #77.
+4. Запустите executor на 540 минут без перезапуска paper:
+   `START_LIVE_EXECUTOR=1 PRESERVE_PAPER_PROCESSES=1 DURATION_MINUTES=540 ./start_processes.sh`.
+   Если paper ещё не запущен, сначала поднимите его с `DURATION_MINUTES=540` без `START_LIVE_EXECUTOR`, дождитесь preflight, затем `PRESERVE_PAPER_PROCESSES=1`.
+5. За первые пять минут в `reports/live-executor/executor.log` должна появиться строка `Sandbox LiveExecutor started` с числом тикеров топ-5. Следите за вкладкой Live Trading, `trading.live_positions` и тем, что `trading-terminal-backend` не падает. Telegram для live не требуется.
+6. Успех: стек дожил до конца окна **и** в логе есть ордера и/или коды `reason=`. Тишина при живом стриме допустима только если `StrategyEvaluator` не дал BUY.
+7. После остановки зафиксируйте в Issue #77: init-тикеры; отказы по `reason` и число BUY; `SELECT ticker, status, size_lots, entry_price, broker_order_id FROM trading.live_positions ORDER BY id DESC LIMIT 20;`; подтверждение, что `paper_equity` писалась весь день; дожил ли контейнер до `stopped cleanly`.
+
+Не меняйте locked-стратегию, RR, порог imbalance и `LIVE_UNIVERSE`. Никогда не включайте `allow_real_trading=true`.

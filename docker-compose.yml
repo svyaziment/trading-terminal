@@ -22,6 +22,8 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: trading-terminal-backend
+    # Issue #77: canary #74 died with Exit 255 / RestartPolicy=no (engine/host stop, not OOM).
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:

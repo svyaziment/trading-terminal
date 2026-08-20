@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-19 (Issue #88 pattern preview API). Companion to project-context.md.
+Last refreshed: 2026-08-20 (Issue #77 first full sandbox day). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -63,6 +63,7 @@ See project-context.md section 9.
 - **JSONB as string**: DBManager returns JSONB columns as Python-repr strings, not dicts. Normalize with `_to_dict` (json.loads, then ast.literal_eval fallback).
 - **Backtest matrix runtime**: full matrix takes ~10-15 min. Use quick=true for liveness.
 - **Reports mount**: backend mounts `./reports` (docker-compose). Strategy runs write `reports/strategy-lab/last_run.json` - send it on any Strategy Lab error.
+- **Backend Exit 255**: the 19.08 canary and the 20.08 morning stop both ended `trading-terminal-backend` with ExitCode=255, OOMKilled=false, and no uvicorn traceback. That is a Docker engine/host stop, not an application crash. `restart: unless-stopped` brings uvicorn back when the engine returns. Paper and LiveExecutor started via `docker compose exec` still die with the container; restart them separately. Do not rerun full `start_processes.sh` while LiveExecutor should stay up — Step 0 would kill it. Use `PRESERVE_PAPER_PROCESSES=1` for the executor only, and restart missing paper workers one-by-one as in §19.7 / §22.
 
 ## 11. Collaboration Protocol (agents)
 
@@ -210,3 +211,23 @@ Do not modify the locked strategy, RR, imbalance threshold, or `trading.trading_
 - Unknown `pattern_id` returns `status=error` without 500. Missing candles (including unsupported `2h`) returns `status=empty` with a clear message.
 - Other pattern ids return `status=unsupported` with candles only until #91 adds overlay renderers. Frontend chart work is #89–#92.
 - Unit test: `cd backend && python -m pytest -q tests/test_pattern_preview.py`.
+
+## 22. First full sandbox day (Issue #77)
+
+Main MOEX session **10:00–19:00 MSK**, about 540 minutes. This is not the overnight `DURATION_MINUTES=1200` default and not `allow_real_trading=true`. Goal: LiveExecutor survives the full cash session next to paper.
+
+Leftover from canary #74: sandbox **RUAL 37 lots** (entry 26.73, take 28.02, stop 26.19) stayed `open` after the 19.08 container Exit 255. **Leave it under monitor** (`close_positions_on_shutdown=false`). Do not flatten it by hand. `LiveExecutor.monitor_positions()` resumes the take-limit if `broker_take_id` is missing; a new RUAL BUY is expected to skip with `reason=duplicate_ticker`.
+
+1. Rebuild backend: `docker compose up -d --build backend`. Confirm `http://localhost:8000/health` returns `status=ok` and `RestartPolicy=unless-stopped`.
+2. Start the paper stack so it covers 10:00–19:00, or start it at 10:00 with the same 540-minute duration. Do not stop paper for live. Keep `trading.trading_universe` at 15 rows.
+3. Immediately before the executor, run:
+   `docker compose exec -T backend python -m app.analytics.live_executor_preflight`.
+   At 10:00 MSK the five books may still be stale; retry until they are ≤5 minutes old, then record the payload in Issue #77.
+4. Start a 540-minute executor without restarting paper:
+   `START_LIVE_EXECUTOR=1 PRESERVE_PAPER_PROCESSES=1 DURATION_MINUTES=540 ./start_processes.sh`.
+   If paper is not running yet, start it first with `DURATION_MINUTES=540` and no `START_LIVE_EXECUTOR`, wait for preflight, then use `PRESERVE_PAPER_PROCESSES=1`.
+5. Within five minutes, `reports/live-executor/executor.log` must contain `Sandbox LiveExecutor started` with the top-5 ticker count. Watch the Live Trading tab, `trading.live_positions`, and that `trading-terminal-backend` stays up. Telegram for live is not required.
+6. Success: the stack reaches the end of the window **and** the log contains orders and/or `reason=` codes. Silence with a live stream is acceptable only when `StrategyEvaluator` produced no BUY.
+7. After stop, record in Issue #77: init tickers; refusals by `reason` and BUY count; `SELECT ticker, status, size_lots, entry_price, broker_order_id FROM trading.live_positions ORDER BY id DESC LIMIT 20;`; evidence that `paper_equity` wrote through the day; whether the container stayed up until `stopped cleanly`.
+
+Do not change the locked strategy, RR, imbalance threshold, or `LIVE_UNIVERSE`. Never set `allow_real_trading=true`.
