@@ -242,7 +242,6 @@ def run_online_data(tickers: List[str] = None, duration_minutes: int = 60):
                         ticker = figi_to_ticker.get(figi)
                         if ticker:
                             save_candle(db, ticker, candle)
-                            logger.info(f"Candle {ticker}: close={money_to_float(candle.close)}")
                     # Handle order book
                     if hasattr(event, 'orderbook') and event.orderbook is not None:
                         ob = event.orderbook

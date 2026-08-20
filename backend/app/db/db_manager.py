@@ -260,7 +260,7 @@ class DBManager:
                 execute_values(cursor, query, values)
                 conn.commit()
 
-            logger.info(
+            logger.debug(
                 "%s rows inserted into %s",
                 len(values),
                 full_table_name,
@@ -281,7 +281,7 @@ class DBManager:
         df = df.copy()
 
         if df.empty:
-            logger.info("DataFrame is empty, nothing to insert into %s", full_table_name)
+            logger.debug("DataFrame is empty, nothing to insert into %s", full_table_name)
             return
 
         for col in df.columns:
@@ -308,7 +308,7 @@ class DBManager:
                 execute_values(cursor, query, values)
                 conn.commit()
 
-            logger.info(
+            logger.debug(
                 "%s rows inserted into %s",
                 len(values),
                 full_table_name,
