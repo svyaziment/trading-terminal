@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PatternDef, PatternParam } from "../types";
+import { paramHint, paramLabel, patternLabel, resolveLabLocale, type LabLocale } from "../patternLab";
+import { validateParam, validatePatternValues } from "../patternValidation";
 
 /* ==================================================================
    PatternSettingsModal — универсальная модалка настроек паттерна (issue #15)
@@ -8,6 +10,7 @@ import type { PatternDef, PatternParam } from "../types";
    Draft-семантика: «Применить» коммитит значения, «Отмена»/Escape/фон — нет.
    «Сбросить дефолты» возвращает значения из schema.default.
    locked=true → режим только чтения (стратегия в paper trading).
+   Issue #109: min/max показываются ошибкой (красный бордер), без тихого clamp при вводе.
    ================================================================== */
 
 export interface PatternSettingsModalProps {
@@ -21,13 +24,14 @@ export interface PatternSettingsModalProps {
   onShowChart?: (draft: Record<string, unknown>) => void;
   /** Ошибка окна превью (период Lab) — показывается в футере */
   previewError?: string | null;
+  locale?: LabLocale;
 }
 
 function clone(v: unknown): unknown {
   return v === undefined ? undefined : JSON.parse(JSON.stringify(v));
 }
 
-function defaultsOf(def: PatternDef): Record<string, unknown> {
+export function defaultsOf(def: PatternDef): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const p of def.params) {
     if (p.default !== undefined) out[p.key] = clone(p.default);
@@ -57,6 +61,12 @@ function toggleMulti(arr: unknown[], opt: string | number): unknown[] {
   return next;
 }
 
+function fieldClass(error: boolean): string {
+  return error
+    ? "border-rose-500 bg-slate-950 focus:border-rose-400"
+    : "border-slate-700 bg-slate-950 focus:border-sky-500";
+}
+
 /* ---------- поле одного параметра ---------- */
 
 function ParamField(props: {
@@ -64,35 +74,55 @@ function ParamField(props: {
   value: unknown;
   onChange: (v: unknown) => void;
   locked: boolean;
+  locale: LabLocale;
 }) {
-  const { param, value, onChange, locked } = props;
+  const { param, value, onChange, locked, locale } = props;
+  const label = paramLabel(param, locale);
+  const hint = paramHint(param, locale);
+  const error = validateParam(param, value);
 
   if (param.type === "number") {
-    const num = typeof value === "number" && !Number.isNaN(value) ? value : (param.min ?? 0);
-    const set = (n: number) => onChange(clampNum(n, param));
+    const empty = value === "" || value === undefined || value === null;
+    const num = typeof value === "number" && Number.isFinite(value) ? value : Number(value);
+    const sliderValue = Number.isFinite(num) ? num : (param.min ?? 0);
     return (
       <div>
         <div className="mb-1.5 flex items-center justify-between gap-2">
-          <span className="text-[10px] uppercase tracking-wider text-slate-500">{param.label}</span>
+          <label htmlFor={"param-" + param.key} className="text-[10px] uppercase tracking-wider text-slate-500" title={hint || undefined}>
+            {label}
+          </label>
           <input
+            id={"param-" + param.key}
             type="number"
             step={param.step ?? "any"}
             min={param.min}
             max={param.max}
             disabled={locked}
-            value={num}
-            onChange={(e) => { const n = Number(e.target.value); if (!Number.isNaN(n)) set(n); }}
-            className="w-20 rounded border border-slate-700 bg-slate-950 px-1.5 py-0.5 text-right font-mono text-[11px] tabular-nums text-sky-200 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed"
+            aria-invalid={Boolean(error)}
+            aria-label={label}
+            value={empty || !Number.isFinite(num) ? "" : num}
+            onChange={(e) => {
+              const t = e.target.value;
+              if (t === "") onChange("");
+              else {
+                const n = Number(t);
+                onChange(Number.isNaN(n) ? t : n);
+              }
+            }}
+            className={
+              "w-20 rounded border px-1.5 py-0.5 text-right font-mono text-[11px] tabular-nums text-sky-200 outline-none transition disabled:cursor-not-allowed " +
+              fieldClass(Boolean(error))
+            }
           />
         </div>
         <input
           type="range"
           disabled={locked}
-          value={num}
+          value={sliderValue}
           min={param.min ?? 0}
           max={param.max ?? 100}
           step={param.step ?? 1}
-          onChange={(e) => set(Number(e.target.value))}
+          onChange={(e) => onChange(clampNum(Number(e.target.value), param))}
           className="w-full accent-sky-500 disabled:cursor-not-allowed"
         />
         <div className="mt-0.5 flex justify-between font-mono text-[9px] tabular-nums text-slate-600">
@@ -100,6 +130,11 @@ function ParamField(props: {
           <span>шаг {param.step ?? 1}</span>
           <span>{param.max ?? "—"}</span>
         </div>
+        {error && (
+          <p className="mt-1 text-[10px] text-rose-400" role="alert">
+            {error}
+          </p>
+        )}
       </div>
     );
   }
@@ -117,10 +152,17 @@ function ParamField(props: {
     return (
       <div>
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="text-[10px] uppercase tracking-wider text-slate-500">{param.label}</span>
+          <span className="text-[10px] uppercase tracking-wider text-slate-500" title={hint || undefined}>
+            {label}
+          </span>
           {multi && <span className="font-mono text-[9px] text-slate-600">выбрано: {arr.length}</span>}
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div
+          role="group"
+          aria-label={label}
+          aria-invalid={Boolean(error)}
+          className={"flex flex-wrap gap-1.5 rounded " + (error ? "ring-1 ring-rose-500" : "")}
+        >
           {opts.map((o: string | number) => (
             <button
               key={String(o)}
@@ -138,17 +180,23 @@ function ParamField(props: {
             </button>
           ))}
         </div>
+        {error && (
+          <p className="mt-1 text-[10px] text-rose-400" role="alert">
+            {error}
+          </p>
+        )}
       </div>
     );
   }
 
   if (param.type === "boolean") {
     return (
-      <label className="flex items-center justify-between gap-2 rounded border border-slate-800 bg-slate-950/60 px-2.5 py-2">
-        <span className="text-[10px] uppercase tracking-wider text-slate-500">{param.label}</span>
+      <label className="flex items-center justify-between gap-2 rounded border border-slate-800 bg-slate-950/60 px-2.5 py-2" title={hint || undefined}>
+        <span className="text-[10px] uppercase tracking-wider text-slate-500">{label}</span>
         <input
           type="checkbox"
           disabled={locked}
+          aria-label={label}
           checked={Boolean(value)}
           onChange={(e) => onChange(e.target.checked)}
           className="accent-sky-500 disabled:cursor-not-allowed"
@@ -157,16 +205,25 @@ function ParamField(props: {
     );
   }
 
-  // text
   return (
     <div>
-      <div className="mb-1.5 text-[10px] uppercase tracking-wider text-slate-500">{param.label}</div>
+      <label htmlFor={"param-" + param.key} className="mb-1.5 block text-[10px] uppercase tracking-wider text-slate-500" title={hint || undefined}>
+        {label}
+      </label>
       <input
+        id={"param-" + param.key}
         disabled={locked}
+        aria-label={label}
+        aria-invalid={Boolean(error)}
         value={String(value ?? "")}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded border border-slate-700 bg-slate-950 px-2 py-1 font-mono text-xs text-slate-200 outline-none transition focus:border-sky-500 disabled:cursor-not-allowed"
+        className={"w-full rounded border px-2 py-1 font-mono text-xs text-slate-200 outline-none transition disabled:cursor-not-allowed " + fieldClass(Boolean(error))}
       />
+      {error && (
+        <p className="mt-1 text-[10px] text-rose-400" role="alert">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -176,6 +233,7 @@ function ParamField(props: {
 export default function PatternSettingsModal(props: PatternSettingsModalProps) {
   const { def, values, locked, onSave, onClose, onShowChart, previewError } = props;
   const isLocked = locked === true;
+  const locale = props.locale ?? resolveLabLocale();
 
   const [draft, setDraft] = useState<Record<string, unknown>>(() => {
     const base = defaultsOf(def);
@@ -189,7 +247,6 @@ export default function PatternSettingsModal(props: PatternSettingsModalProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  // есть ли отклонения от дефолтов реестра (для индикатора на «Сбросить»)
   const tuned = useMemo(() => {
     const defs = defaultsOf(def);
     return Object.keys(draft).some(
@@ -197,11 +254,15 @@ export default function PatternSettingsModal(props: PatternSettingsModalProps) {
     );
   }, [draft, def]);
 
+  const errors = useMemo(() => validatePatternValues(def, draft), [def, draft]);
+  const hasErrors = Object.keys(errors).length > 0;
+
   function resetDefaults() {
     setDraft(defaultsOf(def));
   }
 
   function apply() {
+    if (hasErrors) return;
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(draft)) out[k] = clone(v);
     onSave(out);
@@ -222,7 +283,6 @@ export default function PatternSettingsModal(props: PatternSettingsModalProps) {
         style={{ animation: "psm-pop .22s cubic-bezier(.2,.9,.3,1.15)" }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* header */}
         <div className="relative border-b border-slate-800 bg-slate-950/50 px-4 py-3">
           <div
             className="pointer-events-none absolute inset-0"
@@ -240,10 +300,13 @@ export default function PatternSettingsModal(props: PatternSettingsModalProps) {
                   </span>
                 )}
                 <h3 className="font-display text-sm font-semibold uppercase tracking-[0.12em] text-slate-100">
-                  {def.label}
+                  {patternLabel(def, locale)}
                 </h3>
               </div>
-              {def.hint && <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{def.hint}</p>}
+              {(def.label_en && locale === "ru") && (
+                <p className="mt-0.5 font-mono text-[10px] text-slate-500">{def.label_en}</p>
+              )}
+              {def.hint && <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{locale === "en" && def.hint_en ? def.hint_en : def.hint}</p>}
             </div>
             <button
               type="button"
@@ -259,7 +322,6 @@ export default function PatternSettingsModal(props: PatternSettingsModalProps) {
           </div>
         </div>
 
-        {/* body */}
         <div className="max-h-[55vh] space-y-4 overflow-y-auto px-4 py-4">
           {isLocked && (
             <div className="rounded border border-amber-600/60 bg-amber-500/10 px-2.5 py-1.5 text-[10px] text-amber-200">
@@ -277,12 +339,12 @@ export default function PatternSettingsModal(props: PatternSettingsModalProps) {
               param={p}
               value={draft[p.key]}
               locked={isLocked}
+              locale={locale}
               onChange={(v) => setDraft((d) => ({ ...d, [p.key]: v }))}
             />
           ))}
         </div>
 
-        {/* footer */}
         <div className="border-t border-slate-800 bg-slate-950/50 px-4 py-3">
           {previewError && (
             <div className="mb-2 rounded border border-amber-700/50 bg-amber-500/10 px-2.5 py-1.5 text-[10px] text-amber-200">
@@ -321,7 +383,7 @@ export default function PatternSettingsModal(props: PatternSettingsModalProps) {
           <button
             type="button"
             onClick={apply}
-            disabled={isLocked}
+            disabled={isLocked || hasErrors}
             className="rounded bg-sky-700 px-3.5 py-1.5 text-[11px] font-semibold text-sky-50 shadow-[0_0_14px_rgba(2,132,199,0.35)] transition hover:bg-sky-600 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40"
           >
             Применить

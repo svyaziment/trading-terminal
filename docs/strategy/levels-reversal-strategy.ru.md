@@ -1,7 +1,7 @@
 # Стратегия «Уровни + подтверждение разворота»
 
 > Статус: валидирована на SBER/GAZP/VTBR (2 года истории). Продакшн-мозг: `StrategyEvaluator.check_entry`. Прототип: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-21 (Issue #107 level_breakout_retest).
+> Last refreshed: 2026-08-21 (Issue #109 чип Strategy Lab для level_breakout_retest).
 
 ## 1. Обзор
 
@@ -279,5 +279,5 @@ Unit: `backend/tests/test_levels_state_machine.py`. Locked `test_20260731` не 
 
 ### Lab
 
-`GET /api/patterns` отдаёт схему (`category=breakout`). Чип frontend — следующий issue эпика. Файл: `backend/app/analytics/patterns/level_breakout_retest.py`. Тесты: `backend/tests/test_level_breakout_retest.py`.
+`GET /api/patterns` отдаёт схему (`category=breakout`, опционально `label_en` / `icon=breakout_up`). Strategy Lab рисует чип в группе «Пробой» и шесть параметров в `PatternSettingsModal` из этого payload (задача #109). Файл: `backend/app/analytics/patterns/level_breakout_retest.py`. Тесты: `backend/tests/test_level_breakout_retest.py`; frontend: `cd frontend && npm test`.
 

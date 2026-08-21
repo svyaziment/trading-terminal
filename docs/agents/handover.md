@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-21 (Issue #107 level_breakout_retest). Companion to project-context.md.
+Last refreshed: 2026-08-21 (Issue #109 Strategy Lab chip for level_breakout_retest). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -229,7 +229,17 @@ Do not modify the locked strategy, RR, imbalance threshold, or `trading.trading_
 - Stop/take: `stop = entry − stop_atr×ATR`, `take = entry + risk_reward×(entry−stop)`. When the pattern is enabled these replace levels stop/take; the top-level config RR filter is not applied on top (pattern RR already encodes the ratio).
 - Context: `build_strategy_context` returns `htf_bars` (same TF as levels). The evaluator feeds only HTF bars whose close ≤ current 1min ts (no lookahead). Paper/live `load_context` / `update_context` pass this frame through.
 - Veto interaction: with the pattern on, a broken resistance is no longer an opposing zone (`is_broken`). Without the pattern, every overlapping resistance still vetoes (locked `test_20260731`).
-- Composability: AND with `levels_reversal` (still required for the support-zone path) and with SignalEngine / `signal_4h_buy` filters. Frontend chip is the next epic issue; `GET /api/patterns` already exposes the schema.
+- Composability: AND with `levels_reversal` (still required for the support-zone path) and with SignalEngine / `signal_4h_buy` filters. Lab chip: handover §24. `GET /api/patterns` is the source of names, hints, icon, and param schema.
 - Do not rewrite locked `test_20260731`.
 - Unit tests: `cd backend && python -m pytest -q tests/test_level_breakout_retest.py tests/test_pattern_registry.py tests/test_resistance_zone_veto.py`.
+
+## 24. Operating the Level Breakout Retest Lab chip
+
+- Entry points: `StrategyLab.tsx` (chips grouped by API `category`) and `PatternSettingsModal.tsx` (fields from `PatternDef.params`). Helpers: `patternLab.ts`, `patternValidation.ts`.
+- Enable from the **Пробой** group. Visible name is API `label` («Пробой уровня с ретестом»); EN `label_en` («Level Breakout Retest») is in the tooltip and under the modal title. Icon `breakout_up` (arrow through a level) is also from the API.
+- Click the chip label to open settings (enables the pattern and prefills schema defaults). The checkbox toggles; turning a parameterized chip on also opens the modal. Gear still opens settings.
+- Do not hardcode the six params in the frontend. Schema: `level_timeframe` (1h/4h/1d), `retest_window_bars` (1–100), `retest_zone_atr` (0.1–2.0), `entry_trigger_bullish`, `stop_atr` (0.5–3.0), `risk_reward` (≥1). Out-of-range values get a red border + message; Apply and «Сохранить и запустить» are blocked. «Сбросить дефолты» restores `schema.default`. «Отмена» / Esc discards the draft.
+- Combine with `levels_reversal` (still required for the support-zone path) and optional SignalEngine / `signal_4h_buy` filters. AND logic is unchanged. Save goes through existing `POST /api/strategies` then `POST /api/strategies/{id}/run` with `config.patterns` as `{ id: params }` — not `POST /api/backtest`.
+- When to enable: after a confirmed resistance break you want a retest entry (role reversal) instead of (or in addition to) a native support-zone entry. Keep it off on locked `test_20260731` (the Lab row stays read-only).
+- There is no `frontend` service in `docker-compose.yml`. Check locally: `cd frontend && npm test && npm run build`. Backend schema: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
 
