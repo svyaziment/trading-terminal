@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-20 (Issue #97 ALRS resistance-zone veto). Companion to project-context.md.
+Last refreshed: 2026-08-21 (Issue #106 levels state machine). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -63,7 +63,7 @@ See project-context.md section 9.
 - **JSONB as string**: DBManager returns JSONB columns as Python-repr strings, not dicts. Normalize with `_to_dict` (json.loads, then ast.literal_eval fallback).
 - **Backtest matrix runtime**: full matrix takes ~10-15 min. Use quick=true for liveness.
 - **Reports mount**: backend mounts `./reports` (docker-compose). Strategy runs write `reports/strategy-lab/last_run.json` - send it on any Strategy Lab error.
-- **Resistance-zone veto (Issue #97)**: `levels_reversal` must not enter when the 1min close sits in an active resistance zone, even if `nearest_level_at(..., 'support')` returns a valid support and the 0.5×ATR extension covers the fill. That is a structural defect, not role-reversal (ALRS paper #711: fill 19.80 inside impulse resistance 19.67). Guard: `overlapping_resistance_zone_at` in `StrategyEvaluator.check_entry`. Do not rewrite locked `test_20260731`. Unit: `cd backend && python -m pytest -q tests/test_resistance_zone_veto.py`.
+- **Resistance-zone veto (Issue #97)**: `levels_reversal` must not enter when the 1min close sits in an active resistance zone, even if `nearest_level_at(..., 'support')` returns a valid support and the 0.5×ATR extension covers the fill. That is a structural defect, not role-reversal (ALRS paper #711: fill 19.80 inside impulse resistance 19.67). Guard: `overlapping_resistance_zone_at` in `StrategyEvaluator.check_entry`. Issue #106: the same function skips non-`active` zones when a `state` column is present; `StrategyEvaluator` still receives `build_levels` frames without `state`, so paper/live veto behaviour is unchanged until the tracker is wired. Do not rewrite locked `test_20260731`. Units: `cd backend && python -m pytest -q tests/test_resistance_zone_veto.py tests/test_levels_state_machine.py`.
 
 ## 11. Collaboration Protocol (agents)
 
@@ -211,3 +211,13 @@ Do not modify the locked strategy, RR, imbalance threshold, or `trading.trading_
 - Unknown `pattern_id` returns `status=error` without 500. Missing candles (including unsupported `2h`) returns `status=empty` with a clear message.
 - Other pattern ids return `status=unsupported` with candles only until #91 adds overlay renderers. Frontend chart work is #89–#92.
 - Unit test: `cd backend && python -m pytest -q tests/test_pattern_preview.py`.
+
+## 22. Operating the Levels State Machine
+
+- Entry points: `LevelsTracker` / `get_levels_with_state` / `is_broken` in `levels_engine.py`. Initialise from `get_levels()` (`build_levels` alias). Feed bars of the **same** timeframe as the levels (typically 4h). In-memory only — no table, no migration.
+- Thresholds come only from `LEVEL_STATE_MACHINE` in `trading_config.py`: `breakout_buffer_atr=0.25`, `confirm_bars=2`, `min_penetration_atr=0.5`, `zone_extension_atr=0.5`. `zone_extension_atr` documents the current `build_levels` zone width; the tracker does not recompute `zone_lower`/`zone_upper`.
+- Resistance break: last `confirm_bars` closes all above `zone_upper`, last close above `zone_upper + buffer×ATR`, and max(window) at least `zone_upper + min_penetration×ATR`. Support is symmetric below `zone_lower`. First close back inside the native zone after a break flips `broken_up → flipped_support` / `broken_down → flipped_resistance`. Failed breakouts are not reverted to `active` in this iteration.
+- `overlapping_resistance_zone_at` vetoes only `active` resistances when a `state` column exists. Pass a tracker snapshot taken **after** `update()` through the bar you are evaluating. Frames without `state` keep the Issue #97 behaviour.
+- Do not wire `LevelsTracker` into `StrategyEvaluator` here (next issue: pattern `level_breakout_retest`). Do not rewrite locked `test_20260731`.
+- Unit tests: `cd backend && python -m pytest -q tests/test_levels_state_machine.py tests/test_resistance_zone_veto.py`.
+

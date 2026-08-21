@@ -6,7 +6,8 @@ Central trading configuration - SINGLE SOURCE OF TRUTH for:
   4) T-Bank sandbox execution and retry policy;
   5) live order-book imbalance defaults;
   6) live position-sizing risk limits;
-  7) live sandbox executor policy.
+  7) live sandbox executor policy;
+  8) levels state-machine breakout thresholds (Issue #106 / Epic #105).
 
 Every module (data_refresher, online_data, online_signals, paper_trader, strategy_backtest)
 must import get_trading_universe() / get_strategy() from here instead of hardcoding
@@ -82,6 +83,23 @@ SANDBOX_TRADING: Dict[str, Any] = {
 def get_sandbox_trading_config() -> Dict[str, Any]:
     """Return an isolated copy of the T-Bank sandbox execution policy."""
     return dict(SANDBOX_TRADING)
+
+
+# Issue #106: in-memory support/resistance lifecycle (breakout + role reversal).
+# LevelsTracker reads these thresholds; StrategyEvaluator is not wired yet.
+# zone_extension_atr documents the current build_levels zone width (zone_atr_mult);
+# the tracker does not recompute zones — it uses zone_lower / zone_upper as given.
+LEVEL_STATE_MACHINE: Dict[str, Any] = {
+    'breakout_buffer_atr': 0.25,
+    'confirm_bars': 2,
+    'min_penetration_atr': 0.5,
+    'zone_extension_atr': 0.5,
+}
+
+
+def get_level_state_machine_config() -> Dict[str, Any]:
+    """Return an isolated copy of the levels state-machine policy."""
+    return dict(LEVEL_STATE_MACHINE)
 
 
 # Fallback only (used if trading.trading_universe is empty/unavailable).
