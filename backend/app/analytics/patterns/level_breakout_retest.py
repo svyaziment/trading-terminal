@@ -9,7 +9,7 @@ broken level → support holds → bullish trigger. Stop/take are ATR × RR.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping, Optional, Union
+from typing import Any, Dict, List, Mapping, Optional, Union
 
 import pandas as pd
 
@@ -23,6 +23,28 @@ _RETEST_STATES = frozenset({
     LevelState.BROKEN_UP.value,
     LevelState.FLIPPED_SUPPORT.value,
 })
+
+# Issue #108: stable rejection codes for validation (pie chart / analytics).
+REJECTION_NO_BREAKOUT = "no_breakout"
+REJECTION_BREAKOUT_NOT_CONFIRMED = "breakout_not_confirmed"
+REJECTION_NO_RETEST = "no_retest"
+REJECTION_WINDOW_EXPIRED = "retest_window_expired"
+REJECTION_SUPPORT_BREAKS = "support_breaks"
+REJECTION_NO_TRIGGER = "no_entry_trigger"
+REJECTION_ACCEPTED = "accepted"
+
+_rejection_log: Optional[List[str]] = None
+
+
+def enable_rejection_log(bucket: List[str]) -> None:
+    """Record classify codes (or ``accepted``) on every ``check_breakout_retest`` call."""
+    global _rejection_log
+    _rejection_log = bucket
+
+
+def disable_rejection_log() -> None:
+    global _rejection_log
+    _rejection_log = None
 
 _BarLike = Union[Mapping[str, Any], pd.Series]
 
@@ -84,62 +106,151 @@ def compute_stop_take(
     return {"stop": float(stop), "take": float(take)}
 
 
-def check_breakout_retest(
+def classify_retest_rejection(
     bar: _BarLike,
     tracker: LevelsTracker,
     *,
     atr: float,
     params: Optional[Mapping[str, Any]] = None,
     prev_high: Optional[float] = None,
-) -> Optional[Dict[str, Any]]:
-    """Return an entry dict if a broken resistance is being retested, else None.
+) -> Optional[str]:
+    """Return a stable Issue #108 rejection code, or None if the pattern would fire.
 
-    Criteria (Issue #107):
-      1. close in [level − retest_zone_atr×ATR, level + retest_zone_atr×ATR]
-      2. support holds: close >= broken level_price
-      3. trigger: close > prev_high OR bullish body (when entry_trigger_bullish)
-      4. bars_since_breakout <= retest_window_bars (HTF bars)
+    Category meanings (most specific geometry first, then trigger):
+      no_breakout — no resistance in broken_up / flipped_support
+      breakout_not_confirmed — close above an active resistance zone, not confirmed
+      retest_window_expired — broken resistance exists, but bars_since_breakout > window
+      support_breaks — in window, close below the broken level_price
+      no_retest — support holds, close not in [level ± retest_zone_atr×ATR]
+      no_entry_trigger — retest geometry holds, but no bullish body / prev-high break
     """
     cfg = resolve_params(params)
     ohlc = _ohlc(bar)
     close = ohlc["close"]
     if atr is None or atr <= 0:
-        return None
-
-    if cfg["entry_trigger_bullish"]:
-        trigger_cfg = get_level_breakout_retest_config()
-        body_ratio = float(trigger_cfg["bullish_body_ratio"])
-        broke_prev = prev_high is not None and close > float(prev_high)
-        if not (broke_prev or _bullish_body(ohlc, body_ratio)):
-            return None
+        return REJECTION_NO_BREAKOUT
 
     snapshot = tracker.get_levels_with_state()
     if snapshot is None or snapshot.empty:
-        return None
+        return REJECTION_NO_BREAKOUT
 
     zone = float(cfg["retest_zone_atr"]) * float(atr)
     window = int(cfg["retest_window_bars"])
-    best: Optional[Dict[str, Any]] = None
-    best_dist: Optional[float] = None
+    has_active_above = False
+    has_retest_state = False
+    has_in_window = False
+    has_support_hold = False
+    has_in_zone = False
 
     for i in range(len(snapshot)):
         row = snapshot.iloc[i]
-        if str(row.get("state", "")) not in _RETEST_STATES:
-            continue
         if str(row.get("type", "")) != "resistance":
+            continue
+        state = str(row.get("state", ""))
+        zone_upper = float(row["zone_upper"])
+        if state == LevelState.ACTIVE.value and close > zone_upper:
+            has_active_above = True
+        if state not in _RETEST_STATES:
             continue
         lid = row.get("level_id")
         if lid is None:
             continue
+        has_retest_state = True
         try:
             since = tracker.bars_since_breakout(lid)
         except KeyError:
             continue
         if since is None or since > window:
             continue
+        has_in_window = True
         level_price = float(row["level_price"])
         if close < level_price:
             continue
+        has_support_hold = True
+        lo = level_price - zone
+        hi = level_price + zone
+        if lo <= close <= hi:
+            has_in_zone = True
+
+    if not has_in_zone:
+        if has_support_hold:
+            return REJECTION_NO_RETEST
+        if has_in_window:
+            return REJECTION_SUPPORT_BREAKS
+        if has_retest_state:
+            return REJECTION_WINDOW_EXPIRED
+        if has_active_above:
+            return REJECTION_BREAKOUT_NOT_CONFIRMED
+        return REJECTION_NO_BREAKOUT
+
+    if cfg["entry_trigger_bullish"]:
+        trigger_cfg = get_level_breakout_retest_config()
+        body_ratio = float(trigger_cfg["bullish_body_ratio"])
+        broke_prev = prev_high is not None and close > float(prev_high)
+        if not (broke_prev or _bullish_body(ohlc, body_ratio)):
+            return REJECTION_NO_TRIGGER
+
+    st = compute_stop_take(close, float(atr), cfg["stop_atr"], cfg["risk_reward"])
+    if st is None:
+        return REJECTION_NO_RETEST
+    return None
+
+
+def _decide_breakout_retest(
+    bar: _BarLike,
+    tracker: LevelsTracker,
+    *,
+    atr: float,
+    params: Optional[Mapping[str, Any]] = None,
+    prev_high: Optional[float] = None,
+) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Issue #107 accept/reject body. Keep accept path bit-for-bit with the original filter.
+
+    Returns (hit, rejection_code). rejection_code is None when hit is not None.
+    """
+    cfg = resolve_params(params)
+    ohlc = _ohlc(bar)
+    close = ohlc["close"]
+    if atr is None or atr <= 0:
+        return None, REJECTION_NO_BREAKOUT
+
+    snapshot = tracker.get_levels_with_state()
+    if snapshot is None or snapshot.empty:
+        return None, REJECTION_NO_BREAKOUT
+
+    zone = float(cfg["retest_zone_atr"]) * float(atr)
+    window = int(cfg["retest_window_bars"])
+    best: Optional[Dict[str, Any]] = None
+    best_dist: Optional[float] = None
+    has_active_above = False
+    has_retest_state = False
+    has_in_window = False
+    has_support_hold = False
+
+    for i in range(len(snapshot)):
+        row = snapshot.iloc[i]
+        if str(row.get("type", "")) != "resistance":
+            continue
+        state = str(row.get("state", ""))
+        if state == LevelState.ACTIVE.value and close > float(row["zone_upper"]):
+            has_active_above = True
+        if state not in _RETEST_STATES:
+            continue
+        lid = row.get("level_id")
+        if lid is None:
+            continue
+        has_retest_state = True
+        try:
+            since = tracker.bars_since_breakout(lid)
+        except KeyError:
+            continue
+        if since is None or since > window:
+            continue
+        has_in_window = True
+        level_price = float(row["level_price"])
+        if close < level_price:
+            continue
+        has_support_hold = True
         lo = level_price - zone
         hi = level_price + zone
         if not (lo <= close <= hi):
@@ -158,18 +269,62 @@ def check_breakout_retest(
         }
 
     if best is None:
-        return None
+        if has_support_hold:
+            return None, REJECTION_NO_RETEST
+        if has_in_window:
+            return None, REJECTION_SUPPORT_BREAKS
+        if has_retest_state:
+            return None, REJECTION_WINDOW_EXPIRED
+        if has_active_above:
+            return None, REJECTION_BREAKOUT_NOT_CONFIRMED
+        return None, REJECTION_NO_BREAKOUT
+
+    if cfg["entry_trigger_bullish"]:
+        trigger_cfg = get_level_breakout_retest_config()
+        body_ratio = float(trigger_cfg["bullish_body_ratio"])
+        broke_prev = prev_high is not None and close > float(prev_high)
+        if not (broke_prev or _bullish_body(ohlc, body_ratio)):
+            return None, REJECTION_NO_TRIGGER
 
     st = compute_stop_take(close, float(atr), cfg["stop_atr"], cfg["risk_reward"])
     if st is None:
-        return None
-    return {
-        "action": "enter",
-        "entry_price": close,
-        "stop": st["stop"],
-        "take": st["take"],
-        **best,
-    }
+        return None, REJECTION_NO_RETEST
+    return (
+        {
+            "action": "enter",
+            "entry_price": close,
+            "stop": st["stop"],
+            "take": st["take"],
+            **best,
+        },
+        None,
+    )
+
+
+def check_breakout_retest(
+    bar: _BarLike,
+    tracker: LevelsTracker,
+    *,
+    atr: float,
+    params: Optional[Mapping[str, Any]] = None,
+    prev_high: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    """Return an entry dict if a broken resistance is being retested, else None.
+
+    Criteria (Issue #107):
+      1. close in [level − retest_zone_atr×ATR, level + retest_zone_atr×ATR]
+      2. support holds: close >= broken level_price
+      3. trigger: close > prev_high OR bullish body (when entry_trigger_bullish)
+      4. bars_since_breakout <= retest_window_bars (HTF bars)
+
+    Issue #108: optional rejection log does not change the accept/reject result.
+    """
+    hit, reason = _decide_breakout_retest(
+        bar, tracker, atr=atr, params=params, prev_high=prev_high
+    )
+    if _rejection_log is not None:
+        _rejection_log.append(reason or REJECTION_ACCEPTED)
+    return hit
 
 
 def evaluate_level_breakout_retest(

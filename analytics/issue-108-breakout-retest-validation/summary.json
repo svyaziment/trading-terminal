@@ -1,0 +1,430 @@
+{
+  "issue": 108,
+  "extracted_at": "2026-08-21 23:28:01",
+  "date_from": "2024-08-21",
+  "date_to": "2026-08-21",
+  "tickers": [
+    "AFKS",
+    "ALRS",
+    "CBOM",
+    "CHMF",
+    "FEES",
+    "FLOT",
+    "GAZP",
+    "GMKN",
+    "IRAO",
+    "LKOH",
+    "MGNT",
+    "MOEX",
+    "MTLR",
+    "MTSS",
+    "NLMK",
+    "NVTK",
+    "PHOR",
+    "PIKK",
+    "PLZL",
+    "ROSN",
+    "RTKM",
+    "RUAL",
+    "SBER",
+    "SIBN",
+    "SNGS",
+    "TATN",
+    "TRNFP",
+    "VTBR"
+  ],
+  "aggregates_a": {
+    "tickers_total": 28,
+    "tickers_success": 28,
+    "trades_total": 2556,
+    "mean_pf": 1.72,
+    "median_pf": 1.52,
+    "pf_gt1_count": 26,
+    "pf_gt1_share": 0.929,
+    "median_wr": 28.6,
+    "median_maxdd_pct": 13.1,
+    "pooled": {
+      "n": 2556,
+      "pf": 1.5,
+      "exp_pct": 0.3,
+      "wr": 27.6,
+      "maxdd_pct": 45.6,
+      "sharpe": 2.51
+    }
+  },
+  "aggregates_b": {
+    "tickers_total": 28,
+    "tickers_success": 28,
+    "trades_total": 257,
+    "mean_pf": 1.19,
+    "median_pf": 0.98,
+    "pf_gt1_count": 14,
+    "pf_gt1_share": 0.5,
+    "median_wr": 33.3,
+    "median_maxdd_pct": 4.5,
+    "pooled": {
+      "n": 257,
+      "pf": 1.07,
+      "exp_pct": 0.074,
+      "wr": 34.6,
+      "maxdd_pct": 38.6,
+      "sharpe": 0.48
+    }
+  },
+  "issue100_match": {
+    "compared": 28,
+    "matches": 28,
+    "mismatch_count": 0,
+    "bit_for_bit": true,
+    "published_aggregates": {
+      "tickers_total": 28,
+      "tickers_success": 28,
+      "tickers_failed": 0,
+      "trades_total": 2556,
+      "mean_pf": 1.72,
+      "median_pf": 1.52,
+      "pf_gt1_count": 26,
+      "pf_gt1_share": 0.929,
+      "mean_exp_pct": 0.373,
+      "median_wr": 28.6,
+      "median_maxdd_pct": 13.1,
+      "infinite_pf_count": 0
+    },
+    "mismatches": []
+  },
+  "walkforward": {
+    "periods": [
+      "2024-H2",
+      "2025-H1",
+      "2025-H2",
+      "2026-H1"
+    ],
+    "A": {
+      "2024-H2": {
+        "pooled": {
+          "n": 364,
+          "pf": 2.49,
+          "exp_pct": null,
+          "wr": null,
+          "maxdd_pct": null,
+          "sharpe": null
+        },
+        "in_sample": {
+          "n": 0,
+          "pf": null,
+          "exp_pct": null,
+          "wr": null,
+          "maxdd_pct": null,
+          "sharpe": null
+        },
+        "out_of_sample": {
+          "n": 0,
+          "pf": null,
+          "exp_pct": null,
+          "wr": null,
+          "maxdd_pct": null,
+          "sharpe": null
+        },
+        "degradation": null,
+        "overfit_flag": false,
+        "ticker_avg_pf": 2.49,
+        "pf_gt1": 22,
+        "pf_obs": 28,
+        "b_source": "lab_window"
+      },
+      "2025-H1": {
+        "pooled": {
+          "n": 595,
+          "pf": 1.74,
+          "exp_pct": null,
+          "wr": null,
+          "maxdd_pct": null,
+          "sharpe": null
+        },
+        "in_sample": {
+          "n": 0,
+          "pf": null,
+          "exp_pct": null,
+          "wr": null,
+          "maxdd_pct": null,
+          "sharpe": null
+        },
+        "out_of_sample": {
+          "n": 0,
+          "pf": null,
+          "exp_pct": null,
+          "wr": null,
+          "maxdd_pct": null,
+          "sharpe": null
+        },
+        "degradation": null,
+        "overfit_flag": false,
+        "ticker_avg_pf": 1.74,
+        "pf_gt1": 21,
+        "pf_obs": 28,
+        "b_source": "lab_window"
+      },
+      "2025-H2": {
+        "pooled": {
+          "n": 720,
+          "pf": 1.6,
+          "exp_pct": null,
+          "wr": null,
+          "maxdd_pct": null,
+          "sharpe": null
+        },
+        "in_sample": {
+          "n": 0,
+          "pf": null,
+          "exp_pct": null,
+          "wr": null,
+          "maxdd_pct": null,
+          "sharpe": null
+        },
+        "out_of_sample": {
+          "n": 0,
+          "pf": null,
+          "exp_pct": null,
+          "wr": null,
+          "maxdd_pct": null,
+          "sharpe": null
+        },
+        "degradation": null,
+        "overfit_flag": false,
+        "ticker_avg_pf": 1.6,
+        "pf_gt1": 20,
+        "pf_obs": 28,
+        "b_source": "lab_window"
+      },
+      "2026-H1": {
+        "pooled": {
+          "n": 584,
+          "pf": 1.31,
+          "exp_pct": null,
+          "wr": null,
+          "maxdd_pct": null,
+          "sharpe": null
+        },
+        "in_sample": {
+          "n": 0,
+          "pf": null,
+          "exp_pct": null,
+          "wr": null,
+          "maxdd_pct": null,
+          "sharpe": null
+        },
+        "out_of_sample": {
+          "n": 0,
+          "pf": null,
+          "exp_pct": null,
+          "wr": null,
+          "maxdd_pct": null,
+          "sharpe": null
+        },
+        "degradation": null,
+        "overfit_flag": false,
+        "ticker_avg_pf": 1.31,
+        "pf_gt1": 13,
+        "pf_obs": 27,
+        "b_source": "lab_window"
+      }
+    },
+    "B": {
+      "2024-H2": {
+        "pooled": {
+          "n": 4,
+          "pf": 1.68,
+          "exp_pct": 0.707,
+          "wr": 50.0,
+          "maxdd_pct": 2.1,
+          "sharpe": 3.49
+        },
+        "in_sample": {
+          "n": 0,
+          "pf": null,
+          "exp_pct": null,
+          "wr": null,
+          "maxdd_pct": null,
+          "sharpe": null
+        },
+        "out_of_sample": {
+          "n": 4,
+          "pf": 1.68,
+          "exp_pct": 0.707,
+          "wr": 50.0,
+          "maxdd_pct": 2.1,
+          "sharpe": 3.49
+        },
+        "degradation": null,
+        "overfit_flag": false,
+        "ticker_avg_pf": null,
+        "pf_gt1": 0,
+        "pf_obs": 0,
+        "b_source": "full_sample_date_slice"
+      },
+      "2025-H1": {
+        "pooled": {
+          "n": 48,
+          "pf": 0.96,
+          "exp_pct": -0.061,
+          "wr": 37.5,
+          "maxdd_pct": 19.7,
+          "sharpe": -0.26
+        },
+        "in_sample": {
+          "n": 26,
+          "pf": 1.33,
+          "exp_pct": 0.461,
+          "wr": 46.2,
+          "maxdd_pct": 12.1,
+          "sharpe": 1.68
+        },
+        "out_of_sample": {
+          "n": 22,
+          "pf": 0.5,
+          "exp_pct": -0.679,
+          "wr": 27.3,
+          "maxdd_pct": 19.7,
+          "sharpe": -4.75
+        },
+        "degradation": 0.624,
+        "overfit_flag": true,
+        "ticker_avg_pf": null,
+        "pf_gt1": 0,
+        "pf_obs": 0,
+        "b_source": "full_sample_date_slice"
+      },
+      "2025-H2": {
+        "pooled": {
+          "n": 101,
+          "pf": 0.78,
+          "exp_pct": -0.197,
+          "wr": 26.7,
+          "maxdd_pct": 34.6,
+          "sharpe": -1.74
+        },
+        "in_sample": {
+          "n": 46,
+          "pf": 0.61,
+          "exp_pct": -0.373,
+          "wr": 23.9,
+          "maxdd_pct": 20.5,
+          "sharpe": -3.65
+        },
+        "out_of_sample": {
+          "n": 55,
+          "pf": 0.94,
+          "exp_pct": -0.049,
+          "wr": 29.1,
+          "maxdd_pct": 18.1,
+          "sharpe": -0.41
+        },
+        "degradation": -0.541,
+        "overfit_flag": false,
+        "ticker_avg_pf": null,
+        "pf_gt1": 0,
+        "pf_obs": 0,
+        "b_source": "full_sample_date_slice"
+      },
+      "2026-H1": {
+        "pooled": {
+          "n": 85,
+          "pf": 0.99,
+          "exp_pct": -0.009,
+          "wr": 36.5,
+          "maxdd_pct": 19.3,
+          "sharpe": -0.06
+        },
+        "in_sample": {
+          "n": 64,
+          "pf": 1.43,
+          "exp_pct": 0.357,
+          "wr": 42.2,
+          "maxdd_pct": 8.1,
+          "sharpe": 2.52
+        },
+        "out_of_sample": {
+          "n": 21,
+          "pf": 0.3,
+          "exp_pct": -1.126,
+          "wr": 19.0,
+          "maxdd_pct": 20.3,
+          "sharpe": -7.74
+        },
+        "degradation": 0.79,
+        "overfit_flag": true,
+        "ticker_avg_pf": null,
+        "pf_gt1": 0,
+        "pf_obs": 0,
+        "b_source": "full_sample_date_slice"
+      }
+    }
+  },
+  "alrs_case": {
+    "breakout_confirmed": false,
+    "consecutive_4h_closes_above_zone": 0,
+    "target_level": {
+      "level_id": "177:2026-08-14T12:00:00:19.67000000:resistance:impulse",
+      "level_price": 19.67,
+      "zone_lower": 19.399642857142858,
+      "zone_upper": 19.940357142857145,
+      "method": "impulse",
+      "defined_ts": "2026-08-14 12:00:00",
+      "state": "active",
+      "is_broken": false,
+      "bars_since_breakout": null
+    },
+    "decisions": {
+      "A": {
+        "action": "enter",
+        "entry_price": 19.8,
+        "stop": 19.33,
+        "take": 20.9
+      },
+      "B": {
+        "action": null
+      },
+      "B_impulse": {
+        "action": null
+      }
+    },
+    "classify_at_veto_impulse": "retest_window_expired",
+    "session_high": {
+      "timestamp": "2026-08-20 11:40:00",
+      "high": 19.95,
+      "close": 19.89
+    }
+  },
+  "rejections_total": {
+    "breakout_not_confirmed": 9449,
+    "retest_window_expired": 327872,
+    "no_retest": 118472,
+    "no_entry_trigger": 1326,
+    "accepted": 259,
+    "support_breaks": 13360,
+    "no_breakout": 444
+  },
+  "recommendation": {
+    "code": "refine",
+    "label": "refine before Lab UI / paper",
+    "label_ru": "доработать",
+    "reasons": [
+      "Median PF fell from 1.52 (A) to 0.98 (B).",
+      "2/4 walk-forward windows show OOS PF >20% below IS (defaults frozen, not a tuned grid).",
+      "ALRS 19.94 was not a confirmed LevelsTracker breakout before 11:50; the #97 veto remains the correct decision on that bar."
+    ],
+    "trades_a": 2556,
+    "trades_b": 257,
+    "median_pf_a": 1.52,
+    "median_pf_b": 0.98,
+    "overfit_windows": 2,
+    "alrs_breakout_confirmed": false
+  },
+  "plot_files": [
+    "equity_curves.png",
+    "metrics_bars.png",
+    "walk_forward.png",
+    "alrs_case.png",
+    "rejection_pie.png"
+  ]
+}
