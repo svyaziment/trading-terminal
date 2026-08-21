@@ -1,0 +1,656 @@
+{
+  "extracted_at": "2026-08-21 03:09:24",
+  "issue": 100,
+  "strategy": {
+    "id": 102,
+    "name": "test_20260820",
+    "in_paper_test": false,
+    "locked": false,
+    "description": null,
+    "patterns": {
+      "signal_4h_buy": {},
+      "levels_reversal": {
+        "level_timeframe": "4h",
+        "level_method": [
+          "swing"
+        ],
+        "swing_window": 10,
+        "impulse_body_ratio": 0.7,
+        "impulse_atr_mult": 1.5,
+        "zone_atr_mult": 0.5,
+        "confirm_windows": [
+          10
+        ]
+      }
+    },
+    "confirm_windows": [
+      10
+    ],
+    "risk_reward": {
+      "risk": 1,
+      "reward": 2
+    },
+    "commission_pct": 0.06,
+    "slippage_pct": 0,
+    "run_params": {
+      "depth": "express",
+      "date_to": "2026-08-20",
+      "tickers": [
+        "AFKS",
+        "ALRS",
+        "CBOM",
+        "CHMF",
+        "FEES",
+        "FLOT",
+        "GAZP",
+        "GMKN",
+        "IRAO",
+        "LKOH",
+        "MGNT",
+        "MOEX",
+        "MTLR",
+        "MTSS",
+        "NLMK",
+        "NVTK",
+        "PHOR",
+        "PIKK",
+        "PLZL",
+        "ROSN",
+        "RTKM",
+        "RUAL",
+        "SBER",
+        "SIBN",
+        "SNGS",
+        "TATN",
+        "TRNFP",
+        "VTBR"
+      ],
+      "date_from": "2026-06-01",
+      "test_types": [
+        "full_sample"
+      ]
+    },
+    "level_method": [
+      "swing"
+    ],
+    "swing_window": 10,
+    "zone_atr_mult": 0.5,
+    "level_timeframe": "4h"
+  },
+  "config": {
+    "n_runs": 1,
+    "patterns": {
+      "signal_4h_buy": {},
+      "levels_reversal": {
+        "level_timeframe": "4h",
+        "level_method": [
+          "swing"
+        ],
+        "swing_window": 10,
+        "impulse_body_ratio": 0.7,
+        "impulse_atr_mult": 1.5,
+        "zone_atr_mult": 0.5,
+        "confirm_windows": [
+          10
+        ]
+      }
+    },
+    "run_params": {
+      "depth": "express",
+      "date_to": "2026-08-20",
+      "tickers": [
+        "AFKS",
+        "ALRS",
+        "CBOM",
+        "CHMF",
+        "FEES",
+        "FLOT",
+        "GAZP",
+        "GMKN",
+        "IRAO",
+        "LKOH",
+        "MGNT",
+        "MOEX",
+        "MTLR",
+        "MTSS",
+        "NLMK",
+        "NVTK",
+        "PHOR",
+        "PIKK",
+        "PLZL",
+        "ROSN",
+        "RTKM",
+        "RUAL",
+        "SBER",
+        "SIBN",
+        "SNGS",
+        "TATN",
+        "TRNFP",
+        "VTBR"
+      ],
+      "date_from": "2026-06-01",
+      "test_types": [
+        "full_sample"
+      ]
+    },
+    "risk_reward": {
+      "risk": 1,
+      "reward": 2
+    },
+    "slippage_pct": 0,
+    "strategy_name": "levels_reversal",
+    "commission_pct": 0.06,
+    "confirm_windows": [
+      10
+    ]
+  },
+  "flags_at_start": [
+    {
+      "id": 36,
+      "name": "test_20260731",
+      "in_paper_test": true,
+      "locked": true
+    },
+    {
+      "id": 102,
+      "name": "test_20260820",
+      "in_paper_test": false,
+      "locked": false
+    }
+  ],
+  "lab_universe": [
+    "AFKS",
+    "ALRS",
+    "CBOM",
+    "CHMF",
+    "FEES",
+    "FLOT",
+    "GAZP",
+    "GMKN",
+    "IRAO",
+    "LKOH",
+    "MGNT",
+    "MOEX",
+    "MTLR",
+    "MTSS",
+    "NLMK",
+    "NVTK",
+    "PHOR",
+    "PIKK",
+    "PLZL",
+    "ROSN",
+    "RTKM",
+    "RUAL",
+    "SBER",
+    "SIBN",
+    "SNGS",
+    "TATN",
+    "TRNFP",
+    "VTBR"
+  ],
+  "run_params_tickers_ignored": [
+    "AFKS",
+    "ALRS",
+    "CBOM",
+    "CHMF",
+    "FEES",
+    "FLOT",
+    "GAZP",
+    "GMKN",
+    "IRAO",
+    "LKOH",
+    "MGNT",
+    "MOEX",
+    "MTLR",
+    "MTSS",
+    "NLMK",
+    "NVTK",
+    "PHOR",
+    "PIKK",
+    "PLZL",
+    "ROSN",
+    "RTKM",
+    "RUAL",
+    "SBER",
+    "SIBN",
+    "SNGS",
+    "TATN",
+    "TRNFP",
+    "VTBR"
+  ],
+  "min_candles": 250000,
+  "n_runs": 1,
+  "full_sample_months": 24,
+  "date_from": "2024-08-21",
+  "date_to": null,
+  "max_1min_ts": "2026-08-20 22:05:00",
+  "walkforward_periods": [
+    {
+      "name": "2024-H2",
+      "date_from": "2024-07-01",
+      "date_to": "2025-01-01"
+    },
+    {
+      "name": "2025-H1",
+      "date_from": "2025-01-01",
+      "date_to": "2025-07-01"
+    },
+    {
+      "name": "2025-H2",
+      "date_from": "2025-07-01",
+      "date_to": "2026-01-01"
+    },
+    {
+      "name": "2026-H1",
+      "date_from": "2026-01-01",
+      "date_to": "2026-07-01"
+    },
+    {
+      "name": "2026-H2",
+      "date_from": "2026-07-01",
+      "date_to": "2027-01-01"
+    }
+  ],
+  "baseline_backtest_results": [
+    {
+      "id": 278,
+      "ticker": "AFKS",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:42:47.107972",
+      "metrics": {
+        "n": 16,
+        "pf": 1.59,
+        "wr": 25.0,
+        "exp_pct": 0.288,
+        "maxdd_pct": 6.1
+      }
+    },
+    {
+      "id": 279,
+      "ticker": "ALRS",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:43:44.636542",
+      "metrics": {
+        "n": 27,
+        "pf": 0.93,
+        "wr": 18.5,
+        "exp_pct": -0.079,
+        "maxdd_pct": 9.6
+      }
+    },
+    {
+      "id": 280,
+      "ticker": "CBOM",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:44:38.713253",
+      "metrics": {
+        "n": 10,
+        "pf": 0.44,
+        "wr": 20.0,
+        "exp_pct": -0.511,
+        "maxdd_pct": 8.2
+      }
+    },
+    {
+      "id": 281,
+      "ticker": "CHMF",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:45:40.528966",
+      "metrics": {
+        "n": 15,
+        "pf": 0.38,
+        "wr": 20.0,
+        "exp_pct": -0.533,
+        "maxdd_pct": 9.9
+      }
+    },
+    {
+      "id": 282,
+      "ticker": "FEES",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:46:16.824832",
+      "metrics": {
+        "n": 11,
+        "pf": 1.1,
+        "wr": 9.1,
+        "exp_pct": 0.129,
+        "maxdd_pct": 7.7
+      }
+    },
+    {
+      "id": 283,
+      "ticker": "FLOT",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:47:26.622817",
+      "metrics": {
+        "n": 43,
+        "pf": 1.21,
+        "wr": 16.3,
+        "exp_pct": 0.066,
+        "maxdd_pct": 3.6
+      }
+    },
+    {
+      "id": 284,
+      "ticker": "GAZP",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:48:24.825084",
+      "metrics": {
+        "n": 7,
+        "pf": 3.85,
+        "wr": 28.6,
+        "exp_pct": 2.402,
+        "maxdd_pct": 3.9
+      }
+    },
+    {
+      "id": 285,
+      "ticker": "GMKN",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:50:08.795084",
+      "metrics": {
+        "n": 15,
+        "pf": 5.59,
+        "wr": 53.3,
+        "exp_pct": 1.068,
+        "maxdd_pct": 1.4
+      }
+    },
+    {
+      "id": 286,
+      "ticker": "IRAO",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:51:05.84178",
+      "metrics": {
+        "n": 14,
+        "pf": 0.87,
+        "wr": 28.6,
+        "exp_pct": -0.131,
+        "maxdd_pct": 9.0
+      }
+    },
+    {
+      "id": 287,
+      "ticker": "LKOH",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:51:59.352619",
+      "metrics": {
+        "n": 7,
+        "pf": 2.79,
+        "wr": 28.6,
+        "exp_pct": 1.247,
+        "maxdd_pct": 3.4
+      }
+    },
+    {
+      "id": 288,
+      "ticker": "MGNT",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:52:53.200836",
+      "metrics": {
+        "n": 7,
+        "pf": 2.77,
+        "wr": 14.3,
+        "exp_pct": 2.091,
+        "maxdd_pct": 7.5
+      }
+    },
+    {
+      "id": 289,
+      "ticker": "MOEX",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:53:55.891177",
+      "metrics": {
+        "n": 25,
+        "pf": 2.19,
+        "wr": 28.0,
+        "exp_pct": 0.436,
+        "maxdd_pct": 4.0
+      }
+    },
+    {
+      "id": 290,
+      "ticker": "MTLR",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:55:10.3905",
+      "metrics": {
+        "n": 10,
+        "pf": 0.38,
+        "wr": 20.0,
+        "exp_pct": -0.744,
+        "maxdd_pct": 7.8
+      }
+    },
+    {
+      "id": 291,
+      "ticker": "MTSS",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:56:32.827495",
+      "metrics": {
+        "n": 11,
+        "pf": 5.38,
+        "wr": 45.5,
+        "exp_pct": 1.462,
+        "maxdd_pct": 1.8
+      }
+    },
+    {
+      "id": 292,
+      "ticker": "NLMK",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:57:26.382905",
+      "metrics": {
+        "n": 9,
+        "pf": 1.76,
+        "wr": 33.3,
+        "exp_pct": 0.716,
+        "maxdd_pct": 5.8
+      }
+    },
+    {
+      "id": 293,
+      "ticker": "NVTK",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-20 23:59:04.399797",
+      "metrics": {
+        "n": 31,
+        "pf": 2.22,
+        "wr": 29.0,
+        "exp_pct": 0.714,
+        "maxdd_pct": 4.8
+      }
+    },
+    {
+      "id": 294,
+      "ticker": "PHOR",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-21 00:00:17.085921",
+      "metrics": {
+        "n": 23,
+        "pf": 3.34,
+        "wr": 34.8,
+        "exp_pct": 0.984,
+        "maxdd_pct": 2.4
+      }
+    },
+    {
+      "id": 295,
+      "ticker": "PIKK",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-21 00:01:30.4454",
+      "metrics": {
+        "n": 11,
+        "pf": 0.95,
+        "wr": 9.1,
+        "exp_pct": -0.016,
+        "maxdd_pct": 2.2
+      }
+    },
+    {
+      "id": 296,
+      "ticker": "PLZL",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-21 00:02:52.706554",
+      "metrics": {
+        "n": 24,
+        "pf": 1.44,
+        "wr": 25.0,
+        "exp_pct": 0.345,
+        "maxdd_pct": 9.7
+      }
+    },
+    {
+      "id": 297,
+      "ticker": "ROSN",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-21 00:04:33.165175",
+      "metrics": {
+        "n": 4,
+        "pf": 6.43,
+        "wr": 50.0,
+        "exp_pct": 3.139,
+        "maxdd_pct": 2.2
+      }
+    },
+    {
+      "id": 298,
+      "ticker": "RTKM",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-21 00:05:55.774372",
+      "metrics": {
+        "n": 18,
+        "pf": 0.47,
+        "wr": 16.7,
+        "exp_pct": -0.461,
+        "maxdd_pct": 12.3
+      }
+    },
+    {
+      "id": 299,
+      "ticker": "RUAL",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-21 00:07:32.729585",
+      "metrics": {
+        "n": 29,
+        "pf": 1.69,
+        "wr": 27.6,
+        "exp_pct": 0.546,
+        "maxdd_pct": 7.5
+      }
+    },
+    {
+      "id": 300,
+      "ticker": "SBER",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-21 00:10:13.388579",
+      "metrics": {
+        "n": 32,
+        "pf": 2.55,
+        "wr": 34.4,
+        "exp_pct": 0.305,
+        "maxdd_pct": 1.8
+      }
+    },
+    {
+      "id": 301,
+      "ticker": "SIBN",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-21 00:11:56.707578",
+      "metrics": {
+        "n": 42,
+        "pf": 1.84,
+        "wr": 31.0,
+        "exp_pct": 0.342,
+        "maxdd_pct": 4.7
+      }
+    },
+    {
+      "id": 302,
+      "ticker": "SNGS",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-21 00:13:08.846206",
+      "metrics": {
+        "n": 13,
+        "pf": 0.82,
+        "wr": 23.1,
+        "exp_pct": -0.124,
+        "maxdd_pct": 8.7
+      }
+    },
+    {
+      "id": 303,
+      "ticker": "TATN",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-21 00:14:55.274732",
+      "metrics": {
+        "n": 26,
+        "pf": 1.36,
+        "wr": 15.4,
+        "exp_pct": 0.275,
+        "maxdd_pct": 11.6
+      }
+    },
+    {
+      "id": 304,
+      "ticker": "TRNFP",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-21 00:16:26.246169",
+      "metrics": {
+        "n": 5,
+        "pf": 1.21,
+        "wr": 20.0,
+        "exp_pct": 0.1,
+        "maxdd_pct": 1.0
+      }
+    },
+    {
+      "id": 305,
+      "ticker": "VTBR",
+      "test_type": "full_sample",
+      "depth": "express",
+      "created_at": "2026-08-21 00:17:53.27641",
+      "metrics": {
+        "n": 15,
+        "pf": 0.18,
+        "wr": 13.3,
+        "exp_pct": -0.395,
+        "maxdd_pct": 5.9
+      }
+    }
+  ],
+  "express_baseline_id": 271,
+  "alrs_veto_ts": "2026-08-20 11:50:24",
+  "engine": "run_strategy_backtest",
+  "notes": [
+    "Universe is get_big_tickers(min_candles=250000), not run_params.tickers and not LIVE_UNIVERSE.",
+    "n_runs forced to 1 for a deterministic pass; strategy row is not updated.",
+    "Results are written only to analytics/; trading.backtest_results is not rewritten."
+  ]
+}
