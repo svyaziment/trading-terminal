@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-21 (Issue #103 test_20260821 portfolio). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-21 (Issue #106 levels state machine). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -40,13 +40,13 @@ trading-terminal/
 │ │ │ ├── data_refresher.py # Background: MOEX 1min + aggregation + indicators + signals
 │ │ │ ├── backtest_engine.py # Deterministic backtest engine (legacy pattern matrix)
 │ │ │ ├── backtest_models.py # Backtest contract (BacktestParams, ExitRule)
-│ │ │ ├── levels_engine.py # 4h support/resistance levels + zones; overlapping_resistance_zone_at veto (#97)
+│ │ │ ├── levels_engine.py # 4h S/R levels + zones; overlapping_resistance_zone_at veto (#97); LevelsTracker state machine (#106)
 │ │ │ ├── levels_backtest.py # Levels backtest (entry modes, confirmation, RR)
 │ │ │ ├── levels_backtest_db.py # Levels backtest persistence
 │ │ │ ├── levels_refresher.py # Levels refresh
 │ │ │ ├── strategy_backtest.py # Parameterizable strategy engine + walk-forward (Strategy Lab)
 │   │   ├── strategy_context.py      # Build strategy context (levels, ATR, BUY signals)
-│ │ │ ├── trading_config.py # SINGLE SOURCE OF TRUTH: universe, live top-5, strategies, live risk policy
+│ │ │ ├── trading_config.py # SINGLE SOURCE OF TRUTH: universe, live top-5, strategies, live risk policy, LEVEL_STATE_MACHINE (#106)
 │ │ │ ├── position_sizer.py # Hybrid risk/concentration sizing + lot rounding
 │ │ │ ├── live_executor.py # Sandbox execution, protection, reconciliation, shutdown
 │ │ │ ├── live_executor_preflight.py # Read-only checks before a sandbox canary
@@ -82,6 +82,7 @@ trading-terminal/
 │ └── tests/
 │       ├── test_strategy_plugin.py    # Bit-for-bit regression test (levels_reversal)
 │       ├── test_resistance_zone_veto.py # Issue #97 ALRS #711 opposing-zone guard
+│       ├── test_levels_state_machine.py # Issue #106 breakout / confirmation / veto skip
 │       ├── test_issue100_analysis.py # Issue #100 Lab universe/veto/baseline helpers
 │       └── test_portfolio_simulator.py # Portfolio simulator unit + integration tests
 ├── frontend/
@@ -219,7 +220,7 @@ The Signals tab still generates the ten `BasePattern` classes below into `tradin
 | Price Action | PA_ThreeBlackCrows | Three black crows (bearish) |
 
 Strategy Lab patterns (config-driven, AND logic, same config for backtest / paper / live):
-- `levels_reversal` — required; 4h support zone + confirmation; defines stop/take. Issue #97: `check_entry` rejects the bar when the 1min close sits in an active resistance zone (`overlapping_resistance_zone_at`); this is a defect, not role-reversal.
+- `levels_reversal` — required; 4h support zone + confirmation; defines stop/take. Issue #97: `check_entry` rejects the bar when the 1min close sits in an active resistance zone (`overlapping_resistance_zone_at`); this is a defect, not role-reversal. Issue #106: when a `state` column is present, the veto skips non-`active` zones; `build_levels` has no `state`, so locked `test_20260731` / `StrategyEvaluator` stay unchanged until the next epic issue.
 - `signal_4h_buy` — 4h BUY aggregate from `trading.signals` (TF fixed; not refactored).
 - `rsi_oversold` / `macd_bullish` / `bb_lower` — 1min indicator AND-filters. `rsi_oversold` is not `MR_RSI_Reversal`.
 - The ten SignalEngine ids above — AND-filters on the last closed HTF bar via inline `BasePattern.evaluate` on `trading.indicators`. Schemas come from `GET /api/patterns` (`timeframe` select 30min/1h/2h/4h/1d/1w, default 4h, plus 4h numeric defaults). Timeframe is set in the pattern settings modal. `StrategyLab.tsx` groups chips by API `category` (RU titles: levels / signal / trend / price_action / volume / mean_reversion / breakout). It does not hardcode the ten SignalEngine ids; the two-chip fallback is only used when `GET /api/patterns` is empty.
@@ -230,6 +231,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 - **Issue #97 (ALRS paper #711, 2026-08-20)**: `levels_reversal` printed a support entry at 19.80 while price sat in impulse resistance 19.67 [19.40, 19.94]. `nearest_level_at(..., 'support')` is one-sided; the 0.5×ATR support extension then passed the fill. Guard: `overlapping_resistance_zone_at` vetoes `StrategyEvaluator.check_entry`. Case write-up: `docs/strategy/levels-reversal-strategy.md` §10. Test: `tests/test_resistance_zone_veto.py`.
 - **Issue #100 (`test_20260820`, 2026-08-21)**: unlocked swing-only Lab config id=102 after the #97 veto. Two published packages, neither locks/paper-flags the row: (1) portfolio replay Issue #44 (`analytics/issue-100-test-20260820-portfolio/`) — equity 87,033.31 RUB, PF 1.37, 1721 trades; (2) Lab full-sample + walk-forward on `get_big_tickers` (`analytics/issue-100-test-20260820-resistance-veto/`) — 28 tickers, median PF 1.52, 26/28 PF>1, 2556 trades, WF avg PF 1.91. ALRS 2026-08-20 11:50:24 @ 19.80 is absent from both trade lists. Do not mix with locked `test_20260731`.
 - **Issue #103 (`test_20260821`, 2026-08-21)**: unlocked Lab config id=118 after the #97 veto, `level_method=['swing','impulse']` (same methods as locked `test_20260731`, current `StrategyEvaluator`). Published package `analytics/issue-103-test-20260821-portfolio/` — equity 89,055.31 RUB, PF 1.34, 2070 trades, daily Max DD 6.82%, no GAME OVER. ALRS 2026-08-20 11:50:24 @ 19.80 is absent from candidate and portfolio entries. Do not lock/rename/overwrite `test_20260821`, `test_20260820`, or locked `test_20260731`. This is not a Lab full-sample table and not an ATR comparison.
+- **Issue #106 (Epic #105, 2026-08-21)**: in-memory `LevelsTracker` in `levels_engine.py` tracks `active → broken_up/down → flipped_support/resistance`. Breakout thresholds live in `LEVEL_STATE_MACHINE` (`trading_config.py`). `overlapping_resistance_zone_at` skips non-`active` rows when a `state` column is present; DataFrames from `build_levels`/`get_levels` have no `state`, so `StrategyEvaluator` and locked `test_20260731` stay bit-for-bit. No DB persistence. Pattern `level_breakout_retest` is the next issue — do not wire the tracker into the evaluator here. Tests: `tests/test_levels_state_machine.py` plus existing `tests/test_resistance_zone_veto.py`.
 - **Legacy pattern-matrix backtest**: rule-based strategies NOT profitable after commission on MOEX top-3 over 2 years (all PF < 1). Superseded by the levels approach.
 - **Universe**: top-15 by PF (`trading_universe`) remains the paper/data-refresh universe via `get_trading_universe()`. Sandbox live execution uses Issue #66 top-5 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP via `get_live_trading_universe()`. Paper `paper_positions` was empty at the #66 snapshot (equity flat at 100,000 RUB), so the live list is backtest + liquidity + ATR, not forward PnL.
 - **Sandbox canary (Issue #74, 2026-08-19)**: `LiveExecutor` initialized the top-5 on locked strategy `test_20260731` and submitted a sandbox market BUY on RUAL (37 lots at 26.73, take 28.02, stop 26.19). The next signal for the same ticker was skipped with `reason=duplicate_ticker`. Paper equity kept updating during the session. The runbook lives in handover §19.
@@ -259,6 +261,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, alerting, control panel) | Backend execution #59-#62, Telegram #64, monitoring panel #65, live-universe #66, skip-reason logging #73, and first sandbox canary #74 done |
 | Q | SignalEngine patterns in Strategy Lab (Epic #78) | #79–#82 done (evaluator, registry schemas, E2E/docs, Lab UI grouping) |
 | R | Pattern chart preview in Lab + Signals (Epic #87) | #88 preview API + levels overlays done; #89–#92 pending |
+| S | Level Breakout & Role Reversal (Epic #105) | #106 LevelsTracker state machine done; pattern / evaluator / Lab / validation pending |
 
 ## 9. Important Notes
 

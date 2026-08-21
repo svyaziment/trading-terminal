@@ -1,7 +1,7 @@
 # Levels Reversal Strategy
 
 > Status: validated on SBER/GAZP/VTBR (2-year history). Production brain: `StrategyEvaluator.check_entry`. Prototype: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-20 (Issue #97 ALRS resistance-zone veto).
+> Last refreshed: 2026-08-21 (Issue #106 levels state machine).
 
 ## 1. Overview
 
@@ -225,3 +225,35 @@ Journal (`support_level=19.61`) and strategy meaning ("enter at support") diverg
 ### Rule going forward
 
 Entry in an active resistance zone while the claimed level is support is a **defect**, not "the role flipped". Guard: `overlapping_resistance_zone_at` in `levels_engine.py`, called from `StrategyEvaluator.check_entry` after the support-zone (plus 0.5×ATR) check. Native resistance zone only — the 0.5×ATR extension is not mirrored on the veto. Fixture / unit: `backend/tests/test_resistance_zone_veto.py` (`regression_match: true` between `StrategyEvaluator` and `LevelsReversalStrategy` on this geometry).
+
+## 11. State machine: breakout and role reversal (Issue #106)
+
+Infrastructure for Epic #105. `levels_reversal` still does **not** treat a broken resistance as a new support for entries. This section describes the in-memory lifecycle so the next issue can add pattern `level_breakout_retest`.
+
+### States
+
+| State | Meaning |
+|---|---|
+| `active` | Zone is valid and not broken (current Issue #97 veto target). |
+| `broken_up` | Confirmed close above a resistance zone. |
+| `broken_down` | Confirmed close below a support zone. |
+| `flipped_support` | Broken resistance held on the first retest close back inside the native zone. |
+| `flipped_resistance` | Symmetric: broken support held on retest. |
+
+Transitions: `active → broken_up/down` on the breakout rules below; `broken_up → flipped_support` and `broken_down → flipped_resistance` on the first subsequent close inside `[zone_lower, zone_upper]`. Failed breakouts are **not** reverted to `active` in this iteration.
+
+### Breakout rules
+
+Config: `LEVEL_STATE_MACHINE` in `trading_config.py` (do not hardcode). Defaults: `breakout_buffer_atr=0.25`, `confirm_bars=2`, `min_penetration_atr=0.5`, `zone_extension_atr=0.5`. Feed `LevelsTracker` bars of the same timeframe as the levels (typically 4h).
+
+Resistance break (support is symmetric below `zone_lower`):
+1. Last close `> zone_upper + breakout_buffer_atr × ATR`.
+2. All of the last `confirm_bars` closes `> zone_upper`.
+3. `max(window) >= zone_upper + min_penetration_atr × ATR`.
+
+### Veto interaction
+
+`overlapping_resistance_zone_at` skips rows whose `state` is not `active`. `build_levels` / `get_levels` do not add `state`, so `StrategyEvaluator.check_entry` still vetoes every overlapping resistance until the tracker snapshot is passed in. `is_broken(level_id)` is for the next issue. No DB persistence.
+
+Unit: `backend/tests/test_levels_state_machine.py`. Do not rewrite locked `test_20260731`.
+

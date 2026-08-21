@@ -1,7 +1,7 @@
 # Стратегия «Уровни + подтверждение разворота»
 
 > Статус: валидирована на SBER/GAZP/VTBR (2 года истории). Продакшн-мозг: `StrategyEvaluator.check_entry`. Прототип: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-20 (Issue #97 ALRS resistance-zone veto).
+> Last refreshed: 2026-08-21 (Issue #106 state machine уровней).
 
 ## 1. Обзор
 
@@ -225,3 +225,35 @@ print(res['metrics'])  # n_trades, profit_factor, expectancy, win_rate, total_ne
 ### Правило на будущее
 
 Вход в активной зоне resistance при заявленном support — **дефект**, а не «роль развернулась». Гард: `overlapping_resistance_zone_at` в `levels_engine.py`, вызов из `StrategyEvaluator.check_entry` после проверки зоны поддержки (плюс 0.5×ATR). Только нативная зона сопротивления — расширение 0.5×ATR на вето не зеркалится. Фикстура / unit: `backend/tests/test_resistance_zone_veto.py` (`regression_match: true` между `StrategyEvaluator` и `LevelsReversalStrategy` на этой геометрии).
+
+## 11. State machine: пробой и смена роли (задача #106)
+
+Инфраструктура эпика #105. `levels_reversal` по-прежнему **не** считает пробитое сопротивление новой поддержкой для входа. Этот раздел описывает in-memory жизненный цикл, чтобы следующий issue добавил паттерн `level_breakout_retest`.
+
+### Состояния
+
+| Состояние | Смысл |
+|---|---|
+| `active` | Зона валидна и не пробита (текущая цель вето #97). |
+| `broken_up` | Подтверждённое закрытие выше зоны сопротивления. |
+| `broken_down` | Подтверждённое закрытие ниже зоны поддержки. |
+| `flipped_support` | Пробитое сопротивление удержалось на первом ретесте (close внутри нативной зоны). |
+| `flipped_resistance` | Симметрично: пробитая поддержка удержалась на ретесте. |
+
+Переходы: `active → broken_up/down` по правилам пробоя ниже; `broken_up → flipped_support` и `broken_down → flipped_resistance` на первом последующем close внутри `[zone_lower, zone_upper]`. Ложный пробой в этой итерации **не** возвращается в `active`.
+
+### Правила пробоя
+
+Конфиг: `LEVEL_STATE_MACHINE` в `trading_config.py` (не хардкодить). Дефолты: `breakout_buffer_atr=0.25`, `confirm_bars=2`, `min_penetration_atr=0.5`, `zone_extension_atr=0.5`. В `LevelsTracker` подавайте бары того же ТФ, что и уровни (обычно 4h).
+
+Пробой сопротивления (поддержка симметрично ниже `zone_lower`):
+1. Последний close `> zone_upper + breakout_buffer_atr × ATR`.
+2. Все последние `confirm_bars` close `> zone_upper`.
+3. `max(window) >= zone_upper + min_penetration_atr × ATR`.
+
+### Взаимодействие с вето
+
+`overlapping_resistance_zone_at` пропускает строки, у которых `state` не `active`. `build_levels` / `get_levels` колонку `state` не добавляют, поэтому `StrategyEvaluator.check_entry` по-прежнему ветирует любое перекрывающееся сопротивление, пока не передан снимок трекера. `is_broken(level_id)` — для следующего issue. Без персистентности в БД.
+
+Unit: `backend/tests/test_levels_state_machine.py`. Locked `test_20260731` не перезаписывать.
+

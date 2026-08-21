@@ -9,10 +9,20 @@ Rolling window, NO look-ahead: a swing level defined on bar i is available only 
 bar i+window (after confirmation); an impulse level on bar i is available from bar i.
 Zones: level_price +- zone_atr_mult * ATR(at definition).
 Entry veto for an opposing zone is overlapping_resistance_zone_at (Issue #97).
+Issue #106: LevelsTracker tracks in-memory lifecycle
+active → broken_up/down → flipped_support/resistance. Veto skips non-active
+states when a `state` column is present; build_levels output has no `state`,
+so StrategyEvaluator stays bit-for-bit until the next issue wires the tracker.
 """
 from __future__ import annotations
+
+from enum import Enum
+from typing import Any, Mapping, Optional, Sequence, Union
+
 import numpy as np
 import pandas as pd
+
+from app.analytics.trading_config import get_level_state_machine_config
 
 _LEVEL_COLS = ['available_from_ts', 'defined_ts', 'level_price', 'type', 'method',
                'atr', 'zone_lower', 'zone_upper']
@@ -121,6 +131,11 @@ def overlapping_resistance_zone_at(levels_df: pd.DataFrame, bar_ts, bar_price: f
     Native zone only ([zone_lower, zone_upper]); the 0.5×ATR support-side
     extension in check_entry is NOT mirrored here. If several zones overlap,
     the closest level_price wins.
+
+    Issue #106: when a `state` column is present, only `active` (or missing /
+    empty) rows participate in the veto. Broken and flipped resistances are
+    no longer opposing zones. DataFrames from build_levels / get_levels have
+    no `state` column, so the Issue #97 path is unchanged.
     """
     if levels_df is None or levels_df.empty:
         return None
@@ -130,6 +145,11 @@ def overlapping_resistance_zone_at(levels_df: pd.DataFrame, bar_ts, bar_price: f
         & (levels_df['zone_lower'] <= bar_price)
         & (levels_df['zone_upper'] >= bar_price)
     ]
+    if 'state' in levels_df.columns and not active.empty:
+        raw = active['state']
+        normalized = raw.where(raw.notna(), LevelState.ACTIVE.value)
+        normalized = normalized.astype(str).str.strip().str.lower()
+        active = active[normalized.isin(_VETO_ACTIVE_STATES)]
     if active.empty:
         return None
     idx = (active['level_price'] - bar_price).abs().idxmin()
@@ -140,3 +160,194 @@ def overlapping_resistance_zone_at(levels_df: pd.DataFrame, bar_ts, bar_price: f
         'zone_upper': float(row['zone_upper']),
         'method': row['method'],
     }
+
+
+# Stable alias used by LevelsTracker and Issue #106 docs. Same object as build_levels.
+get_levels = build_levels
+
+
+class LevelState(str, Enum):
+    """Lifecycle of one support/resistance zone (Issue #106)."""
+
+    ACTIVE = 'active'
+    BROKEN_UP = 'broken_up'
+    BROKEN_DOWN = 'broken_down'
+    FLIPPED_SUPPORT = 'flipped_support'
+    FLIPPED_RESISTANCE = 'flipped_resistance'
+
+
+_BROKEN_STATES = frozenset({
+    LevelState.BROKEN_UP,
+    LevelState.BROKEN_DOWN,
+    LevelState.FLIPPED_SUPPORT,
+    LevelState.FLIPPED_RESISTANCE,
+    LevelState.BROKEN_UP.value,
+    LevelState.BROKEN_DOWN.value,
+    LevelState.FLIPPED_SUPPORT.value,
+    LevelState.FLIPPED_RESISTANCE.value,
+})
+_VETO_ACTIVE_STATES = frozenset({'active', '', 'nan', 'none'})
+_BarLike = Union[Mapping[str, Any], pd.Series]
+
+
+def _make_level_id(idx: int, row: pd.Series) -> str:
+    ts = pd.Timestamp(row['defined_ts']).isoformat()
+    return f"{idx}:{ts}:{float(row['level_price']):.8f}:{row['type']}:{row['method']}"
+
+
+def _bar_fields(bar: _BarLike):
+    if isinstance(bar, pd.Series):
+        ts = bar['timestamp']
+        close = float(bar['close'])
+        atr = bar['atr'] if 'atr' in bar.index else None
+    else:
+        ts = bar['timestamp']
+        close = float(bar['close'])
+        atr = bar.get('atr')
+    atr_val = None if atr is None or (isinstance(atr, float) and np.isnan(atr)) else float(atr)
+    if atr_val is not None and (np.isnan(atr_val) or atr_val <= 0):
+        atr_val = None
+    return pd.Timestamp(ts), close, atr_val
+
+
+class LevelsTracker:
+    """In-memory state machine over a snapshot from get_levels() / build_levels().
+
+    Feed bars of the *same* timeframe as the levels (typically 4h) via update()
+    or update_bars(). No DB persistence (first iteration, Issue #106).
+    StrategyEvaluator is not connected here — that is the next epic issue.
+    """
+
+    def __init__(self, levels_df: pd.DataFrame, config: Optional[Mapping[str, Any]] = None):
+        cfg = get_level_state_machine_config()
+        if config:
+            cfg.update(dict(config))
+        self._config = cfg
+        if levels_df is None or levels_df.empty:
+            self._levels = pd.DataFrame(columns=list(_LEVEL_COLS) + ['level_id'])
+        else:
+            self._levels = levels_df.copy().reset_index(drop=True)
+            self._levels['level_id'] = [
+                _make_level_id(i, self._levels.iloc[i]) for i in range(len(self._levels))
+            ]
+        self._states: dict[str, str] = {
+            str(lid): LevelState.ACTIVE.value for lid in self._levels['level_id']
+        } if not self._levels.empty else {}
+        self._timestamps: list[pd.Timestamp] = []
+        self._closes: list[float] = []
+        self._atrs: list[Optional[float]] = []
+
+    def _resolve_id(self, level_id) -> str:
+        if level_id in self._states:
+            return level_id
+        if isinstance(level_id, (int, np.integer)) and 0 <= int(level_id) < len(self._levels):
+            return str(self._levels.iloc[int(level_id)]['level_id'])
+        raise KeyError(f'unknown level_id: {level_id!r}')
+
+    def is_broken(self, level_id) -> bool:
+        """True once the zone has left `active` (broken or flipped)."""
+        return self._states[self._resolve_id(level_id)] in _BROKEN_STATES
+
+    def get_state(self, level_id) -> str:
+        return self._states[self._resolve_id(level_id)]
+
+    def get_levels_with_state(self) -> pd.DataFrame:
+        out = self._levels.copy()
+        if out.empty:
+            out['state'] = pd.Series(dtype=str)
+            return out
+        out['state'] = [self._states[str(lid)] for lid in out['level_id']]
+        return out
+
+    def _closes_for_level(self, available_from_ts) -> tuple[list[float], Optional[float]]:
+        avail = pd.Timestamp(available_from_ts)
+        closes: list[float] = []
+        last_atr: Optional[float] = None
+        for ts, close, atr in zip(self._timestamps, self._closes, self._atrs):
+            if ts >= avail:
+                closes.append(close)
+                last_atr = atr
+        return closes, last_atr
+
+    def _atr(self, level_atr: float, bar_atr: Optional[float]) -> float:
+        if bar_atr is not None and bar_atr > 0:
+            return float(bar_atr)
+        return float(level_atr) if level_atr and level_atr > 0 else 0.0
+
+    def _breaks_resistance(self, zone_upper: float, closes: Sequence[float], atr: float) -> bool:
+        n = int(self._config['confirm_bars'])
+        if n < 1 or len(closes) < n or atr <= 0:
+            return False
+        window = list(closes[-n:])
+        if not all(c > zone_upper for c in window):
+            return False
+        buffer = float(self._config['breakout_buffer_atr']) * atr
+        min_pen = float(self._config['min_penetration_atr']) * atr
+        if window[-1] <= zone_upper + buffer:
+            return False
+        if max(window) < zone_upper + min_pen:
+            return False
+        return True
+
+    def _breaks_support(self, zone_lower: float, closes: Sequence[float], atr: float) -> bool:
+        n = int(self._config['confirm_bars'])
+        if n < 1 or len(closes) < n or atr <= 0:
+            return False
+        window = list(closes[-n:])
+        if not all(c < zone_lower for c in window):
+            return False
+        buffer = float(self._config['breakout_buffer_atr']) * atr
+        min_pen = float(self._config['min_penetration_atr']) * atr
+        if window[-1] >= zone_lower - buffer:
+            return False
+        if min(window) > zone_lower - min_pen:
+            return False
+        return True
+
+    def update(self, bar: _BarLike) -> None:
+        """Advance the state machine by one closed bar of the levels timeframe."""
+        ts, close, bar_atr = _bar_fields(bar)
+        self._timestamps.append(ts)
+        self._closes.append(close)
+        self._atrs.append(bar_atr)
+        if self._levels.empty:
+            return
+        for i in range(len(self._levels)):
+            row = self._levels.iloc[i]
+            lid = str(row['level_id'])
+            if pd.Timestamp(row['available_from_ts']) > ts:
+                continue
+            state = self._states[lid]
+            zone_lower = float(row['zone_lower'])
+            zone_upper = float(row['zone_upper'])
+            atr = self._atr(float(row['atr']), bar_atr)
+            closes, _ = self._closes_for_level(row['available_from_ts'])
+            if state == LevelState.ACTIVE.value:
+                if row['type'] == 'resistance' and self._breaks_resistance(zone_upper, closes, atr):
+                    self._states[lid] = LevelState.BROKEN_UP.value
+                elif row['type'] == 'support' and self._breaks_support(zone_lower, closes, atr):
+                    self._states[lid] = LevelState.BROKEN_DOWN.value
+            elif state == LevelState.BROKEN_UP.value:
+                if zone_lower <= close <= zone_upper:
+                    self._states[lid] = LevelState.FLIPPED_SUPPORT.value
+            elif state == LevelState.BROKEN_DOWN.value:
+                if zone_lower <= close <= zone_upper:
+                    self._states[lid] = LevelState.FLIPPED_RESISTANCE.value
+
+    def update_bars(self, bars: pd.DataFrame) -> None:
+        if bars is None or bars.empty:
+            return
+        for i in range(len(bars)):
+            self.update(bars.iloc[i])
+
+
+def get_levels_with_state(
+    levels_df: pd.DataFrame,
+    bars: Optional[pd.DataFrame] = None,
+    config: Optional[Mapping[str, Any]] = None,
+) -> pd.DataFrame:
+    """Replay optional bars through LevelsTracker and return levels + state."""
+    tracker = LevelsTracker(levels_df, config=config)
+    if bars is not None:
+        tracker.update_bars(bars)
+    return tracker.get_levels_with_state()
