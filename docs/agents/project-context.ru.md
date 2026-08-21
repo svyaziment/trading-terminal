@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-21 (задача #107 level_breakout_retest). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-21 (задача #108 валидация level_breakout_retest). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -110,7 +110,8 @@ trading-terminal/
 │ ├── issue-66-live-universe/ # Рейтинг live top-5, отчёт и графики
 │ ├── issue-100-test-20260820-portfolio/ # Портфельный replay Lab test_20260820 после вето #97
 │ ├── issue-100-test-20260820-resistance-veto/ # Lab full-sample + walk-forward test_20260820 после вето #97
-│ └── issue-103-test-20260821-portfolio/ # Портфельный replay Lab test_20260821 после вето #97 (swing+impulse)
+│ ├── issue-103-test-20260821-portfolio/ # Портфельный replay Lab test_20260821 после вето #97 (swing+impulse)
+│ └── issue-108-breakout-retest-validation/ # Задача #108 A vs B Lab FS/WF + кейс ALRS + pie отказов
 ├── docs/
 │ ├── agents/ # project-context.md, handover.md (+ .ru versions), documentation-policy.md
 │ ├── strategy/ # levels-reversal-strategy.md, paper-trading.md, testing-rules.md, backtest-report.md (+ .ru)
@@ -234,7 +235,8 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 - **Задача #100 (`test_20260820`, 2026-08-21)**: разблокированный swing-only Lab-конфиг id=102 после вето #97. Два пакета, ни один не lock/paper-flag: (1) портфельный replay Issue #44 (`analytics/issue-100-test-20260820-portfolio/`) — equity 87 033.31 RUB, PF 1.37, 1721 сделка; (2) Lab full-sample + walk-forward на `get_big_tickers` (`analytics/issue-100-test-20260820-resistance-veto/`) — 28 тикеров, median PF 1.52, 26/28 PF>1, 2556 сделок, WF avg PF 1.91. Бар ALRS 2026-08-20 11:50:24 @ 19.80 отсутствует в обоих trade list. Не смешивать с locked `test_20260731`.
 - **Задача #103 (`test_20260821`, 2026-08-21)**: разблокированный Lab-конфиг id=118 после вето #97, `level_method=['swing','impulse']` (как у locked `test_20260731`, текущий `StrategyEvaluator`). Пакет `analytics/issue-103-test-20260821-portfolio/` — equity 89 055.31 RUB, PF 1.34, 2070 сделок, daily Max DD 6.82%, без GAME OVER. Бар ALRS 2026-08-20 11:50:24 @ 19.80 отсутствует среди candidate и портфельных входов. Не lock/rename/overwrite `test_20260821`, `test_20260820` и locked `test_20260731`. Это не таблица Lab full-sample и не сравнение с ATR.
 - **Задача #106 (эпик #105, 2026-08-21)**: in-memory `LevelsTracker` в `levels_engine.py` ведёт `active → broken_up/down → flipped_support/resistance`. Пороги пробоя — `LEVEL_STATE_MACHINE` в `trading_config.py`. `overlapping_resistance_zone_at` пропускает строки не в `active`, если есть колонка `state`. Без персистентности в БД. Тесты: `tests/test_levels_state_machine.py`.
-- **Задача #107 (эпик #105, 2026-08-21)**: Lab-паттерн `level_breakout_retest` — AND-фильтр в `StrategyEvaluator` после `levels_reversal`. Трекер создаётся и передаётся в вето (`is_broken`) только если паттерн есть в `config.patterns`. Stop/take тогда из `stop_atr` × ATR и `risk_reward` паттерна. Locked `test_20260731` паттерн не включает, поэтому вето #97 и levels stop/take остаются бит-в-бит. Тесты: `tests/test_level_breakout_retest.py` плюс существующие `tests/test_resistance_zone_veto.py` / `tests/test_levels_state_machine.py`. Далее: аналитическая валидация (#3) и чип Lab (#4).
+- **Задача #107 (эпик #105, 2026-08-21)**: Lab-паттерн `level_breakout_retest` — AND-фильтр в `StrategyEvaluator` после `levels_reversal`. Трекер создаётся и передаётся в вето (`is_broken`) только если паттерн есть в `config.patterns`. Stop/take тогда из `stop_atr` × ATR и `risk_reward` паттерна. Locked `test_20260731` паттерн не включает, поэтому вето #97 и levels stop/take остаются бит-в-бит. Тесты: `tests/test_level_breakout_retest.py` плюс существующие `tests/test_resistance_zone_veto.py` / `tests/test_levels_state_machine.py`.
+- **Задача #108 (эпик #105, 2026-08-21)**: Lab-валидация `level_breakout_retest` против задачи #100 `test_20260820`. Пакет: `analytics/issue-108-breakout-retest-validation/`. Конфиг A — опубликованная строка #100 (не JSON-набросок из GitHub). B только добавляет паттерн. Walk-forward на замороженных дефолтах; ALRS 2026-08-20 — кейс, был ли 19.94 подтверждённым пробоем. Не lock/paper-flag из этого issue. Далее: чип Lab (#4).
 - **Legacy pattern-matrix backtest**: rule-based стратегии НЕ прибыльны после комиссии на MOEX top-3 за 2 года (все PF < 1). Заменены подходом levels.
 - **Вселенная**: top-15 по PF (`trading_universe`) остаётся вселенной paper/data-refresh через `get_trading_universe()`. Sandbox live execution использует топ-5 из задачи #66 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP через `get_live_trading_universe()`. На снимке #66 таблица `paper_positions` была пуста (equity плоская 100 000 RUB), поэтому live-список построен по бэктесту, ликвидности и ATR, а не по forward PnL.
 - **Sandbox canary (задача #74, 2026-08-19)**: `LiveExecutor` инициализировал топ-5 на locked-стратегии `test_20260731` и отправил sandbox market BUY по RUAL (37 лотов по 26.73, take 28.02, stop 26.19). Следующий сигнал по тому же тикеру был пропущен с `reason=duplicate_ticker`. `paper_equity` продолжала писаться во время сессии. Runbook — в handover §19.
@@ -264,7 +266,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | P | Live Trading Infrastructure (sandbox-исполнение, рыночные фильтры, риск-контроль, alerting, панель управления) | Backend-исполнение #59-#62, Telegram #64, monitoring panel #65, live-вселенная #66, логи отказов #73 и первая sandbox canary #74 готовы |
 | Q | Паттерны SignalEngine в Strategy Lab (эпик #78) | #79–#82 готовы (evaluator, схемы registry, E2E/docs, группировка UI Lab) |
 | R | Превью паттерна на графике Lab + Сигналы (эпик #87) | #88 API preview + оверлеи levels готовы; #89–#92 далее |
-| S | Пробой уровня и смена роли (эпик #105) | #106 LevelsTracker + #107 `level_breakout_retest` AND-фильтр готовы; Lab UI / валидация далее |
+| S | Пробой уровня и смена роли (эпик #105) | #106 LevelsTracker + #107 `level_breakout_retest` AND-фильтр + #108 пакет валидации готовы; Lab UI далее |
 
 ## 9. Важные замечания
 

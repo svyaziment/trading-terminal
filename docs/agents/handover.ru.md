@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-21 (задача #107 level_breakout_retest; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-21 (задача #108 валидация level_breakout_retest; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -232,4 +232,17 @@ ORDER BY id DESC LIMIT 20;
 - Компонуемость: AND с `levels_reversal` (по-прежнему обязателен для пути зоны поддержки) и с фильтрами SignalEngine / `signal_4h_buy`. Чип frontend — следующий issue эпика; `GET /api/patterns` уже отдаёт схему.
 - Locked `test_20260731` не перезаписывать.
 - Unit-тесты: `cd backend && python -m pytest -q tests/test_level_breakout_retest.py tests/test_pattern_registry.py tests/test_resistance_zone_veto.py`.
+
+## 24. Как читать результаты валидации Breakout Retest
+
+Опубликованный пакет: `analytics/issue-108-breakout-retest-validation/` (задача #108, эпик #105).
+
+- Начните с `summary.md` / `summary.ru.md` (рекомендация: внедрять / доработать / не внедрять). Далее `full_sample_comparison.md`, `walk_forward_results.md`, `alrs_case_study.md`, `rejection_analysis.md`.
+- **A** — опубликованная Lab-строка задачи #100 `test_20260820` (id=102), не упрощённый JSON из GitHub issue. Для совпадения с #100 нужны `signal_4h_buy`, `confirm_windows=[10]`, только swing, окно `2024-08-21`→`2026-08-21` и `get_big_tickers`. **B** только добавляет дефолты Lab `level_breakout_retest`. Locked `test_20260731` не перезаписывается.
+- Equity в `plots/equity_curves.png` — кумулятивный net % по сделкам, не портфельный симулятор на 50k.
+- Walk-forward на замороженных дефолтах Lab (без сетки 81 точка). `plots/walk_forward.png`: A pooled vs B in-sample vs B out-of-sample. Деградация >20% — флаг переобучения спецификации, не подобранного вектора.
+- ALRS 2026-08-20: 1min high 19.95 не является подтверждённым 4h-пробоем верхней границы зоны 19.94. Нужны `confirm_bars=2` close выше зоны плюс buffer/penetration из `LEVEL_STATE_MACHINE`. `plots/alrs_case.png` отмечает бар вето.
+- Pie отказов считает вызовы `check_breakout_retest` после прохождения `levels_reversal`+`signal_4h_buy`. Доминирование `no_breakout` значит, что AND-фильтр редкий, а не то, что движок мёртв.
+- Воспроизведение: `python analytics/issue-108-breakout-retest-validation/generate_inputs.py --workers 4`, затем `analysis.py`. `--reuse-a` (по умолчанию) берёт `results.json` задачи #100; `--run-a` перегоняет A для бит-в-бит проверки. Чекпоинт джобов: `reports/Arctic/108_breakout-retest-validation/jobs.jsonl` (gitignored).
+- Тесты: `cd backend && python -m pytest -q tests/test_level_breakout_retest.py`.
 

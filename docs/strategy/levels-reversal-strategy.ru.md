@@ -1,7 +1,7 @@
 # Стратегия «Уровни + подтверждение разворота»
 
 > Статус: валидирована на SBER/GAZP/VTBR (2 года истории). Продакшн-мозг: `StrategyEvaluator.check_entry`. Прототип: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-21 (Issue #107 level_breakout_retest).
+> Last refreshed: 2026-08-21 (Issue #108 level_breakout_retest validation).
 
 ## 1. Обзор
 
@@ -275,9 +275,19 @@ Unit: `backend/tests/test_levels_state_machine.py`. Locked `test_20260731` не 
 
 ### Вето
 
-Пробитое сопротивление больше не opposing zone. Fill ALRS 2026-08-20 @ 19.80 по-прежнему отклоняется на locked `test_20260731` (паттерн выключен — сопротивление не было подтверждённо пробито state machine). Включение паттерна не перезаписывает locked-строку БД. Был ли 19.67 валидным входом role-reversal — следующий аналитический issue.
+Пробитое сопротивление больше не opposing zone. Fill ALRS 2026-08-20 @ 19.80 по-прежнему отклоняется на locked `test_20260731` (паттерн выключен). Включение паттерна не перезаписывает locked-строку БД. Задача #108 (`analytics/issue-108-breakout-retest-validation/`) проверяет, был ли 19.94 подтверждённым пробоем `LevelsTracker` до 11:50.
 
 ### Lab
 
 `GET /api/patterns` отдаёт схему (`category=breakout`). Чип frontend — следующий issue эпика. Файл: `backend/app/analytics/patterns/level_breakout_retest.py`. Тесты: `backend/tests/test_level_breakout_retest.py`.
+
+## 13. Валидация: `level_breakout_retest` (задача #108)
+
+Полный отчёт (EN+RU, графики): `analytics/issue-108-breakout-retest-validation/`.
+
+- **A** = опубликованный Lab `test_20260820` (задача #100): `levels_reversal` только swing + `signal_4h_buy`, окно `2024-08-21`…`2026-08-21`, 28 `get_big_tickers`. Locked `test_20260731` не перезаписывается. База совпала с #100 **28/28** тикеров (2556 сделок, median PF **1.52**).
+- **B** = A + `level_breakout_retest` (дефолты Lab: 4h, окно 20, зона 0.5×ATR, stop 1.0×ATR, RR 2.0): **257** сделок, median PF **0.98**, pooled PF **1.07**. Слишком редко и слабее A.
+- Walk-forward: A — опубликованные полугодия #100; B — нарезка FS-сделок по дате. В 2/4 окнах OOS PF хуже IS больше чем на 20%.
+- ALRS 2026-08-20: **нет** 4h close > 19.94 после импульсного уровня 2026-08-14; `LevelsTracker` оставил 19.67 в `active`; session high 19.95 в 11:40 не подтверждённый пробой. Вето #97 остаётся верным.
+- Рекомендация: **доработать** до Lab UI / paper. Не lock/paper-flag строку Lab этим issue.
 

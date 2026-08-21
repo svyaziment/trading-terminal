@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-21 (Issue #107 level_breakout_retest). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-21 (Issue #108 level_breakout_retest validation). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -110,7 +110,8 @@ trading-terminal/
 │ ├── issue-66-live-universe/ # Live top-5 ranking, report, and plots
 │ ├── issue-100-test-20260820-portfolio/ # Portfolio replay of Lab test_20260820 after #97 veto
 │ ├── issue-100-test-20260820-resistance-veto/ # Lab full-sample + walk-forward of test_20260820 after #97 veto
-│ └── issue-103-test-20260821-portfolio/ # Portfolio replay of Lab test_20260821 after #97 veto (swing+impulse)
+│ ├── issue-103-test-20260821-portfolio/ # Portfolio replay of Lab test_20260821 after #97 veto (swing+impulse)
+│ └── issue-108-breakout-retest-validation/ # Issue #108 A vs B Lab FS/WF + ALRS case + rejection pie
 ├── docs/
 │ ├── agents/ # project-context.md, handover.md (+ .ru versions), documentation-policy.md
 │ ├── strategy/ # levels-reversal-strategy.md, paper-trading.md, testing-rules.md, backtest-report.md (+ .ru)
@@ -234,7 +235,8 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 - **Issue #100 (`test_20260820`, 2026-08-21)**: unlocked swing-only Lab config id=102 after the #97 veto. Two published packages, neither locks/paper-flags the row: (1) portfolio replay Issue #44 (`analytics/issue-100-test-20260820-portfolio/`) — equity 87,033.31 RUB, PF 1.37, 1721 trades; (2) Lab full-sample + walk-forward on `get_big_tickers` (`analytics/issue-100-test-20260820-resistance-veto/`) — 28 tickers, median PF 1.52, 26/28 PF>1, 2556 trades, WF avg PF 1.91. ALRS 2026-08-20 11:50:24 @ 19.80 is absent from both trade lists. Do not mix with locked `test_20260731`.
 - **Issue #103 (`test_20260821`, 2026-08-21)**: unlocked Lab config id=118 after the #97 veto, `level_method=['swing','impulse']` (same methods as locked `test_20260731`, current `StrategyEvaluator`). Published package `analytics/issue-103-test-20260821-portfolio/` — equity 89,055.31 RUB, PF 1.34, 2070 trades, daily Max DD 6.82%, no GAME OVER. ALRS 2026-08-20 11:50:24 @ 19.80 is absent from candidate and portfolio entries. Do not lock/rename/overwrite `test_20260821`, `test_20260820`, or locked `test_20260731`. This is not a Lab full-sample table and not an ATR comparison.
 - **Issue #106 (Epic #105, 2026-08-21)**: in-memory `LevelsTracker` in `levels_engine.py` tracks `active → broken_up/down → flipped_support/resistance`. Breakout thresholds live in `LEVEL_STATE_MACHINE` (`trading_config.py`). `overlapping_resistance_zone_at` skips non-`active` rows when a `state` column is present. No DB persistence. Tests: `tests/test_levels_state_machine.py`.
-- **Issue #107 (Epic #105, 2026-08-21)**: Lab pattern `level_breakout_retest` is an AND-filter in `StrategyEvaluator` after `levels_reversal`. Tracker is created and passed into the veto (`is_broken`) only when the pattern is in `config.patterns`. Stop/take then come from `stop_atr` × ATR and pattern `risk_reward`. Locked `test_20260731` does not enable the pattern, so the Issue #97 veto and levels stop/take stay bit-for-bit. Tests: `tests/test_level_breakout_retest.py` plus existing `tests/test_resistance_zone_veto.py` / `tests/test_levels_state_machine.py`. Next: analytics validation (#3) and Lab chip (#4).
+- **Issue #107 (Epic #105, 2026-08-21)**: Lab pattern `level_breakout_retest` is an AND-filter in `StrategyEvaluator` after `levels_reversal`. Tracker is created and passed into the veto (`is_broken`) only when the pattern is in `config.patterns`. Stop/take then come from `stop_atr` × ATR and pattern `risk_reward`. Locked `test_20260731` does not enable the pattern, so the Issue #97 veto and levels stop/take stay bit-for-bit. Tests: `tests/test_level_breakout_retest.py` plus existing `tests/test_resistance_zone_veto.py` / `tests/test_levels_state_machine.py`.
+- **Issue #108 (Epic #105, 2026-08-21)**: Lab validation of `level_breakout_retest` vs Issue #100 `test_20260820`. Package: `analytics/issue-108-breakout-retest-validation/`. Config A is the published #100 row (not the GitHub JSON sketch). Config B only adds the pattern. Walk-forward uses frozen defaults; ALRS 2026-08-20 is a case study of whether 19.94 was a confirmed break. Do not lock/paper-flag from this issue. Next: Lab chip (#4).
 - **Legacy pattern-matrix backtest**: rule-based strategies NOT profitable after commission on MOEX top-3 over 2 years (all PF < 1). Superseded by the levels approach.
 - **Universe**: top-15 by PF (`trading_universe`) remains the paper/data-refresh universe via `get_trading_universe()`. Sandbox live execution uses Issue #66 top-5 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP via `get_live_trading_universe()`. Paper `paper_positions` was empty at the #66 snapshot (equity flat at 100,000 RUB), so the live list is backtest + liquidity + ATR, not forward PnL.
 - **Sandbox canary (Issue #74, 2026-08-19)**: `LiveExecutor` initialized the top-5 on locked strategy `test_20260731` and submitted a sandbox market BUY on RUAL (37 lots at 26.73, take 28.02, stop 26.19). The next signal for the same ticker was skipped with `reason=duplicate_ticker`. Paper equity kept updating during the session. The runbook lives in handover §19.
@@ -264,7 +266,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | P | Live Trading Infrastructure (sandbox execution, market filters, risk controls, alerting, control panel) | Backend execution #59-#62, Telegram #64, monitoring panel #65, live-universe #66, skip-reason logging #73, and first sandbox canary #74 done |
 | Q | SignalEngine patterns in Strategy Lab (Epic #78) | #79–#82 done (evaluator, registry schemas, E2E/docs, Lab UI grouping) |
 | R | Pattern chart preview in Lab + Signals (Epic #87) | #88 preview API + levels overlays done; #89–#92 pending |
-| S | Level Breakout & Role Reversal (Epic #105) | #106 LevelsTracker + #107 `level_breakout_retest` AND-filter done; Lab UI / validation pending |
+| S | Level Breakout & Role Reversal (Epic #105) | #106 LevelsTracker + #107 `level_breakout_retest` AND-filter + #108 validation package done; Lab UI pending |
 
 ## 9. Important Notes
 

@@ -14,8 +14,18 @@ from app.analytics.levels_engine import (
 )
 from app.analytics.patterns.level_breakout_retest import (
     PATTERN_ID,
+    REJECTION_ACCEPTED,
+    REJECTION_BREAKOUT_NOT_CONFIRMED,
+    REJECTION_NO_BREAKOUT,
+    REJECTION_NO_RETEST,
+    REJECTION_NO_TRIGGER,
+    REJECTION_SUPPORT_BREAKS,
+    REJECTION_WINDOW_EXPIRED,
     check_breakout_retest,
+    classify_retest_rejection,
     compute_stop_take,
+    disable_rejection_log,
+    enable_rejection_log,
     evaluate_level_breakout_retest,
     resolve_params,
 )
@@ -275,3 +285,66 @@ def test_evaluator_without_pattern_keeps_veto():
     )
     assert ev.use_breakout_retest is False
     assert ev.check_entry(_retest_bar(close=100.0, open_=99.2, high=100.4, low=99.0)) is None
+
+
+def test_classify_rejection_codes():
+    tracker = _broken_tracker()
+    assert classify_retest_rejection(_retest_bar(), tracker, atr=ATR, prev_high=99.8) is None
+
+    far = _retest_bar(close=110.0, open_=109.0, high=110.5, low=108.8)
+    assert classify_retest_rejection(far, tracker, atr=ATR, prev_high=109.5) == REJECTION_NO_RETEST
+
+    broken_support = _retest_bar(close=99.5, open_=99.0, high=99.8, low=98.9)
+    assert (
+        classify_retest_rejection(broken_support, tracker, atr=ATR, prev_high=99.2)
+        == REJECTION_SUPPORT_BREAKS
+    )
+
+    bearish = _retest_bar(close=100.5, open_=100.8, high=100.9, low=100.2)
+    assert (
+        classify_retest_rejection(bearish, tracker, atr=ATR, prev_high=101.0)
+        == REJECTION_NO_TRIGGER
+    )
+
+    extra = [
+        (pd.Timestamp("2026-08-01 12:00:00"), 103.0),
+        (pd.Timestamp("2026-08-01 16:00:00"), 103.0),
+        (pd.Timestamp("2026-08-02 08:00:00"), 103.0),
+    ]
+    expired = _broken_tracker()
+    expired.update_bars(_htf_bars(*extra))
+    tight = resolve_params({"retest_window_bars": 2})
+    assert (
+        classify_retest_rejection(
+            _retest_bar(), expired, atr=ATR, params=tight, prev_high=99.8
+        )
+        == REJECTION_WINDOW_EXPIRED
+    )
+
+    active = LevelsTracker(pd.DataFrame([_resistance_row()]))
+    inside = _retest_bar(close=100.5, open_=100.0, high=100.8, low=99.8)
+    assert classify_retest_rejection(inside, active, atr=ATR, prev_high=99.8) == REJECTION_NO_BREAKOUT
+    above = _retest_bar(close=103.0, open_=102.5, high=103.2, low=102.2)
+    assert (
+        classify_retest_rejection(above, active, atr=ATR, prev_high=102.4)
+        == REJECTION_BREAKOUT_NOT_CONFIRMED
+    )
+
+
+def test_rejection_log_does_not_change_decision():
+    tracker = _broken_tracker()
+    bucket: list[str] = []
+    enable_rejection_log(bucket)
+    try:
+        hit = check_breakout_retest(_retest_bar(), tracker, atr=ATR, prev_high=99.8)
+        miss = check_breakout_retest(
+            _retest_bar(close=110.0, open_=109.0, high=110.5, low=108.8),
+            tracker,
+            atr=ATR,
+            prev_high=109.5,
+        )
+    finally:
+        disable_rejection_log()
+    assert hit is not None
+    assert miss is None
+    assert bucket == [REJECTION_ACCEPTED, REJECTION_NO_RETEST]

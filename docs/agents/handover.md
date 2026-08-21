@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-21 (Issue #107 level_breakout_retest). Companion to project-context.md.
+Last refreshed: 2026-08-21 (Issue #108 level_breakout_retest validation). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -232,4 +232,17 @@ Do not modify the locked strategy, RR, imbalance threshold, or `trading.trading_
 - Composability: AND with `levels_reversal` (still required for the support-zone path) and with SignalEngine / `signal_4h_buy` filters. Frontend chip is the next epic issue; `GET /api/patterns` already exposes the schema.
 - Do not rewrite locked `test_20260731`.
 - Unit tests: `cd backend && python -m pytest -q tests/test_level_breakout_retest.py tests/test_pattern_registry.py tests/test_resistance_zone_veto.py`.
+
+## 24. Interpreting Breakout Retest Validation Results
+
+Published package: `analytics/issue-108-breakout-retest-validation/` (Issue #108, Epic #105).
+
+- Start with `summary.md` / `summary.ru.md` (recommendation: adopt / refine / do not adopt). Then `full_sample_comparison.md`, `walk_forward_results.md`, `alrs_case_study.md`, `rejection_analysis.md`.
+- **A** is the published Issue #100 Lab row `test_20260820` (id=102), not the simplified JSON sketch in the GitHub issue. Matching #100 requires `signal_4h_buy`, `confirm_windows=[10]`, swing-only levels, window `2024-08-21`→`2026-08-21`, and `get_big_tickers`. **B** only adds `level_breakout_retest` Lab defaults. Locked `test_20260731` is not rewritten.
+- Full-sample equity in `plots/equity_curves.png` is trade-level cumulative net %, not the 50k portfolio simulator.
+- Walk-forward uses frozen Lab defaults (no 81-point grid). `plots/walk_forward.png` shows A pooled vs B in-sample vs B out-of-sample. Degradation >20% is a specification-overfit flag, not a tuned-vector flag.
+- ALRS 2026-08-20: a 1min high of 19.95 is not a confirmed 4h break of zone upper 19.94. Confirmation needs `confirm_bars=2` closes above the zone plus buffer/penetration from `LEVEL_STATE_MACHINE`. `plots/alrs_case.png` marks the veto bar.
+- Rejection pie counts `check_breakout_retest` calls after `levels_reversal`+`signal_4h_buy` already passed. `no_breakout` dominating means the AND-filter is sparse, not that the engine is dead.
+- Reproduce: `python analytics/issue-108-breakout-retest-validation/generate_inputs.py --workers 4` then `analysis.py`. `--reuse-a` (default) loads Issue #100 `results.json`; `--run-a` re-runs A for a bit-for-bit check. Jobs checkpoint to `reports/Arctic/108_breakout-retest-validation/jobs.jsonl` (gitignored).
+- Tests: `cd backend && python -m pytest -q tests/test_level_breakout_retest.py`.
 

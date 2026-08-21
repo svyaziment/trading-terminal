@@ -1,7 +1,7 @@
 # Levels Reversal Strategy
 
 > Status: validated on SBER/GAZP/VTBR (2-year history). Production brain: `StrategyEvaluator.check_entry`. Prototype: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-21 (Issue #107 level_breakout_retest).
+> Last refreshed: 2026-08-21 (Issue #108 level_breakout_retest validation).
 
 ## 1. Overview
 
@@ -275,9 +275,19 @@ Configurable Lab pattern `level_breakout_retest`. It is an AND-filter after `lev
 
 ### Veto
 
-A broken resistance is no longer an opposing zone. The ALRS 2026-08-20 fill at 19.80 is still rejected on locked `test_20260731` (pattern off — that resistance was never confirmed broken by the state machine). Enabling the pattern does not rewrite the locked DB row. Whether 19.67 would have been a valid role-reversal entry is the next analytics issue.
+A broken resistance is no longer an opposing zone. The ALRS 2026-08-20 fill at 19.80 is still rejected on locked `test_20260731` (pattern off). Enabling the pattern does not rewrite the locked DB row. Issue #108 (`analytics/issue-108-breakout-retest-validation/`) checks whether 19.94 was a confirmed `LevelsTracker` breakout before 11:50.
 
 ### Lab
 
 `GET /api/patterns` exposes the schema (`category=breakout`). Frontend chip work is the next epic issue. File: `backend/app/analytics/patterns/level_breakout_retest.py`. Tests: `backend/tests/test_level_breakout_retest.py`.
+
+## 13. Validation: `level_breakout_retest` (Issue #108)
+
+Full report (EN+RU, plots): `analytics/issue-108-breakout-retest-validation/`.
+
+- **A** = published Lab `test_20260820` (Issue #100): `levels_reversal` swing-only + `signal_4h_buy`, window `2024-08-21`…`2026-08-21`, 28 `get_big_tickers`. Locked `test_20260731` is not rewritten. Baseline matched Issue #100 **28/28** tickers (2556 trades, median PF **1.52**).
+- **B** = A + `level_breakout_retest` (Lab defaults: 4h, window 20, zone 0.5×ATR, stop 1.0×ATR, RR 2.0): **257** trades, median PF **0.98**, pooled PF **1.07**. Too sparse and weaker than A.
+- Walk-forward: A uses published #100 Lab half-years; B date-slices the FS trade list. 2/4 windows have OOS PF >20% below IS.
+- ALRS 2026-08-20: **no** 4h close > 19.94 after the 2026-08-14 impulse level; `LevelsTracker` left 19.67 `active`; session high 19.95 at 11:40 is not a confirmed break. The #97 veto stays correct.
+- Recommendation: **refine before Lab UI / paper**. Do not lock or paper-flag a Lab row from this issue.
 
