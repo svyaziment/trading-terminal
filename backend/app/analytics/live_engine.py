@@ -90,6 +90,7 @@ def build_4h_context(db: DBManager, ticker: str, config: Dict) -> Optional[Dict]
         'atr_by_ts': ctx['atr_by_ts'],
         'buy_ts': ctx['buy_ts'],
         'signal_filter_series': ctx.get('signal_filter_series') or [],
+        'htf_bars': ctx.get('htf_bars'),
     }
 
 
@@ -238,7 +239,7 @@ def run_live_engine(duration_minutes: int = 60, check_interval_sec: int = 30,
             continue
         ev = StrategyEvaluator(config)
         ev.load_context(ctx4['levels'], ctx4['ts_4h'], ctx4['atr_by_ts'], ctx4['buy_ts'], [],
-                        ctx4.get('signal_filter_series') or [])
+                        ctx4.get('signal_filter_series') or [], ctx4.get('htf_bars'))
         evaluators[tk] = ev
         last_processed[tk] = None
     if not evaluators:
@@ -259,7 +260,8 @@ def run_live_engine(duration_minutes: int = 60, check_interval_sec: int = 30,
                 if ctx4 is not None:
                     ev.update_context(levels=ctx4['levels'], ts_4h=ctx4['ts_4h'],
                                       atr_by_ts=ctx4['atr_by_ts'], buy_ts=ctx4['buy_ts'],
-                                      signal_filter_series=ctx4.get('signal_filter_series') or [])
+                                      signal_filter_series=ctx4.get('signal_filter_series') or [],
+                                      htf_bars=ctx4.get('htf_bars'))
             last_context_refresh = now
             logger.info("4h context refreshed")
         # per-check: fresh 1min context + entry check on the latest closed bar

@@ -43,7 +43,8 @@ DEPTH_PRESETS = {
     'very_serious': {'months': 24, 'n_tickers': None,          'n_runs': 100, 'walkforward': True},
 }
 
-LAB_PATTERNS = ['levels_reversal', 'signal_4h_buy', 'rsi_oversold', 'macd_bullish', 'bb_lower']
+LAB_PATTERNS = ['levels_reversal', 'signal_4h_buy', 'rsi_oversold', 'macd_bullish', 'bb_lower',
+               'level_breakout_retest']
 ALL_PATTERNS = LAB_PATTERNS + list(SIGNAL_ENGINE_PATTERN_IDS)
 CONFIRM_WINDOWS = [1, 5, 10, 15, 20, 25, 30, 60, 90, 120]
 
@@ -172,7 +173,8 @@ def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to
     ev = StrategyEvaluator(ctx['config'])
     ev.load_context(levels=ctx['levels'], ts_4h=ctx['ts_htf'], atr_by_ts=ctx['atr_by_ts'],
                     buy_ts=ctx['buy_ts'], confirm_series=ctx['confirm_series'],
-                    signal_filter_series=ctx.get('signal_filter_series'))
+                    signal_filter_series=ctx.get('signal_filter_series'),
+                    htf_bars=ctx.get('htf_bars'))
 
     trades = []
     for i in range(len(df_1m)):

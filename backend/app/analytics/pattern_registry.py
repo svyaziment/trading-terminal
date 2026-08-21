@@ -119,6 +119,63 @@ PATTERN_REGISTRY: Dict[str, Dict[str, Any]] = {
         "category": "mean_reversion",
         "params": [],
     },
+    # Issue #107: Lab AND-filter, not a SignalEngine inline-evaluate id.
+    "level_breakout_retest": {
+        "label": "Пробой уровня с ретестом",
+        "hint": "пробой сопротивления + ретест + смена роли",
+        "category": "breakout",
+        "params": [
+            {
+                "key": "level_timeframe",
+                "label": "Таймфрейм уровней",
+                "type": "select",
+                "options": ["1h", "4h", "1d"],
+                "default": "4h",
+            },
+            {
+                "key": "retest_window_bars",
+                "label": "Окно ретеста (баров ТФ)",
+                "type": "number",
+                "min": 1,
+                "max": 100,
+                "step": 1,
+                "default": 20,
+            },
+            {
+                "key": "retest_zone_atr",
+                "label": "Зона ретеста (×ATR)",
+                "type": "number",
+                "min": 0.1,
+                "max": 2.0,
+                "step": 0.05,
+                "default": 0.5,
+            },
+            {
+                "key": "entry_trigger_bullish",
+                "label": "Триггер: бычья свеча / пробой high",
+                "type": "boolean",
+                "default": True,
+            },
+            {
+                "key": "stop_atr",
+                "label": "Стоп (×ATR)",
+                "type": "number",
+                "min": 0.5,
+                "max": 3.0,
+                "step": 0.1,
+                "default": 1.0,
+            },
+            {
+                "key": "risk_reward",
+                "label": "Take / risk",
+                "type": "number",
+                "min": 1.0,
+                "max": 5.0,
+                "step": 0.1,
+                "default": 2.0,
+            },
+        ],
+    },
 }
 
 # Issue #79/#80: SignalEngine AND-filter ids + timeframe contract.
@@ -381,6 +438,13 @@ SIGNAL_ENGINE_PATTERN_SCHEMAS: Dict[str, Dict[str, Any]] = {
 }
 
 PATTERN_REGISTRY.update(SIGNAL_ENGINE_PATTERN_SCHEMAS)
+
+# Issue #107 AC: expose the Lab schema on SIGNAL_ENGINE_PATTERN_SCHEMAS so
+# GET /api/patterns merge path is covered. Do NOT add the id to
+# SIGNAL_ENGINE_PATTERN_IDS — there is no BasePattern.evaluate on indicators.
+SIGNAL_ENGINE_PATTERN_SCHEMAS["level_breakout_retest"] = PATTERN_REGISTRY[
+    "level_breakout_retest"
+]
 
 
 def is_signal_engine_pattern(pattern_id: str) -> bool:

@@ -1,7 +1,7 @@
 # Стратегия «Уровни + подтверждение разворота»
 
 > Статус: валидирована на SBER/GAZP/VTBR (2 года истории). Продакшн-мозг: `StrategyEvaluator.check_entry`. Прототип: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-21 (Issue #106 state machine уровней).
+> Last refreshed: 2026-08-21 (Issue #107 level_breakout_retest).
 
 ## 1. Обзор
 
@@ -253,7 +253,31 @@ print(res['metrics'])  # n_trades, profit_factor, expectancy, win_rate, total_ne
 
 ### Взаимодействие с вето
 
-`overlapping_resistance_zone_at` пропускает строки, у которых `state` не `active`. `build_levels` / `get_levels` колонку `state` не добавляют, поэтому `StrategyEvaluator.check_entry` по-прежнему ветирует любое перекрывающееся сопротивление, пока не передан снимок трекера. `is_broken(level_id)` — для следующего issue. Без персистентности в БД.
+`overlapping_resistance_zone_at` пропускает строки, у которых `state` не `active`. `build_levels` / `get_levels` колонку `state` не добавляют. Задача #107 передаёт `LevelsTracker` в вето из `StrategyEvaluator` только если включён паттерн `level_breakout_retest` (`is_broken(level_id)`). Locked `test_20260731` его не включает, поэтому дефолтный `check_entry` по-прежнему ветирует любое перекрывающееся сопротивление.
 
 Unit: `backend/tests/test_levels_state_machine.py`. Locked `test_20260731` не перезаписывать.
+
+## 12. Смена роли: пробой сопротивления + ретест (задача #107)
+
+Конфигурируемый Lab-паттерн `level_breakout_retest`. Это AND-фильтр после `levels_reversal` в `StrategyEvaluator`, а не замена ему и не SignalEngine inline-evaluate id.
+
+### Когда срабатывает
+
+1. `LevelsTracker` подтвердил пробой сопротивления (`broken_up`) или первое удержание (`flipped_support`).
+2. Цена вернулась в зону ретеста: `level_price ± retest_zone_atr × ATR` (по умолчанию 0.5).
+3. Поддержка держит: 1min close ≥ пробитого `level_price`.
+4. Окно: `bars_since_breakout` (бары HTF) ≤ `retest_window_bars` (по умолчанию 20).
+5. Триггер (если `entry_trigger_bullish=true`): close > предыдущего 1min high либо бычье тело (`body/range > 0.6` из `LEVEL_BREAKOUT_RETEST` в `trading_config.py`).
+
+### Stop / take
+
+`stop = entry − stop_atr × ATR` (по умолчанию 1.0×ATR, ниже зоны ретеста на дефолтной геометрии). `take = entry + risk_reward × (entry − stop)` (по умолчанию 2.0). При включённом паттерне они заменяют levels stop/take.
+
+### Вето
+
+Пробитое сопротивление больше не opposing zone. Fill ALRS 2026-08-20 @ 19.80 по-прежнему отклоняется на locked `test_20260731` (паттерн выключен — сопротивление не было подтверждённо пробито state machine). Включение паттерна не перезаписывает locked-строку БД. Был ли 19.67 валидным входом role-reversal — следующий аналитический issue.
+
+### Lab
+
+`GET /api/patterns` отдаёт схему (`category=breakout`). Чип frontend — следующий issue эпика. Файл: `backend/app/analytics/patterns/level_breakout_retest.py`. Тесты: `backend/tests/test_level_breakout_retest.py`.
 

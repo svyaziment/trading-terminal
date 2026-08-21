@@ -52,7 +52,8 @@ def build_strategy_context(
     Returns:
         Dict with keys: status, levels, ts_htf, atr_by_ts, buy_ts,
         confirm_series, confirm_windows, config (normalized),
-        signal_filter_series (SignalEngine HTF BUY timestamps, Issue #79).
+        signal_filter_series (SignalEngine HTF BUY timestamps, Issue #79),
+        htf_bars (OHLCV+ATR of the levels timeframe; Issue #107 tracker feed).
     """
     from app.analytics.pattern_registry import normalize_patterns
     from app.analytics.signal_pattern_filters import build_signal_filter_series
@@ -132,4 +133,5 @@ def build_strategy_context(
         "confirm_series": confirm_series,
         "confirm_windows": confirm_windows,
         "config": cfg,
+        "htf_bars": df_htf,
     }

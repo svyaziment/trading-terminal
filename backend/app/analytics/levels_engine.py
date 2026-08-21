@@ -11,8 +11,10 @@ Zones: level_price +- zone_atr_mult * ATR(at definition).
 Entry veto for an opposing zone is overlapping_resistance_zone_at (Issue #97).
 Issue #106: LevelsTracker tracks in-memory lifecycle
 active → broken_up/down → flipped_support/resistance. Veto skips non-active
-states when a `state` column is present; build_levels output has no `state`,
-so StrategyEvaluator stays bit-for-bit until the next issue wires the tracker.
+states when a `state` column is present; build_levels output has no `state`.
+Issue #107: optional `tracker` uses `is_broken(level_id)` so a broken
+resistance is no longer an opposing zone. StrategyEvaluator passes the
+tracker only when pattern `level_breakout_retest` is enabled.
 """
 from __future__ import annotations
 
@@ -121,7 +123,12 @@ def nearest_level_at(levels_df: pd.DataFrame, bar_ts, bar_price: float, level_ty
             'zone_upper': float(row['zone_upper']), 'method': row['method']}
 
 
-def overlapping_resistance_zone_at(levels_df: pd.DataFrame, bar_ts, bar_price: float):
+def overlapping_resistance_zone_at(
+    levels_df: pd.DataFrame,
+    bar_ts,
+    bar_price: float,
+    tracker: Optional['LevelsTracker'] = None,
+):
     """Active resistance whose native ATR zone contains bar_price, or None.
 
     Includes resistance BELOW the market. That is the ALRS #711 collision:
@@ -136,7 +143,15 @@ def overlapping_resistance_zone_at(levels_df: pd.DataFrame, bar_ts, bar_price: f
     empty) rows participate in the veto. Broken and flipped resistances are
     no longer opposing zones. DataFrames from build_levels / get_levels have
     no `state` column, so the Issue #97 path is unchanged.
+
+    Issue #107: when `tracker` is given, the snapshot from
+    `get_levels_with_state()` is used and rows with `tracker.is_broken(level_id)`
+    are skipped. Callers that omit `tracker` keep the Issue #97/#106 behaviour.
     """
+    if tracker is not None:
+        snapshot = tracker.get_levels_with_state()
+        if snapshot is not None and not snapshot.empty:
+            levels_df = snapshot
     if levels_df is None or levels_df.empty:
         return None
     active = levels_df[
@@ -150,6 +165,21 @@ def overlapping_resistance_zone_at(levels_df: pd.DataFrame, bar_ts, bar_price: f
         normalized = raw.where(raw.notna(), LevelState.ACTIVE.value)
         normalized = normalized.astype(str).str.strip().str.lower()
         active = active[normalized.isin(_VETO_ACTIVE_STATES)]
+    if tracker is not None and not active.empty and 'level_id' in active.columns:
+        keep = []
+        for idx in active.index:
+            lid = active.loc[idx, 'level_id']
+            if lid is None or (isinstance(lid, float) and np.isnan(lid)):
+                keep.append(idx)
+                continue
+            try:
+                if tracker.is_broken(lid):
+                    continue
+            except KeyError:
+                keep.append(idx)
+                continue
+            keep.append(idx)
+        active = active.loc[keep] if keep else active.iloc[0:0]
     if active.empty:
         return None
     idx = (active['level_price'] - bar_price).abs().idxmin()
@@ -214,8 +244,8 @@ class LevelsTracker:
     """In-memory state machine over a snapshot from get_levels() / build_levels().
 
     Feed bars of the *same* timeframe as the levels (typically 4h) via update()
-    or update_bars(). No DB persistence (first iteration, Issue #106).
-    StrategyEvaluator is not connected here — that is the next epic issue.
+    or update_bars(). No DB persistence. Issue #107 wires this into
+    StrategyEvaluator only when pattern `level_breakout_retest` is enabled.
     """
 
     def __init__(self, levels_df: pd.DataFrame, config: Optional[Mapping[str, Any]] = None):
@@ -236,6 +266,7 @@ class LevelsTracker:
         self._timestamps: list[pd.Timestamp] = []
         self._closes: list[float] = []
         self._atrs: list[Optional[float]] = []
+        self._broken_bar_index: dict[str, int] = {}
 
     def _resolve_id(self, level_id) -> str:
         if level_id in self._states:
@@ -247,6 +278,14 @@ class LevelsTracker:
     def is_broken(self, level_id) -> bool:
         """True once the zone has left `active` (broken or flipped)."""
         return self._states[self._resolve_id(level_id)] in _BROKEN_STATES
+
+    def bars_since_breakout(self, level_id) -> Optional[int]:
+        """HTF bars elapsed since the confirmed break, or None if still active."""
+        lid = self._resolve_id(level_id)
+        idx = self._broken_bar_index.get(lid)
+        if idx is None:
+            return None
+        return len(self._timestamps) - 1 - idx
 
     def get_state(self, level_id) -> str:
         return self._states[self._resolve_id(level_id)]
@@ -325,8 +364,10 @@ class LevelsTracker:
             if state == LevelState.ACTIVE.value:
                 if row['type'] == 'resistance' and self._breaks_resistance(zone_upper, closes, atr):
                     self._states[lid] = LevelState.BROKEN_UP.value
+                    self._broken_bar_index[lid] = len(self._timestamps) - 1
                 elif row['type'] == 'support' and self._breaks_support(zone_lower, closes, atr):
                     self._states[lid] = LevelState.BROKEN_DOWN.value
+                    self._broken_bar_index[lid] = len(self._timestamps) - 1
             elif state == LevelState.BROKEN_UP.value:
                 if zone_lower <= close <= zone_upper:
                     self._states[lid] = LevelState.FLIPPED_SUPPORT.value
