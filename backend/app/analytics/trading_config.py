@@ -7,7 +7,8 @@ Central trading configuration - SINGLE SOURCE OF TRUTH for:
   5) live order-book imbalance defaults;
   6) live position-sizing risk limits;
   7) live sandbox executor policy;
-  8) levels state-machine breakout thresholds (Issue #106 / Epic #105).
+  8) levels state-machine breakout thresholds (Issue #106 / Epic #105);
+  9) level_breakout_retest trigger constant (Issue #107; Lab params live in pattern_registry).
 
 Every module (data_refresher, online_data, online_signals, paper_trader, strategy_backtest)
 must import get_trading_universe() / get_strategy() from here instead of hardcoding
@@ -86,7 +87,8 @@ def get_sandbox_trading_config() -> Dict[str, Any]:
 
 
 # Issue #106: in-memory support/resistance lifecycle (breakout + role reversal).
-# LevelsTracker reads these thresholds; StrategyEvaluator is not wired yet.
+# LevelsTracker reads these thresholds. Issue #107 wires the tracker into
+# StrategyEvaluator only when pattern `level_breakout_retest` is enabled.
 # zone_extension_atr documents the current build_levels zone width (zone_atr_mult);
 # the tracker does not recompute zones — it uses zone_lower / zone_upper as given.
 LEVEL_STATE_MACHINE: Dict[str, Any] = {
@@ -100,6 +102,18 @@ LEVEL_STATE_MACHINE: Dict[str, Any] = {
 def get_level_state_machine_config() -> Dict[str, Any]:
     """Return an isolated copy of the levels state-machine policy."""
     return dict(LEVEL_STATE_MACHINE)
+
+
+# Issue #107: non-Lab trigger constant for the bullish-body entry trigger.
+# Lab-tunable params (retest window, zone, stop_atr, RR) live in pattern_registry.
+LEVEL_BREAKOUT_RETEST: Dict[str, Any] = {
+    'bullish_body_ratio': 0.6,
+}
+
+
+def get_level_breakout_retest_config() -> Dict[str, Any]:
+    """Return an isolated copy of the breakout-retest trigger policy."""
+    return dict(LEVEL_BREAKOUT_RETEST)
 
 
 # Fallback only (used if trading.trading_universe is empty/unavailable).

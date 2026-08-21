@@ -171,7 +171,14 @@ def test_list_patterns_includes_signal_engine_schemas():
 
     by_id = {p["id"]: p for p in list_patterns()}
 
-    for lab_id in ("levels_reversal", "signal_4h_buy", "rsi_oversold", "macd_bullish", "bb_lower"):
+    for lab_id in (
+        "levels_reversal",
+        "signal_4h_buy",
+        "rsi_oversold",
+        "macd_bullish",
+        "bb_lower",
+        "level_breakout_retest",
+    ):
         assert lab_id in by_id
 
     for pattern_id in SIGNAL_ENGINE_PATTERN_IDS:
@@ -271,3 +278,37 @@ def test_normalize_patterns_signal_engine_dict_and_legacy_lab():
     once = normalize_patterns({"patterns": {"BO_BB_Squeeze": {"lookback": 80}}})
     twice = normalize_patterns(once)
     assert once == twice
+
+
+def test_level_breakout_retest_registry_schema():
+    from app.analytics.pattern_registry import (
+        SIGNAL_ENGINE_PATTERN_IDS,
+        SIGNAL_ENGINE_PATTERN_SCHEMAS,
+        is_signal_engine_pattern,
+    )
+
+    record = {p["id"]: p for p in list_patterns()}["level_breakout_retest"]
+    assert record["category"] == "breakout"
+    keys = {param["key"] for param in record["params"]}
+    assert keys == {
+        "level_timeframe",
+        "retest_window_bars",
+        "retest_zone_atr",
+        "entry_trigger_bullish",
+        "stop_atr",
+        "risk_reward",
+    }
+    defaults = get_pattern_defaults("level_breakout_retest")
+    assert defaults["level_timeframe"] == "4h"
+    assert defaults["retest_window_bars"] == 20
+    assert defaults["retest_zone_atr"] == 0.5
+    assert defaults["entry_trigger_bullish"] is True
+    assert defaults["stop_atr"] == 1.0
+    assert defaults["risk_reward"] == 2.0
+    assert "level_breakout_retest" in SIGNAL_ENGINE_PATTERN_SCHEMAS
+    assert "level_breakout_retest" not in SIGNAL_ENGINE_PATTERN_IDS
+    assert is_signal_engine_pattern("level_breakout_retest") is False
+
+    filled = normalize_patterns({"patterns": ["level_breakout_retest"]})
+    assert filled["patterns"]["level_breakout_retest"]["retest_window_bars"] == 20
+

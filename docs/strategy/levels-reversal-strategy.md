@@ -1,7 +1,7 @@
 # Levels Reversal Strategy
 
 > Status: validated on SBER/GAZP/VTBR (2-year history). Production brain: `StrategyEvaluator.check_entry`. Prototype: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-21 (Issue #106 levels state machine).
+> Last refreshed: 2026-08-21 (Issue #107 level_breakout_retest).
 
 ## 1. Overview
 
@@ -253,7 +253,31 @@ Resistance break (support is symmetric below `zone_lower`):
 
 ### Veto interaction
 
-`overlapping_resistance_zone_at` skips rows whose `state` is not `active`. `build_levels` / `get_levels` do not add `state`, so `StrategyEvaluator.check_entry` still vetoes every overlapping resistance until the tracker snapshot is passed in. `is_broken(level_id)` is for the next issue. No DB persistence.
+`overlapping_resistance_zone_at` skips rows whose `state` is not `active`. `build_levels` / `get_levels` do not add `state`. Issue #107 passes a `LevelsTracker` into the veto from `StrategyEvaluator` only when pattern `level_breakout_retest` is enabled (`is_broken(level_id)`). Locked `test_20260731` does not enable it, so default `check_entry` still vetoes every overlapping resistance.
 
 Unit: `backend/tests/test_levels_state_machine.py`. Do not rewrite locked `test_20260731`.
+
+## 12. Role reversal: resistance break + retest (Issue #107)
+
+Configurable Lab pattern `level_breakout_retest`. It is an AND-filter after `levels_reversal` in `StrategyEvaluator`, not a replacement for it and not a SignalEngine inline-evaluate id.
+
+### When it fires
+
+1. `LevelsTracker` has confirmed a resistance break (`broken_up`) or the first hold (`flipped_support`).
+2. Price has returned to the retest zone: `level_price ± retest_zone_atr × ATR` (default 0.5).
+3. Support holds: 1min close ≥ the broken `level_price`.
+4. Window: `bars_since_breakout` (HTF bars) ≤ `retest_window_bars` (default 20).
+5. Trigger (when `entry_trigger_bullish=true`): close > previous 1min high, or bullish body (`body/range > 0.6` from `LEVEL_BREAKOUT_RETEST` in `trading_config.py`).
+
+### Stop / take
+
+`stop = entry − stop_atr × ATR` (default 1.0×ATR, below the retest zone on the default geometry). `take = entry + risk_reward × (entry − stop)` (default 2.0). These override levels stop/take when the pattern is enabled.
+
+### Veto
+
+A broken resistance is no longer an opposing zone. The ALRS 2026-08-20 fill at 19.80 is still rejected on locked `test_20260731` (pattern off — that resistance was never confirmed broken by the state machine). Enabling the pattern does not rewrite the locked DB row. Whether 19.67 would have been a valid role-reversal entry is the next analytics issue.
+
+### Lab
+
+`GET /api/patterns` exposes the schema (`category=breakout`). Frontend chip work is the next epic issue. File: `backend/app/analytics/patterns/level_breakout_retest.py`. Tests: `backend/tests/test_level_breakout_retest.py`.
 

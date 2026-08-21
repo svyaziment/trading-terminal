@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-21 (задача #106 state machine уровней; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-21 (задача #107 level_breakout_retest; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -63,7 +63,7 @@
 - **JSONB as string**: DBManager возвращает JSONB-колонки как Python-repr строки, а не dict. Нормализуйте через `_to_dict` (json.loads, затем fallback ast.literal_eval).
 - **Backtest matrix runtime**: полная матрица занимает ~10-15 мин. Для liveness используйте quick=true.
 - **Reports mount**: backend монтирует `./reports` (docker-compose). Прогоны стратегий пишут `reports/strategy-lab/last_run.json` - отправляйте его при любой ошибке Strategy Lab.
-- **Вето зоны сопротивления (задача #97)**: `levels_reversal` не должен входить, если 1min close лежит в активной зоне сопротивления, даже если `nearest_level_at(..., 'support')` вернул валидную поддержку и расширение 0.5×ATR покрывает fill. Это структурный дефект, а не role-reversal (ALRS paper #711: fill 19.80 внутри импульсного сопротивления 19.67). Гард: `overlapping_resistance_zone_at` в `StrategyEvaluator.check_entry`. Задача #106: та же функция пропускает зоны не в `active`, если есть колонка `state`; `StrategyEvaluator` по-прежнему получает кадры `build_levels` без `state`, поэтому paper/live вето не меняется, пока трекер не подключён. Locked `test_20260731` не перезаписывать. Unit: `cd backend && python -m pytest -q tests/test_resistance_zone_veto.py tests/test_levels_state_machine.py`.
+- **Вето зоны сопротивления (задача #97)**: `levels_reversal` не должен входить, если 1min close лежит в активной зоне сопротивления, даже если `nearest_level_at(..., 'support')` вернул валидную поддержку и расширение 0.5×ATR покрывает fill. Это структурный дефект, а не role-reversal (ALRS paper #711: fill 19.80 внутри импульсного сопротивления 19.67). Гард: `overlapping_resistance_zone_at` в `StrategyEvaluator.check_entry`. Задача #106: та же функция пропускает зоны не в `active`, если есть колонка `state`. Задача #107: `StrategyEvaluator` передаёт `LevelsTracker` (и `is_broken`) в вето только если включён `level_breakout_retest`; locked `test_20260731` его не включает, поэтому paper/live вето не меняется. Locked `test_20260731` не перезаписывать. Unit: `cd backend && python -m pytest -q tests/test_resistance_zone_veto.py tests/test_levels_state_machine.py tests/test_level_breakout_retest.py`.
 
 ## 11. Протокол сотрудничества (агенты)
 
@@ -217,7 +217,19 @@ ORDER BY id DESC LIMIT 20;
 - Точки входа: `LevelsTracker` / `get_levels_with_state` / `is_broken` в `levels_engine.py`. Инициализация из `get_levels()` (алиас `build_levels`). Подавайте бары **того же** ТФ, что и уровни (обычно 4h). Только in-memory — без таблицы и миграции.
 - Пороги только из `LEVEL_STATE_MACHINE` в `trading_config.py`: `breakout_buffer_atr=0.25`, `confirm_bars=2`, `min_penetration_atr=0.5`, `zone_extension_atr=0.5`. `zone_extension_atr` документирует текущую ширину зоны `build_levels`; трекер не пересчитывает `zone_lower`/`zone_upper`.
 - Пробой сопротивления: последние `confirm_bars` close все выше `zone_upper`, последний close выше `zone_upper + buffer×ATR`, max(window) не ниже `zone_upper + min_penetration×ATR`. Поддержка симметрично ниже `zone_lower`. Первый close обратно внутри нативной зоны после пробоя: `broken_up → flipped_support` / `broken_down → flipped_resistance`. Ложный пробой в этой итерации не возвращается в `active`.
-- `overlapping_resistance_zone_at` ветирует только `active` сопротивления, если есть колонка `state`. Передавайте снимок трекера **после** `update()` по оцениваемому бару. Кадры без `state` сохраняют поведение задачи #97.
-- Не подключайте `LevelsTracker` в `StrategyEvaluator` здесь (следующий issue: паттерн `level_breakout_retest`). Locked `test_20260731` не перезаписывать.
-- Unit-тесты: `cd backend && python -m pytest -q tests/test_levels_state_machine.py tests/test_resistance_zone_veto.py`.
+- `overlapping_resistance_zone_at` ветирует только `active` сопротивления, если есть колонка `state`, и пропускает `tracker.is_broken(level_id)`, если передан трекер (задача #107). Передавайте снимок трекера **после** `update()` только по закрытым HTF-барам. Кадры без `state` и вызовы без `tracker` сохраняют поведение задачи #97.
+- `StrategyEvaluator` создаёт `LevelsTracker` только если `level_breakout_retest` есть в `config.patterns`. Locked `test_20260731` его не включает. `bars_since_breakout(level_id)` считает HTF-бары с момента подтверждённого пробоя.
+- Unit-тесты: `cd backend && python -m pytest -q tests/test_levels_state_machine.py tests/test_resistance_zone_veto.py tests/test_level_breakout_retest.py`.
+
+## 23. Эксплуатация паттерна Level Breakout Retest
+
+- Точки входа: `check_breakout_retest` / `evaluate_level_breakout_retest` в `patterns/level_breakout_retest.py`; AND-фильтр `_check_level_breakout_retest` в `StrategyEvaluator`. Это не SignalEngine `BasePattern` — не добавлять id в `SIGNAL_ENGINE_PATTERN_IDS`. Не класть файл в `patterns/breakout/` (затенит `breakout.py`).
+- Схема Lab: `PATTERN_REGISTRY['level_breakout_retest']` (также копируется в `SIGNAL_ENGINE_PATTERN_SCHEMAS` для AC задачи #107 / `GET /api/patterns`). Дефолты: `level_timeframe=4h`, `retest_window_bars=20`, `retest_zone_atr=0.5`, `entry_trigger_bullish=true`, `stop_atr=1.0`, `risk_reward=2.0`. Порог бычьего тела `0.6` не настраивается в Lab; живёт в `LEVEL_BREAKOUT_RETEST` в `trading_config.py`.
+- Критерии (все обязательны): состояние трекера `broken_up` или `flipped_support`; close в `[level ± retest_zone_atr×ATR]`; close ≥ пробитого `level_price`; `bars_since_breakout <= retest_window_bars`; если `entry_trigger_bullish` — `close > prev_high` ИЛИ бычье тело.
+- Stop/take: `stop = entry − stop_atr×ATR`, `take = entry + risk_reward×(entry−stop)`. При включённом паттерне они заменяют levels stop/take; верхнеуровневый RR-фильтр конфига поверх не применяется (RR паттерна уже задаёт отношение).
+- Контекст: `build_strategy_context` возвращает `htf_bars` (тот же ТФ, что и уровни). Evaluator подаёт в трекер только HTF-бары, чей close ≤ текущий 1min ts (без lookahead). Paper/live `load_context` / `update_context` прокидывают этот кадр.
+- Взаимодействие с вето: при включённом паттерне пробитое сопротивление больше не opposing zone (`is_broken`). Без паттерна любое перекрывающееся сопротивление по-прежнему ветирует (locked `test_20260731`).
+- Компонуемость: AND с `levels_reversal` (по-прежнему обязателен для пути зоны поддержки) и с фильтрами SignalEngine / `signal_4h_buy`. Чип frontend — следующий issue эпика; `GET /api/patterns` уже отдаёт схему.
+- Locked `test_20260731` не перезаписывать.
+- Unit-тесты: `cd backend && python -m pytest -q tests/test_level_breakout_retest.py tests/test_pattern_registry.py tests/test_resistance_zone_veto.py`.
 

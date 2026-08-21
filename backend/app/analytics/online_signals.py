@@ -366,7 +366,7 @@ def run_signal_engine(tickers: List[str] = None, duration_minutes: int = 60,
             continue
         ev = StrategyEvaluator(config)
         ev.load_context(ctx['levels'], ctx['ts_htf'], ctx['atr_by_ts'], ctx['buy_ts'], [],
-                        ctx.get('signal_filter_series') or [])
+                        ctx.get('signal_filter_series') or [], ctx.get('htf_bars'))
         evaluators[tk] = ev
         last_processed[tk] = None
 
@@ -391,7 +391,8 @@ def run_signal_engine(tickers: List[str] = None, duration_minutes: int = 60,
                 if ctx.get('status') != 'failed':
                     ev.update_context(levels=ctx['levels'], ts_4h=ctx['ts_htf'],
                                       atr_by_ts=ctx['atr_by_ts'], buy_ts=ctx['buy_ts'],
-                                      signal_filter_series=ctx.get('signal_filter_series') or [])
+                                      signal_filter_series=ctx.get('signal_filter_series') or [],
+                                      htf_bars=ctx.get('htf_bars'))
             last_context_refresh = now
             logger.info("4h context refreshed")
 
