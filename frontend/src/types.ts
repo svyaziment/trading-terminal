@@ -245,6 +245,9 @@ export interface NotificationStatus {
 export interface PatternParam {
   key: string;
   label: string;
+  label_en?: string;
+  hint?: string;
+  hint_en?: string;
   type: 'select' | 'multiselect' | 'number' | 'text' | 'boolean';
   options?: (string | number)[];
   min?: number;
@@ -256,9 +259,22 @@ export interface PatternParam {
 export interface PatternDef {
   id: string;
   label: string;
+  label_en?: string;
   hint?: string;
+  hint_en?: string;
+  icon?: string;
   category?: string;
   params: PatternParam[];
+}
+
+/** Lab params for `level_breakout_retest` (GET /api/patterns schema). */
+export interface LevelBreakoutRetestConfig {
+  level_timeframe: "1h" | "4h" | "1d";
+  retest_window_bars: number;
+  retest_zone_atr: number;
+  entry_trigger_bullish: boolean;
+  stop_atr: number;
+  risk_reward: number;
 }
 
 // ---- Pattern chart preview (Epic #87, Issue #89) ----

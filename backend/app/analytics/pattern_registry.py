@@ -120,14 +120,22 @@ PATTERN_REGISTRY: Dict[str, Dict[str, Any]] = {
         "params": [],
     },
     # Issue #107: Lab AND-filter, not a SignalEngine inline-evaluate id.
+    # Issue #109: label_en / hint_en / icon / param hints are optional API fields
+    # for Strategy Lab; evaluator ignores them.
     "level_breakout_retest": {
         "label": "Пробой уровня с ретестом",
-        "hint": "пробой сопротивления + ретест + смена роли",
+        "label_en": "Level Breakout Retest",
+        "hint": "После подтверждённого пробоя сопротивления цена возвращается к уровню как к новой поддержке (смена роли); вход — по бычьему триггеру.",
+        "hint_en": "After a confirmed resistance break, price retests the level as new support (role reversal); entry waits for a bullish trigger.",
+        "icon": "breakout_up",
         "category": "breakout",
         "params": [
             {
                 "key": "level_timeframe",
                 "label": "Таймфрейм уровней",
+                "label_en": "Level timeframe",
+                "hint": "ТФ, на котором строятся уровни и считается окно ретеста.",
+                "hint_en": "Timeframe used to build levels and count the retest window.",
                 "type": "select",
                 "options": ["1h", "4h", "1d"],
                 "default": "4h",
@@ -135,6 +143,9 @@ PATTERN_REGISTRY: Dict[str, Dict[str, Any]] = {
             {
                 "key": "retest_window_bars",
                 "label": "Окно ретеста (баров ТФ)",
+                "label_en": "Retest window (TF bars)",
+                "hint": "Максимум баров ТФ после подтверждённого пробоя, пока ретест ещё валиден.",
+                "hint_en": "Max HTF bars after a confirmed break during which a retest is valid.",
                 "type": "number",
                 "min": 1,
                 "max": 100,
@@ -144,6 +155,9 @@ PATTERN_REGISTRY: Dict[str, Dict[str, Any]] = {
             {
                 "key": "retest_zone_atr",
                 "label": "Зона ретеста (×ATR)",
+                "label_en": "Retest zone (×ATR)",
+                "hint": "Ширина зоны вокруг пробитого уровня в долях ATR.",
+                "hint_en": "Width of the retest band around the broken level, in ATR units.",
                 "type": "number",
                 "min": 0.1,
                 "max": 2.0,
@@ -153,12 +167,18 @@ PATTERN_REGISTRY: Dict[str, Dict[str, Any]] = {
             {
                 "key": "entry_trigger_bullish",
                 "label": "Триггер: бычья свеча / пробой high",
+                "label_en": "Bullish trigger (body / break of high)",
+                "hint": "Требовать бычье тело или close выше предыдущего high.",
+                "hint_en": "Require a bullish body or a close above the previous high.",
                 "type": "boolean",
                 "default": True,
             },
             {
                 "key": "stop_atr",
                 "label": "Стоп (×ATR)",
+                "label_en": "Stop (×ATR)",
+                "hint": "Расстояние стопа ниже цены входа в долях ATR.",
+                "hint_en": "Stop distance below entry, in ATR units.",
                 "type": "number",
                 "min": 0.5,
                 "max": 3.0,
@@ -168,6 +188,9 @@ PATTERN_REGISTRY: Dict[str, Dict[str, Any]] = {
             {
                 "key": "risk_reward",
                 "label": "Take / risk",
+                "label_en": "Take / risk",
+                "hint": "Отношение тейка к стопу; меньше 1 сделает take ближе стопа.",
+                "hint_en": "Take distance as a multiple of stop; values below 1 put take closer than stop.",
                 "type": "number",
                 "min": 1.0,
                 "max": 5.0,
@@ -471,22 +494,31 @@ def apply_signal_pattern_defaults(
     return out
 
 
+_OPTIONAL_PATTERN_FIELDS = ("label_en", "hint_en", "icon")
+
+
+def _pattern_api_record(pattern_id: str, record: Dict[str, Any]) -> Dict[str, Any]:
+    """Public GET /api/patterns shape. Optional i18n/icon keys are omitted when empty."""
+    out: Dict[str, Any] = {
+        "id": pattern_id,
+        "label": record.get("label", pattern_id),
+        "hint": record.get("hint", ""),
+        "category": record.get("category", "other"),
+        "params": copy.deepcopy(record.get("params", [])),
+    }
+    for key in _OPTIONAL_PATTERN_FIELDS:
+        value = record.get(key)
+        if value:
+            out[key] = value
+    return out
+
+
 def list_patterns() -> List[Dict[str, Any]]:
     """Вернуть весь реестр в формате, ожидаемом GET /api/patterns."""
-    result: List[Dict[str, Any]] = []
-
-    for pattern_id, record in PATTERN_REGISTRY.items():
-        result.append(
-            {
-                "id": pattern_id,
-                "label": record.get("label", pattern_id),
-                "hint": record.get("hint", ""),
-                "category": record.get("category", "other"),
-                "params": copy.deepcopy(record.get("params", [])),
-            }
-        )
-
-    return result
+    return [
+        _pattern_api_record(pattern_id, record)
+        for pattern_id, record in PATTERN_REGISTRY.items()
+    ]
 
 
 def get_pattern(pattern_id: str) -> Optional[Dict[str, Any]]:
@@ -494,14 +526,7 @@ def get_pattern(pattern_id: str) -> Optional[Dict[str, Any]]:
     record = PATTERN_REGISTRY.get(pattern_id)
     if record is None:
         return None
-
-    return {
-        "id": pattern_id,
-        "label": record.get("label", pattern_id),
-        "hint": record.get("hint", ""),
-        "category": record.get("category", "other"),
-        "params": copy.deepcopy(record.get("params", [])),
-    }
+    return _pattern_api_record(pattern_id, record)
 
 
 def get_pattern_defaults(pattern_id: str) -> Dict[str, Any]:

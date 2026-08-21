@@ -289,6 +289,10 @@ def test_level_breakout_retest_registry_schema():
 
     record = {p["id"]: p for p in list_patterns()}["level_breakout_retest"]
     assert record["category"] == "breakout"
+    assert record["label"] == "Пробой уровня с ретестом"
+    assert record["label_en"] == "Level Breakout Retest"
+    assert record["icon"] == "breakout_up"
+    assert "label_en" not in {p["id"]: p for p in list_patterns()}["levels_reversal"]
     keys = {param["key"] for param in record["params"]}
     assert keys == {
         "level_timeframe",

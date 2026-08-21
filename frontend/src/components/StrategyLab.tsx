@@ -26,6 +26,15 @@ import type {
   WalkforwardMetrics,
   PatternDef,
 } from "../types";
+import {
+  effectivePatternParams,
+  groupPatternsByCategory,
+  patternHint,
+  patternLabel,
+  patternTooltip,
+  resolveLabLocale,
+} from "../patternLab";
+import { firstPatternValidationError } from "../patternValidation";
 
 // issue-12 temporary compatibility helpers (UI modal is #15)
 export function patternsToArray(patterns: unknown): string[] {
@@ -56,58 +65,25 @@ const FALLBACK_PATTERNS: PatternDef[] = [
   { id: "signal_4h_buy", label: "4H Buy", hint: "активный BUY из trading.signals", category: "signal", params: [] },
 ];
 
-const PATTERN_CATEGORY_ORDER = [
-  "levels",
-  "signal",
-  "trend",
-  "price_action",
-  "volume",
-  "mean_reversion",
-  "breakout",
-] as const;
-
-const PATTERN_CATEGORY_LABELS_RU: Record<string, string> = {
-  levels: "Уровни",
-  signal: "Сигнал",
-  trend: "Тренд",
-  price_action: "Ценовое действие",
-  volume: "Объём",
-  mean_reversion: "Возврат к среднему",
-  breakout: "Пробой",
-  other: "Другие",
-};
-
-type PatternGroup = { category: string; label: string; patterns: PatternDef[] };
-
-function groupPatternsByCategory(defs: PatternDef[]): PatternGroup[] {
-  const buckets = new Map<string, PatternDef[]>();
-  for (const def of defs) {
-    const category = def.category || "other";
-    const list = buckets.get(category);
-    if (list) list.push(def);
-    else buckets.set(category, [def]);
-  }
-  const groups: PatternGroup[] = [];
-  const seen = new Set<string>();
-  for (const category of PATTERN_CATEGORY_ORDER) {
-    const patterns = buckets.get(category);
-    if (!patterns?.length) continue;
-    groups.push({
-      category,
-      label: PATTERN_CATEGORY_LABELS_RU[category] ?? category,
-      patterns,
-    });
-    seen.add(category);
-  }
-  for (const [category, patterns] of buckets) {
-    if (seen.has(category) || !patterns.length) continue;
-    groups.push({
-      category,
-      label: PATTERN_CATEGORY_LABELS_RU[category] ?? category,
-      patterns,
-    });
-  }
-  return groups;
+function BreakoutUpIcon(props: { className?: string }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={props.className}
+    >
+      <line x1="2" y1="11" x2="14" y2="11" />
+      <path d="M8 13 V3" />
+      <path d="M5 6.5 L8 3 L11 6.5" />
+    </svg>
+  );
 }
 
 const DEPTHS = [
@@ -231,18 +207,18 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
 
   const enabledIds = useMemo(() => Object.keys(patternConfigs), [patternConfigs]);
   const levelsOn = "levels_reversal" in patternConfigs;
+  const locale = resolveLabLocale();
+
+  function defById(id: string): PatternDef | undefined {
+    return registry.find((d) => d.id === id) ?? FALLBACK_PATTERNS.find((d) => d.id === id);
+  }
 
   function registryDefaults(id: string): Record<string, unknown> {
-    const def = registry.find((d) => d.id === id);
-    const out: Record<string, unknown> = {};
-    if (def) {
-      for (const p of def.params) if (p.default !== undefined) out[p.key] = p.default;
-    }
-    return out;
+    return effectivePatternParams(defById(id), undefined);
   }
 
   function effectiveParams(id: string): Record<string, unknown> {
-    return { ...registryDefaults(id), ...(patternConfigs[id] ?? {}) };
+    return effectivePatternParams(defById(id), patternConfigs[id]);
   }
 
   function isTuned(id: string): boolean {
@@ -261,7 +237,10 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
     () => (registry.length > 0 ? registry : FALLBACK_PATTERNS),
     [registry],
   );
-  const patternGroups = useMemo(() => groupPatternsByCategory(patternDefs), [patternDefs]);
+  const patternGroups = useMemo(
+    () => groupPatternsByCategory(patternDefs, locale),
+    [patternDefs, locale],
+  );
 
   const settingsDef = settingsTarget
     ? registry.find((d) => d.id === settingsTarget) ?? patternDefs.find((d) => d.id === settingsTarget) ?? null
@@ -377,7 +356,8 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
   const elapsedSec = running && job.started_at ? Math.max(0, Math.floor((nowTs - new Date(job.started_at).getTime()) / 1000)) : null;
   const elapsedFmt = elapsedSec === null ? "" : Math.floor(elapsedSec / 60) + ":" + String(elapsedSec % 60).padStart(2, "0");
 
-  function togglePattern(id: string) {
+  function togglePattern(id: string, openSettingsOnEnable = false) {
+    const enabling = !(id in patternConfigs);
     setPatternConfigs((pc) => {
       if (id in pc) {
         const next = { ...pc };
@@ -386,6 +366,11 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
       }
       return { ...pc, [id]: {} };
     });
+    if (!enabling) {
+      setSettingsTarget((t) => (t === id ? null : t));
+    } else if (openSettingsOnEnable) {
+      setSettingsTarget(id);
+    }
   }
   function openSettings(id: string) {
     setPatternConfigs((pc) => (id in pc ? pc : { ...pc, [id]: {} }));
@@ -501,6 +486,8 @@ function toggleTicker(t: string) {
     if (!nm) { setError("Укажите имя стратегии"); return; }
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(nm)) { setError("Имя: английские буквы, цифры, _ и - (1-64)"); return; }
     if (enabledIds.length === 0) { setError("Выберите хотя бы один паттерн"); return; }
+    const patternErr = firstPatternValidationError(patternDefs, patternConfigs);
+    if (patternErr) { setError(patternErr); return; }
     if (tickers.length === 0) { setError("Выберите хотя бы один тикер"); return; }
     if (methods.length === 0) { setError("Выберите хотя бы один метод теста"); return; }
 if (depth === "custom") {
@@ -901,9 +888,13 @@ const progressPct =
                   {group.patterns.map((p) => {
                 const on = p.id in patternConfigs;
                 const tuned = on && isTuned(p.id);
+                const tooltip = patternTooltip(p, locale) || p.hint;
+                const hasParams = p.params.length > 0;
                 return (
                   <div
                     key={p.id}
+                    data-pattern-id={p.id}
+                    title={tooltip}
                     className={
                       "flex items-center gap-1 rounded border px-2 py-1.5 transition-all duration-150 " +
                       (on
@@ -914,12 +905,14 @@ const progressPct =
                     <button
                       type="button"
                       disabled={isLocked}
-                      onClick={() => togglePattern(p.id)}
-                      className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-not-allowed"
+                      aria-pressed={on}
+                      aria-label={(on ? "Выключить " : "Включить ") + patternLabel(p, locale)}
+                      onClick={() => togglePattern(p.id, hasParams)}
+                      className="flex h-5 w-5 shrink-0 items-center justify-center disabled:cursor-not-allowed"
                     >
                       <span
                         className={
-                          "flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-sm border font-mono text-[9px] transition " +
+                          "flex h-3.5 w-3.5 items-center justify-center rounded-sm border font-mono text-[9px] transition " +
                           (on
                             ? "border-sky-400 bg-sky-500 text-slate-950"
                             : "border-slate-600 text-transparent")
@@ -927,11 +920,24 @@ const progressPct =
                       >
                         ✓
                       </span>
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isLocked}
+                      title={tooltip}
+                      onClick={() => (hasParams ? openSettings(p.id) : togglePattern(p.id))}
+                      className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-not-allowed"
+                    >
+                      {p.icon === "breakout_up" && (
+                        <BreakoutUpIcon className={"shrink-0 " + (on ? "text-sky-300" : "text-slate-500")} />
+                      )}
                       <span className="min-w-0">
                         <span className={"block truncate font-mono text-[11px] " + (on ? "text-sky-200" : "text-slate-300")}>
-                          {p.label}
+                          {patternLabel(p, locale)}
                         </span>
-                        <span className="block truncate text-[10px] text-slate-600">{p.hint}</span>
+                        <span className="block truncate text-[10px] text-slate-600">
+                          {patternHint(p, locale) || p.hint}
+                        </span>
                       </span>
                     </button>
                     {p.params.length > 0 && (
@@ -1315,6 +1321,7 @@ const progressPct =
           def={settingsDef}
           values={effectiveParams(settingsDef.id)}
           locked={isLocked}
+          locale={locale}
           onSave={(v) => applySettings(settingsDef.id, v)}
           onClose={() => { setSettingsTarget(null); setPreviewWindowError(null); }}
           onShowChart={handleShowChart}

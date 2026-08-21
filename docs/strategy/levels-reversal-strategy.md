@@ -1,7 +1,7 @@
 # Levels Reversal Strategy
 
 > Status: validated on SBER/GAZP/VTBR (2-year history). Production brain: `StrategyEvaluator.check_entry`. Prototype: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-21 (Issue #107 level_breakout_retest).
+> Last refreshed: 2026-08-21 (Issue #109 Strategy Lab chip for level_breakout_retest).
 
 ## 1. Overview
 
@@ -279,5 +279,5 @@ A broken resistance is no longer an opposing zone. The ALRS 2026-08-20 fill at 1
 
 ### Lab
 
-`GET /api/patterns` exposes the schema (`category=breakout`). Frontend chip work is the next epic issue. File: `backend/app/analytics/patterns/level_breakout_retest.py`. Tests: `backend/tests/test_level_breakout_retest.py`.
+`GET /api/patterns` exposes the schema (`category=breakout`, optional `label_en` / `icon=breakout_up`). Strategy Lab renders the chip in the breakout group and the six params in `PatternSettingsModal` from that payload (Issue #109). File: `backend/app/analytics/patterns/level_breakout_retest.py`. Tests: `backend/tests/test_level_breakout_retest.py`; frontend: `cd frontend && npm test`.
 
