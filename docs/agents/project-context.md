@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-29 (Issue #118 Strategy Lab chip for levels_sr_breakout). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-29 (Issue #119 AFKS smoke for levels_sr_breakout). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -86,6 +86,7 @@ trading-terminal/
 │       ├── test_level_breakout_retest.py # Issue #107 retest AND-filter / stop-take / veto skip
 │       ├── test_levels_sr_breakout.py # Issue #117 composite OR paths / source / engine guard
 │       ├── test_issue100_analysis.py # Issue #100 Lab universe/veto/baseline helpers
+│       ├── test_issue119_analysis.py # Issue #119 AFKS smoke config/source/verdict helpers
 │       └── test_portfolio_simulator.py # Portfolio simulator unit + integration tests
 ├── frontend/
 │ ├── src/
@@ -114,7 +115,8 @@ trading-terminal/
 │ ├── issue-66-live-universe/ # Live top-5 ranking, report, and plots
 │ ├── issue-100-test-20260820-portfolio/ # Portfolio replay of Lab test_20260820 after #97 veto
 │ ├── issue-100-test-20260820-resistance-veto/ # Lab full-sample + walk-forward of test_20260820 after #97 veto
-│ └── issue-103-test-20260821-portfolio/ # Portfolio replay of Lab test_20260821 after #97 veto (swing+impulse)
+│ ├── issue-103-test-20260821-portfolio/ # Portfolio replay of Lab test_20260821 after #97 veto (swing+impulse)
+│ └── issue-119-afks-sr-breakout-smoke/ # Isolated AFKS A/B smoke for levels_sr_breakout (#119)
 ├── docs/
 │ ├── agents/ # project-context.md, handover.md (+ .ru versions), documentation-policy.md
 │ ├── strategy/ # levels-reversal-strategy.md, paper-trading.md, testing-rules.md, backtest-report.md (+ .ru)
@@ -243,7 +245,8 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 - **Issue #109 (Epic #105, 2026-08-21)**: Strategy Lab chip + schema-driven `PatternSettingsModal` for `level_breakout_retest`. Names, hints, icon (`breakout_up`), and the six params come from `GET /api/patterns`. Validation uses schema `min`/`max` (blocks Apply and Save+Run). Locked `test_20260731` stays read-only. Next: analytics validation (#3) and optional chart preview (#5 / Epic #87).
 - **Issue #116 (Epic #115, 2026-08-29)**: Lab `_run_job` uses the portfolio plugin whenever `config.strategy_name` is set (Lab always writes `levels_reversal`). `_backtest_ticker_plugin` now puts `build_strategy_context()['htf_bars']` on `MarketContext.htf_bars` so `LevelsTracker` sees closed 4h bars. `backtest_results` INSERT goes through `_json_safe` (`pf: Infinity` → `null`). Locked `test_20260731` unchanged (no breakout chip). Tests: `tests/test_strategy_plugin.py`, `tests/test_level_breakout_retest.py`. Unblocks Lab smoke for `#115` / `#119`.
 - **Issue #117 (Epic #115, 2026-08-29)**: Lab pattern `levels_sr_breakout` is an isolated entry engine (OR of support path A and resistance-break path B). `run_strategy_backtest` accepts it without `levels_reversal` in `config.patterns`. Tracker + `htf_bars` as in #107/#116. Locked `test_20260731` unchanged. Tests: `tests/test_levels_sr_breakout.py` plus existing veto / breakout-retest / plugin.
-- **Issue #118 (Epic #115, 2026-08-29)**: Strategy Lab chip + schema-driven `PatternSettingsModal` for `levels_sr_breakout`. Names, hints, icon (`support_breakout`), and params come from `GET /api/patterns` (group **Уровни**). Validation uses schema `min`/`max` (blocks Apply and Save+Run). `level_breakout_retest` stays in **Пробой**. Locked `test_20260731` stays read-only. Next: AFKS smoke #119.
+- **Issue #118 (Epic #115, 2026-08-29)**: Strategy Lab chip + schema-driven `PatternSettingsModal` for `levels_sr_breakout`. Names, hints, icon (`support_breakout`), and params come from `GET /api/patterns` (group **Уровни**). Validation uses schema `min`/`max` (blocks Apply and Save+Run). `level_breakout_retest` stays in **Пробой**. Locked `test_20260731` stays read-only.
+- **Issue #119 (Epic #115, 2026-08-29)**: Isolated AFKS smoke for `levels_sr_breakout` vs #44/#103. Package: `analytics/issue-119-afks-sr-breakout-smoke/`. Period `2024-08-01` … `timestamp < 2026-08-21`. A (`levels_reversal` + `signal_4h_buy`): n=39, PF 1.50. B (`levels_sr_breakout` + `signal_4h_buy`): n=116, PF 1.46; path A `source=levels_sr_breakout_support` n=78 PF 1.70; path B `source=levels_sr_breakout_resistance` n=38 PF 1.20. B-support > A because the composite passes `LevelsTracker` into the veto. Plugin path n/PF match; plugin trades still omit `source`. Locked `test_20260731` / `test_20260820` / `test_20260821` untouched. Verdict: expand the universe (not paper). Not a 50k portfolio replay.
 - **Legacy pattern-matrix backtest**: rule-based strategies NOT profitable after commission on MOEX top-3 over 2 years (all PF < 1). Superseded by the levels approach.
 - **Universe**: top-15 by PF (`trading_universe`) remains the paper/data-refresh universe via `get_trading_universe()`. Sandbox live execution uses Issue #66 top-5 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP via `get_live_trading_universe()`. Paper `paper_positions` was empty at the #66 snapshot (equity flat at 100,000 RUB), so the live list is backtest + liquidity + ATR, not forward PnL.
 - **Sandbox canary (Issue #74, 2026-08-19)**: `LiveExecutor` initialized the top-5 on locked strategy `test_20260731` and submitted a sandbox market BUY on RUAL (37 lots at 26.73, take 28.02, stop 26.19). The next signal for the same ticker was skipped with `reason=duplicate_ticker`. Paper equity kept updating during the session. The runbook lives in handover §19.
@@ -274,7 +277,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | Q | SignalEngine patterns in Strategy Lab (Epic #78) | #79–#82 done (evaluator, registry schemas, E2E/docs, Lab UI grouping) |
 | R | Pattern chart preview in Lab + Signals (Epic #87) | #88 preview API + levels overlays done; #89–#92 pending |
 | S | Level Breakout & Role Reversal (Epic #105) | #106 LevelsTracker + #107 `level_breakout_retest` AND-filter + #109 Lab chip done; analytics validation and optional preview pending |
-| T | Composite S/R pattern (Epic #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 Lab chip done; #119 AFKS smoke pending |
+| T | Composite S/R pattern (Epic #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 Lab chip + #119 AFKS smoke done |
 
 ## 9. Important Notes
 
