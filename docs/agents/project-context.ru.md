@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-29 (задача #117 композитный паттерн levels_sr_breakout). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-29 (задача #118 чип Strategy Lab для levels_sr_breakout). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -92,10 +92,11 @@ trading-terminal/
 │ │ ├── App.tsx # Главное приложение (табы: Signals, Stats, Top-30, Instruments, Lab, Paper Trading)
 │ │ ├── components/
 │ │ │ ├── SignalsPanel.tsx # Таблица сигналов (сортировка, фильтр, пагинация)
-│ │ │ ├── StrategyLab.tsx # Strategy Lab: чипы из GET /api/patterns (#82/#109)
+│ │ │ ├── StrategyLab.tsx # Strategy Lab: чипы из GET /api/patterns (#82/#109/#118)
 │ │ │ ├── PaperTradingPanel.tsx # Paper Trading: A/B dashboard (фильтры, PnL chart, позиции)
 │ │ │ ├── LiveTradingPanel.tsx # Live monitoring: открытые/история/equity/Telegram
 │   │   ├── PatternSettingsModal.tsx # Schema-driven модалка настроек паттернов (Эпик #11; ошибки min/max #109)
+│   │   ├── PatternIcon.tsx          # Иконки чипов Lab из API `icon` (breakout_up, support_breakout)
 │ │ │ ├── PipelineWidget.tsx # Виджет статуса refresh/regenerate
 │ │ │ ├── CandleChart.tsx # Свечной график
 │ │ │ ├── InstrumentsPanel.tsx # Список инструментов
@@ -103,7 +104,7 @@ trading-terminal/
 │ │ │ ├── SignalDetailModal.tsx # Модальное окно сигнала
 │ │ │ └── TopStocksPanel.tsx # Топ акций по объёму
 │ │ ├── api.ts # API client
-│ │ ├── types.ts # TypeScript-типы (включая LevelBreakoutRetestConfig)
+│ │ ├── types.ts # TypeScript-типы (включая LevelBreakoutRetestConfig, LevelsSrBreakoutConfig)
 │ │ ├── patternLab.ts # Группировка чипов + RU/EN подписи из GET /api/patterns (#82/#109)
 │ │ ├── patternValidation.ts # Проверки min/max схемы перед save/run Lab (#109)
 │ │ └── index.css / main.tsx
@@ -225,11 +226,11 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 
 Паттерны Strategy Lab (config-driven, логика AND, один конфиг для бэктеста / paper / live):
 - `levels_reversal` — обязателен для классического пути поддержки; 4h зона поддержки + подтверждение; задаёт stop/take. Задача #97: `check_entry` отклоняет бар, если 1min close лежит в активной зоне сопротивления (`overlapping_resistance_zone_at`); это дефект, а не role-reversal. Задача #106: при колонке `state` вето пропускает зоны не в `active`. Задача #107: `StrategyEvaluator` передаёт `LevelsTracker` в вето если включён `level_breakout_retest` или `levels_sr_breakout`; у `build_levels` колонки `state` нет, locked `test_20260731` остаётся бит-в-бит. Не обязателен в `config.patterns`, если движок входа — композит `levels_sr_breakout`.
-- `levels_sr_breakout` — изолированный Lab-движок входа (эпик #115 / задача #117), OR двух путей. Путь A = геометрия поддержки `levels_reversal` + вето *активного* сопротивления (`source=levels_sr_breakout_support`). Путь B = `check_breakout_retest` без нативной зоны поддержки (`source=levels_sr_breakout_resistance`, stop/take ATR × RR; верхнеуровневый RR конфига повторно не накладывается). Общие AND: сессия, HTF, опционально `signal_4h_buy` / SignalEngine. Если на одном баре сработали оба пути — побеждает путь B. Если в `config.patterns` одновременно `levels_reversal` и `levels_sr_breakout` — побеждает композит (один support-путь, без удвоения). Не AND с `level_breakout_retest` как заменой. Не SignalEngine id. Категория `levels`, иконка `support_breakout` (не `breakout_up`). Схема = все поля `levels_reversal` + поля ретеста; `normalize_patterns` заполняет дефолты. Файл: `patterns/levels_sr_breakout.py` (не под `patterns/breakout/`). Чип Lab — задача #118.
+- `levels_sr_breakout` — изолированный Lab-движок входа (эпик #115 / задачи #117 и #118), OR двух путей. Путь A = геометрия поддержки `levels_reversal` + вето *активного* сопротивления (`source=levels_sr_breakout_support`). Путь B = `check_breakout_retest` без нативной зоны поддержки (`source=levels_sr_breakout_resistance`, stop/take ATR × RR; верхнеуровневый RR конфига повторно не накладывается). Общие AND: сессия, HTF, опционально `signal_4h_buy` / SignalEngine. Если на одном баре сработали оба пути — побеждает путь B. Если в `config.patterns` одновременно `levels_reversal` и `levels_sr_breakout` — побеждает композит (один support-путь, без удвоения). Не AND с `level_breakout_retest` как заменой. Не SignalEngine id. Категория `levels`, иконка `support_breakout` (не `breakout_up`). Схема = все поля `levels_reversal` + поля ретеста; `normalize_patterns` заполняет дефолты. Файл: `patterns/levels_sr_breakout.py` (не под `patterns/breakout/`). Чип Lab в группе **Уровни** из `GET /api/patterns`; `PatternSettingsModal` и валидация остаются schema-driven — не хардкодить список params в TSX. Чип заменяет `levels_reversal` для новой стратегии; на locked `test_20260731` оставлять выключенным.
 - `level_breakout_retest` — Lab AND-фильтр после `levels_reversal` (эпик #105 / задачи #107 и #109). Подтверждённый пробой сопротивления + ретест в `[level ± retest_zone_atr×ATR]` + close ≥ пробитого уровня + бычий триггер. Stop/take = ATR × RR из параметров паттерна. Не SignalEngine inline-evaluate id (не добавлять в `SIGNAL_ENGINE_PATTERN_IDS`). Схема в `PATTERN_REGISTRY` (опциональные `label_en` / `hint_en` / `icon`) и в `GET /api/patterns`. Strategy Lab рендерит чип группы «Пробой» и поля `PatternSettingsModal` из этого payload — не хардкодить шесть параметров во frontend. Файл: `patterns/level_breakout_retest.py` (не класть в `patterns/breakout/` — затенит `breakout.py` / `BO_BB_Squeeze`). Задача #116: plugin-путь Lab обязан прокидывать `htf_bars`, иначе трекер не покидает `active` (ноль сделок пробоя). Другой контракт, чем `levels_sr_breakout` — не заменять этот AND-фильтр композитом.
 - `signal_4h_buy` — агрегат 4h BUY из `trading.signals` (ТФ фиксирован; не рефакторится).
 - `rsi_oversold` / `macd_bullish` / `bb_lower` — 1min индикаторные AND-фильтры. `rsi_oversold` не является `MR_RSI_Reversal`.
-- Десять id SignalEngine выше — AND-фильтры на последней закрытой HTF-свече через inline `BasePattern.evaluate` по `trading.indicators`. Схемы из `GET /api/patterns` (select `timeframe` 30min/1h/2h/4h/1d/1w, по умолчанию 4h, плюс числовые дефолты 4h). Таймфрейм задаётся в модалке настроек. `StrategyLab.tsx` группирует чипы по `category` из API (RU-заголовки: levels / signal / trend / price_action / volume / mean_reversion / breakout). Десять id SignalEngine и список параметров `level_breakout_retest` не хардкодятся; fallback из двух чипов используется только если `GET /api/patterns` пуст.
+- Десять id SignalEngine выше — AND-фильтры на последней закрытой HTF-свече через inline `BasePattern.evaluate` по `trading.indicators`. Схемы из `GET /api/patterns` (select `timeframe` 30min/1h/2h/4h/1d/1w, по умолчанию 4h, плюс числовые дефолты 4h). Таймфрейм задаётся в модалке настроек. `StrategyLab.tsx` группирует чипы по `category` из API (RU-заголовки: levels / signal / trend / price_action / volume / mean_reversion / breakout). Десять id SignalEngine и списки параметров `level_breakout_retest` / `levels_sr_breakout` не хардкодятся; fallback из двух чипов используется только если `GET /api/patterns` пуст.
 
 ## 7. Известные проблемы и статус
 
@@ -241,7 +242,8 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 - **Задача #107 (эпик #105, 2026-08-21)**: Lab-паттерн `level_breakout_retest` — AND-фильтр в `StrategyEvaluator` после `levels_reversal`. Трекер создаётся и передаётся в вето (`is_broken`) только если паттерн есть в `config.patterns`. Stop/take тогда из `stop_atr` × ATR и `risk_reward` паттерна. Locked `test_20260731` паттерн не включает, поэтому вето #97 и levels stop/take остаются бит-в-бит. Тесты: `tests/test_level_breakout_retest.py` плюс существующие `tests/test_resistance_zone_veto.py` / `tests/test_levels_state_machine.py`.
 - **Задача #109 (эпик #105, 2026-08-21)**: чип Strategy Lab + schema-driven `PatternSettingsModal` для `level_breakout_retest`. Имена, подсказки, иконка (`breakout_up`) и шесть параметров приходят из `GET /api/patterns`. Валидация по `min`/`max` схемы (блокирует «Применить» и «Сохранить и запустить»). Locked `test_20260731` остаётся только для чтения. Далее: аналитическая валидация (#3) и опциональное превью на графике (#5 / эпик #87).
 - **Задача #116 (эпик #115, 2026-08-29)**: Lab `_run_job` идёт через portfolio plugin, если задан `config.strategy_name` (Lab всегда пишет `levels_reversal`). `_backtest_ticker_plugin` кладёт `build_strategy_context()['htf_bars']` в `MarketContext.htf_bars`, чтобы `LevelsTracker` видел закрытые 4h-бары. INSERT в `backtest_results` идёт через `_json_safe` (`pf: Infinity` → `null`). Locked `test_20260731` не изменён (чип пробоя выключен). Тесты: `tests/test_strategy_plugin.py`, `tests/test_level_breakout_retest.py`. Разблокирует Lab-smoke для `#115` / `#119`.
-- **Задача #117 (эпик #115, 2026-08-29)**: Lab-паттерн `levels_sr_breakout` — изолированный движок входа (OR пути поддержки A и пробоя сопротивления B). `run_strategy_backtest` принимает его без `levels_reversal` в `config.patterns`. Трекер + `htf_bars` как в #107/#116. Locked `test_20260731` не изменён. Тесты: `tests/test_levels_sr_breakout.py` плюс существующие veto / breakout-retest / plugin. Далее: чип Lab #118, AFKS smoke #119.
+- **Задача #117 (эпик #115, 2026-08-29)**: Lab-паттерн `levels_sr_breakout` — изолированный движок входа (OR пути поддержки A и пробоя сопротивления B). `run_strategy_backtest` принимает его без `levels_reversal` в `config.patterns`. Трекер + `htf_bars` как в #107/#116. Locked `test_20260731` не изменён. Тесты: `tests/test_levels_sr_breakout.py` плюс существующие veto / breakout-retest / plugin.
+- **Задача #118 (эпик #115, 2026-08-29)**: чип Strategy Lab + schema-driven `PatternSettingsModal` для `levels_sr_breakout`. Имена, подсказки, иконка (`support_breakout`) и параметры приходят из `GET /api/patterns` (группа **Уровни**). Валидация по `min`/`max` схемы (блокирует «Применить» и «Сохранить и запустить»). `level_breakout_retest` остаётся в **Пробой**. Locked `test_20260731` только для чтения. Далее: AFKS smoke #119.
 - **Legacy pattern-matrix backtest**: rule-based стратегии НЕ прибыльны после комиссии на MOEX top-3 за 2 года (все PF < 1). Заменены подходом levels.
 - **Вселенная**: top-15 по PF (`trading_universe`) остаётся вселенной paper/data-refresh через `get_trading_universe()`. Sandbox live execution использует топ-5 из задачи #66 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP через `get_live_trading_universe()`. На снимке #66 таблица `paper_positions` была пуста (equity плоская 100 000 RUB), поэтому live-список построен по бэктесту, ликвидности и ATR, а не по forward PnL.
 - **Sandbox canary (задача #74, 2026-08-19)**: `LiveExecutor` инициализировал топ-5 на locked-стратегии `test_20260731` и отправил sandbox market BUY по RUAL (37 лотов по 26.73, take 28.02, stop 26.19). Следующий сигнал по тому же тикеру был пропущен с `reason=duplicate_ticker`. `paper_equity` продолжала писаться во время сессии. Runbook — в handover §19.
@@ -272,7 +274,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | Q | Паттерны SignalEngine в Strategy Lab (эпик #78) | #79–#82 готовы (evaluator, схемы registry, E2E/docs, группировка UI Lab) |
 | R | Превью паттерна на графике Lab + Сигналы (эпик #87) | #88 API preview + оверлеи levels готовы; #89–#92 далее |
 | S | Пробой уровня и смена роли (эпик #105) | #106 LevelsTracker + #107 `level_breakout_retest` AND-фильтр + #109 чип Lab готовы; аналитическая валидация и опциональное превью далее |
-| T | Композитный S/R паттерн (эпик #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` готово; #118 чип Lab, #119 AFKS smoke далее |
+| T | Композитный S/R паттерн (эпик #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 чип Lab готово; #119 AFKS smoke далее |
 
 ## 9. Важные замечания
 

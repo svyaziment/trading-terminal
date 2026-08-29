@@ -1,7 +1,7 @@
 # Стратегия «Уровни + подтверждение разворота»
 
 > Статус: валидирована на SBER/GAZP/VTBR (2 года истории). Продакшн-мозг: `StrategyEvaluator.check_entry`. Прототип: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-29 (задача #117 композитный паттерн levels_sr_breakout).
+> Last refreshed: 2026-08-29 (задача #118 чип Strategy Lab для levels_sr_breakout).
 
 ## 1. Обзор
 
@@ -304,5 +304,5 @@ Unit: `backend/tests/test_levels_state_machine.py`. Locked `test_20260731` не 
 
 ### Lab
 
-`GET /api/patterns`: `category=levels`, `label` «Поддержка + пробой сопротивления», `label_en` «Support Reversal + Resistance Breakout», иконка `support_breakout` (не `breakout_up`). Параметры = все поля `levels_reversal` + поля ретеста. Чип frontend — задача #118. Файл: `backend/app/analytics/patterns/levels_sr_breakout.py`. Тесты: `backend/tests/test_levels_sr_breakout.py`.
+`GET /api/patterns`: `category=levels`, `label` «Поддержка + пробой сопротивления», `label_en` «Support Reversal + Resistance Breakout», иконка `support_breakout` (не `breakout_up`). Параметры = все поля `levels_reversal` + поля ретеста. Чип Lab (задача #118) в группе **Уровни**; `PatternSettingsModal` schema-driven. Файл: `backend/app/analytics/patterns/levels_sr_breakout.py`. Тесты: `backend/tests/test_levels_sr_breakout.py`; frontend: `cd frontend && npm test`.
 

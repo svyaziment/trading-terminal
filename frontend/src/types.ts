@@ -277,6 +277,22 @@ export interface LevelBreakoutRetestConfig {
   risk_reward: number;
 }
 
+/** Lab params for `levels_sr_breakout` (GET /api/patterns schema). */
+export interface LevelsSrBreakoutConfig {
+  level_timeframe: string;
+  level_method: string[];
+  swing_window: number;
+  impulse_body_ratio: number;
+  impulse_atr_mult: number;
+  zone_atr_mult: number;
+  confirm_windows: number[];
+  retest_window_bars: number;
+  retest_zone_atr: number;
+  entry_trigger_bullish: boolean;
+  stop_atr: number;
+  risk_reward: number;
+}
+
 // ---- Pattern chart preview (Epic #87, Issue #89) ----
 export interface OverlayRay {
   type: "ray";

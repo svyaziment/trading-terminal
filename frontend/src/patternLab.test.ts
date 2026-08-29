@@ -1,21 +1,42 @@
 import { describe, expect, it } from "vitest";
-import { groupPatternsByCategory, patternLabel, patternTooltip } from "./patternLab";
+import {
+  applyTopLevelConfirmWindows,
+  groupPatternsByCategory,
+  patternLabel,
+  patternTooltip,
+  resolveConfirmWindows,
+} from "./patternLab";
 import {
   BO_BB_SQUEEZE_DEF,
   LEVEL_BREAKOUT_RETEST_DEF,
   LEVELS_REVERSAL_DEF,
+  LEVELS_SR_BREAKOUT_DEF,
+  LEVELS_SR_BREAKOUT_DEFAULTS,
   SIGNAL_4H_BUY_DEF,
 } from "./test/fixtures";
 
+const LAB_DEFS = [
+  LEVELS_REVERSAL_DEF,
+  LEVELS_SR_BREAKOUT_DEF,
+  SIGNAL_4H_BUY_DEF,
+  BO_BB_SQUEEZE_DEF,
+  LEVEL_BREAKOUT_RETEST_DEF,
+];
+
 describe("groupPatternsByCategory", () => {
   it("places level_breakout_retest in the breakout group next to other breakout chips", () => {
-    const groups = groupPatternsByCategory(
-      [LEVELS_REVERSAL_DEF, SIGNAL_4H_BUY_DEF, BO_BB_SQUEEZE_DEF, LEVEL_BREAKOUT_RETEST_DEF],
-      "ru",
-    );
+    const groups = groupPatternsByCategory(LAB_DEFS, "ru");
     const breakout = groups.find((g) => g.category === "breakout");
     expect(breakout?.label).toBe("Пробой");
     expect(breakout?.patterns.map((p) => p.id)).toEqual(["BO_BB_Squeeze", "level_breakout_retest"]);
+    expect(breakout?.patterns.map((p) => p.id)).not.toContain("levels_sr_breakout");
+  });
+
+  it("places levels_sr_breakout in the levels group next to levels_reversal", () => {
+    const groups = groupPatternsByCategory(LAB_DEFS, "ru");
+    const levels = groups.find((g) => g.category === "levels");
+    expect(levels?.label).toBe("Уровни");
+    expect(levels?.patterns.map((p) => p.id)).toEqual(["levels_reversal", "levels_sr_breakout"]);
   });
 });
 
@@ -23,11 +44,53 @@ describe("pattern labels", () => {
   it("uses API RU/EN names without a hardcoded map", () => {
     expect(patternLabel(LEVEL_BREAKOUT_RETEST_DEF, "ru")).toBe("Пробой уровня с ретестом");
     expect(patternLabel(LEVEL_BREAKOUT_RETEST_DEF, "en")).toBe("Level Breakout Retest");
+    expect(patternLabel(LEVELS_SR_BREAKOUT_DEF, "ru")).toBe("Поддержка + пробой сопротивления");
+    expect(patternLabel(LEVELS_SR_BREAKOUT_DEF, "en")).toBe("Support Reversal + Resistance Breakout");
   });
 
   it("puts the EN name and role-reversal hint into the RU tooltip", () => {
     const tip = patternTooltip(LEVEL_BREAKOUT_RETEST_DEF, "ru");
     expect(tip).toMatch(/Level Breakout Retest/);
     expect(tip).toMatch(/смен[аы] роли/i);
+  });
+
+  it("puts the EN name and isolated-engine hint into the RU tooltip", () => {
+    const tip = patternTooltip(LEVELS_SR_BREAKOUT_DEF, "ru");
+    expect(tip).toMatch(/Support Reversal \+ Resistance Breakout/);
+    expect(tip).toMatch(/Не AND/);
+  });
+});
+
+describe("resolveConfirmWindows", () => {
+  it("reads confirm_windows from the composite when levels_reversal is off", () => {
+    expect(
+      resolveConfirmWindows(LAB_DEFS, {
+        levels_sr_breakout: { ...LEVELS_SR_BREAKOUT_DEFAULTS, confirm_windows: [15] },
+      }),
+    ).toEqual([15]);
+  });
+
+  it("prefers the composite over levels_reversal when both chips are on", () => {
+    const levelsWithConfirm = {
+      ...LEVELS_REVERSAL_DEF,
+      params: LEVELS_SR_BREAKOUT_DEF.params.filter((p) => p.key === "confirm_windows"),
+    };
+    expect(
+      resolveConfirmWindows([levelsWithConfirm, LEVELS_SR_BREAKOUT_DEF], {
+        levels_reversal: { confirm_windows: [5] },
+        levels_sr_breakout: { confirm_windows: [20] },
+      }),
+    ).toEqual([20]);
+  });
+});
+
+describe("applyTopLevelConfirmWindows", () => {
+  it("maps a legacy list onto the composite owner", () => {
+    const applied = applyTopLevelConfirmWindows(
+      [LEVELS_SR_BREAKOUT_DEF],
+      { levels_sr_breakout: {} },
+      [15],
+    );
+    expect(applied.levels_sr_breakout.confirm_windows).toEqual([15]);
   });
 });
