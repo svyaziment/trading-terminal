@@ -59,7 +59,8 @@ def _get_db():
 
 
 def _json_dumps(obj) -> str:
-    return json.dumps(obj, default=str)
+    """Strict JSON for JSONB INSERT: inf/nan → null (Issue #116)."""
+    return json.dumps(_json_safe(obj), default=str)
 
 
 def _to_dict(raw):
@@ -92,11 +93,16 @@ def _json_safe(obj):
     if obj is None or isinstance(obj, (str, int, bool)):
         return obj
     s = str(obj)
-    if s in ('NaT', 'nan'):
+    if s in ('NaT', 'nan', 'NaN', 'inf', '-inf', 'Infinity', '-Infinity'):
         return None
     try:
         return obj.isoformat()
     except AttributeError:
+        pass
+    try:
+        f = float(obj)
+        return None if (math.isnan(f) or math.isinf(f)) else f
+    except (TypeError, ValueError):
         return s
 
 

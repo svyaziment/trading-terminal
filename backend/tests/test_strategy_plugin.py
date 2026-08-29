@@ -141,3 +141,167 @@ if __name__ == '__main__':
         print("REGRESSION TEST FAILED", file=sys.stderr)
         sys.exit(1)
     print("REGRESSION TEST PASSED", file=sys.stderr)
+
+
+# --- Issue #116 unit tests (no DB) ---
+
+LOCKED_LIKE_CONFIG = {
+    'patterns': ['levels_reversal', 'signal_4h_buy'],
+    'confirm_windows': [10],
+    'commission_pct': 0.06,
+    'slippage_pct': 0.0,
+    'risk_reward': {'risk': 1.0, 'reward': 2.0},
+    'entry_window': (7, 19),
+}
+
+
+def _locked_support_levels():
+    import pandas as pd
+    support = {
+        'available_from_ts': pd.Timestamp('2026-07-27 08:00:00'),
+        'defined_ts': pd.Timestamp('2026-07-27 08:00:00'),
+        'level_price': 19.61,
+        'type': 'support',
+        'method': 'impulse',
+        'atr': 0.3164285714285714,
+        'zone_lower': 19.451785714285712,
+        'zone_upper': 19.768214285714286,
+    }
+    take = {
+        'available_from_ts': pd.Timestamp('2026-07-08 16:00:00'),
+        'defined_ts': pd.Timestamp('2026-07-06 08:00:00'),
+        'level_price': 20.90,
+        'type': 'resistance',
+        'method': 'swing',
+        'atr': 0.2857142857142855,
+        'zone_lower': 20.757142857142856,
+        'zone_upper': 21.04285714285714,
+    }
+    return pd.DataFrame([support, take])
+
+
+def _locked_plugin_signal(htf_bars):
+    import pandas as pd
+    from app.analytics.strategies.context import MarketContext
+    from app.analytics.strategies.levels_reversal import LevelsReversalStrategy
+
+    ts_4h = pd.Timestamp('2026-08-20 08:00:00')
+    atr = 0.5714285714285714
+    row = pd.Series({
+        'timestamp': pd.Timestamp('2026-08-20 11:50:24'),
+        'open': 19.80, 'high': 19.80, 'low': 19.80, 'close': 19.80,
+    })
+    plugin = LevelsReversalStrategy(LOCKED_LIKE_CONFIG)
+    market = MarketContext(
+        timestamp=row['timestamp'],
+        candles_1min=pd.DataFrame([row]),
+        levels=_locked_support_levels(),
+        ts_4h=[ts_4h],
+        atr_by_ts={ts_4h: atr},
+        buy_ts=[ts_4h],
+        confirm_series=[([pd.Timestamp('2026-08-20 11:40:00')], [19.85])],
+        htf_bars=htf_bars,
+    )
+    plugin.load_market_context(market)
+    return plugin, plugin.check_entry(market)
+
+
+def test_locked_like_plugin_bit_for_bit_with_htf_bars():
+    """Locked paper chips (no breakout) stay bit-for-bit when htf_bars is wired."""
+    import pandas as pd
+
+    dummy_htf = pd.DataFrame([{
+        'timestamp': pd.Timestamp('2026-08-20 08:00:00'),
+        'open': 19.7, 'high': 19.9, 'low': 19.5, 'close': 19.8, 'atr': 0.5,
+    }])
+    plugin_off, without = _locked_plugin_signal(None)
+    plugin_on, with_htf = _locked_plugin_signal(dummy_htf)
+
+    assert plugin_off._evaluator.use_breakout_retest is False
+    assert plugin_off._evaluator._tracker is None
+    assert plugin_on._evaluator._tracker is None
+    assert without is not None and with_htf is not None
+    assert without.entry_price == with_htf.entry_price == 19.80
+    assert without.stop == with_htf.stop == 19.61
+    assert without.take == with_htf.take == 20.90
+
+
+def test_portfolio_plugin_forwards_htf_bars(monkeypatch):
+    """_backtest_ticker_plugin must put ctx['htf_bars'] on MarketContext."""
+    import pandas as pd
+    from app.analytics.portfolio_backtest import _backtest_ticker_plugin
+
+    htf = pd.DataFrame({
+        'timestamp': [pd.Timestamp('2026-01-01 00:00:00')],
+        'open': [100.0], 'high': [101.0], 'low': [99.0], 'close': [100.5], 'atr': [1.0],
+    })
+    captured = []
+
+    class _Probe:
+        def load_market_context(self, context):
+            captured.append(context)
+
+        def check_entry(self, context):
+            captured.append(context)
+            return None
+
+        def get_name(self):
+            return 'probe'
+
+    class _Result:
+        def __init__(self, frame):
+            self._frame = frame
+
+        def to_dataframe(self):
+            return self._frame.copy()
+
+    class _DB:
+        def select(self, _query, _params):
+            return _Result(pd.DataFrame({
+                'timestamp': pd.date_range('2026-01-01', periods=5, freq='min'),
+                'open': [100.0] * 5,
+                'high': [100.2] * 5,
+                'low': [99.8] * 5,
+                'close': [100.0] * 5,
+                'volume': [10, 11, 12, 13, 14],
+            }))
+
+    monkeypatch.setattr(
+        'app.analytics.strategy_context.build_strategy_context',
+        lambda *_args, **_kwargs: {
+            'status': 'success',
+            'levels': [],
+            'ts_htf': [],
+            'atr_by_ts': {},
+            'buy_ts': [],
+            'confirm_series': [],
+            'htf_bars': htf,
+        },
+    )
+    result = _backtest_ticker_plugin(
+        db=_DB(),
+        ticker='TEST',
+        plugin=_Probe(),
+        config={'atr_period': 14},
+        date_from=None,
+        date_to=None,
+        n_runs=1,
+    )
+    assert result['status'] == 'success'
+    assert captured
+    assert captured[0].htf_bars is htf
+    assert all(ctx.htf_bars is htf for ctx in captured)
+
+
+def test_json_dumps_sanitizes_infinity_for_jsonb():
+    """One winning trade → pf=Infinity must not be written into JSONB."""
+    from app.api.strategy_jobs import _json_dumps
+
+    encoded = _json_dumps({'n': 1, 'pf': float('inf'), 'exp_pct': float('nan')})
+    parsed = json.loads(encoded)
+    assert parsed['n'] == 1
+    assert parsed['pf'] is None
+    assert parsed['exp_pct'] is None
+    assert 'Infinity' not in encoded
+    assert 'NaN' not in encoded
+

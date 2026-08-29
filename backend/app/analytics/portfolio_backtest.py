@@ -114,22 +114,29 @@ def _backtest_ticker_plugin(
     if ctx.get('status') == 'failed':
         return {'ticker': ticker, 'status': 'failed', 'error': ctx.get('error')}
 
+    def _plugin_market_context(ts, candles_1min, row) -> MarketContext:
+        """Build plugin context; htf_bars is required for LevelsTracker (#116)."""
+        return MarketContext(
+            timestamp=ts,
+            candles_1min=candles_1min,
+            atr_by_period={atr_period: float(row['_atr'])}
+            if pd.notna(row['_atr']) else {},
+            levels=ctx['levels'],
+            ts_4h=ctx['ts_htf'],
+            atr_by_ts=ctx['atr_by_ts'],
+            buy_ts=ctx['buy_ts'],
+            confirm_series=ctx['confirm_series'],
+            signal_filter_series=ctx.get('signal_filter_series') or [],
+            htf_bars=ctx.get('htf_bars'),
+            volume_current=float(row['volume']) if pd.notna(row['volume']) else None,
+            volume_sma_20=float(row['_volume_sma_20'])
+            if pd.notna(row['_volume_sma_20']) else None,
+        )
+
     # Preload 4h context into the plugin once (mirrors ev.load_context in strategy_backtest)
-    first_context = MarketContext(
-        timestamp=df_1m.iloc[0]['timestamp'],
-        candles_1min=df_1m.iloc[:1],
-        atr_by_period={atr_period: float(df_1m.iloc[0]['_atr'])}
-        if pd.notna(df_1m.iloc[0]['_atr']) else {},
-        levels=ctx['levels'],
-        ts_4h=ctx['ts_htf'],
-        atr_by_ts=ctx['atr_by_ts'],
-        buy_ts=ctx['buy_ts'],
-        confirm_series=ctx['confirm_series'],
-        signal_filter_series=ctx.get('signal_filter_series') or [],
-        volume_current=float(df_1m.iloc[0]['volume'])
-        if pd.notna(df_1m.iloc[0]['volume']) else None,
-        volume_sma_20=float(df_1m.iloc[0]['_volume_sma_20'])
-        if pd.notna(df_1m.iloc[0]['_volume_sma_20']) else None,
+    first_row = df_1m.iloc[0]
+    first_context = _plugin_market_context(
+        first_row['timestamp'], df_1m.iloc[:1], first_row,
     )
     if hasattr(plugin, 'load_market_context'):
         plugin.load_market_context(first_context)
@@ -142,21 +149,7 @@ def _backtest_ticker_plugin(
         row = df_1m.iloc[i]
         ts = pd.Timestamp(row['timestamp'])
 
-        context = MarketContext(
-            timestamp=ts,
-            candles_1min=df_1m.iloc[:i + 1],
-            atr_by_period={atr_period: float(row['_atr'])}
-            if pd.notna(row['_atr']) else {},
-            levels=ctx['levels'],
-            ts_4h=ctx['ts_htf'],
-            atr_by_ts=ctx['atr_by_ts'],
-            buy_ts=ctx['buy_ts'],
-            confirm_series=ctx['confirm_series'],
-            signal_filter_series=ctx.get('signal_filter_series') or [],
-            volume_current=float(row['volume']) if pd.notna(row['volume']) else None,
-            volume_sma_20=float(row['_volume_sma_20'])
-            if pd.notna(row['_volume_sma_20']) else None,
-        )
+        context = _plugin_market_context(ts, df_1m.iloc[:i + 1], row)
 
         # --- exit branch (mirrors on_bar: exit checked first) ---
         if position is not None:

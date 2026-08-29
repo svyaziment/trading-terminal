@@ -275,3 +275,55 @@ def test_evaluator_without_pattern_keeps_veto():
     )
     assert ev.use_breakout_retest is False
     assert ev.check_entry(_retest_bar(close=100.0, open_=99.2, high=100.4, low=99.0)) is None
+
+
+_HTF_FROM_CTX = object()
+
+
+def _plugin_market(ctx: dict, bar: pd.Series, htf_bars=_HTF_FROM_CTX) -> "MarketContext":
+    from app.analytics.strategies.context import MarketContext
+
+    htf = ctx["htf_bars"] if htf_bars is _HTF_FROM_CTX else htf_bars
+    return MarketContext(
+        timestamp=pd.Timestamp(bar["timestamp"]),
+        candles_1min=pd.DataFrame([bar]),
+        levels=ctx["levels"],
+        ts_4h=ctx["ts_4h"],
+        atr_by_ts=ctx["atr_by_ts"],
+        buy_ts=ctx["buy_ts"],
+        confirm_series=ctx["confirm_series"],
+        htf_bars=htf,
+    )
+
+
+def test_plugin_path_feeds_tracker_closed_htf_bars():
+    """Issue #116: Lab plugin load must push closed 4h bars into LevelsTracker."""
+    from app.analytics.strategies.levels_reversal import LevelsReversalStrategy
+
+    plugin = LevelsReversalStrategy(_and_config())
+    ctx = _and_context()
+    bar = _retest_bar(close=100.0, open_=99.2, high=100.4, low=99.0)
+    plugin.load_market_context(_plugin_market(ctx, bar))
+    plugin.check_entry(_plugin_market(ctx, bar))
+
+    ev = plugin._evaluator
+    assert ev._tracker is not None
+    assert ev._htf_fed >= 2
+    states = set(ev._tracker.get_levels_with_state()["state"])
+    assert LevelState.BROKEN_UP.value in states or LevelState.FLIPPED_SUPPORT.value in states
+
+
+def test_plugin_path_without_htf_bars_leaves_tracker_unfed():
+    """Guard: missing htf_bars still skips _sync_tracker (the pre-#116 Lab bug)."""
+    from app.analytics.strategies.levels_reversal import LevelsReversalStrategy
+
+    plugin = LevelsReversalStrategy(_and_config())
+    ctx = _and_context()
+    bar = _retest_bar(close=100.0, open_=99.2, high=100.4, low=99.0)
+    market = _plugin_market(ctx, bar, htf_bars=None)
+    plugin.load_market_context(market)
+    plugin.check_entry(market)
+    assert plugin._evaluator._tracker is not None
+    assert plugin._evaluator._htf_fed == 0
+    states = set(plugin._evaluator._tracker.get_levels_with_state()["state"])
+    assert states == {LevelState.ACTIVE.value}

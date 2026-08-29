@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-21 (задача #109 чип Strategy Lab для level_breakout_retest; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-29 (задача #116 Lab/plugin HTF для LevelsTracker; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -59,11 +59,12 @@
 - **Heredoc loss**: большие bash heredocs могут терять блоки при копировании в Git Bash. Всегда проверяйте размер файла после создания (`wc -c`). Если байт меньше ожидаемого, повторите копирование.
 - **Буферизация логов**: фоновые процессы (start_processes.sh) используют `python -u` + `logging.basicConfig(level=INFO, stream=sys.stdout)` для немедленной записи логов в файлы. Без этого логи блочно буферизуются и кажутся пустыми до заполнения буфера.
 - **Docker rebuild**: после изменений backend-кода ОБЯЗАТЕЛЬНО пересоберите (`docker compose up -d --build backend`).
-- **JSON NaN**: pandas создаёт NaN/NaT, которые `json.dumps` отклоняет ("Out of range float values"). Санируйте API-ответы (см. `_json_safe` в `strategy_jobs.py` / `paper_trading_jobs.py`) и приводите timestamp к тексту в SQL (`created_at::text`).
+- **JSON NaN / Infinity**: pandas создаёт NaN/NaT, а одна выигрышная сделка даёт `pf: Infinity`. Python `json.dumps` пишет нестрогий JSON, который PostgreSQL JSONB отклоняет (`invalid input syntax for type json`). Санируйте API-ответы **и** INSERT в `backtest_results` через `_json_dumps` → `_json_safe` в `strategy_jobs.py` (`inf`/`nan` → `null`). То же для API-ответов в `paper_trading_jobs.py`. Timestamp в SQL приводите к тексту (`created_at::text`).
 - **JSONB as string**: DBManager возвращает JSONB-колонки как Python-repr строки, а не dict. Нормализуйте через `_to_dict` (json.loads, затем fallback ast.literal_eval).
 - **Backtest matrix runtime**: полная матрица занимает ~10-15 мин. Для liveness используйте quick=true.
 - **Reports mount**: backend монтирует `./reports` (docker-compose). Прогоны стратегий пишут `reports/strategy-lab/last_run.json` - отправляйте его при любой ошибке Strategy Lab.
 - **Вето зоны сопротивления (задача #97)**: `levels_reversal` не должен входить, если 1min close лежит в активной зоне сопротивления, даже если `nearest_level_at(..., 'support')` вернул валидную поддержку и расширение 0.5×ATR покрывает fill. Это структурный дефект, а не role-reversal (ALRS paper #711: fill 19.80 внутри импульсного сопротивления 19.67). Гард: `overlapping_resistance_zone_at` в `StrategyEvaluator.check_entry`. Задача #106: та же функция пропускает зоны не в `active`, если есть колонка `state`. Задача #107: `StrategyEvaluator` передаёт `LevelsTracker` (и `is_broken`) в вето только если включён `level_breakout_retest`; locked `test_20260731` его не включает, поэтому paper/live вето не меняется. Locked `test_20260731` не перезаписывать. Unit: `cd backend && python -m pytest -q tests/test_resistance_zone_veto.py tests/test_levels_state_machine.py tests/test_level_breakout_retest.py`.
+- **Lab plugin HTF (задача #116)**: Strategy Lab всегда пишет `config.strategy_name = "levels_reversal"`, поэтому `_run_job` вызывает `run_portfolio_backtest`, а не `run_strategy_backtest`. В `MarketContext.htf_bars` должен лежать `build_strategy_context()['htf_bars']` (тот же ТФ, что и уровни). `candles_4h` на этом пути обычно пуст. Без HTF `LevelsTracker._sync_tracker` выходит сразу, все уровни остаются `active`, любой паттерн пробоя (`level_breakout_retest`, будущий `levels_sr_breakout`) даёт **ноль сделок**. Locked `test_20260731` пробой не включает — прокидывание HTF для paper no-op. Unit: `cd backend && python -m pytest -q tests/test_strategy_plugin.py tests/test_level_breakout_retest.py`.
 
 ## 11. Протокол сотрудничества (агенты)
 
@@ -227,7 +228,7 @@ ORDER BY id DESC LIMIT 20;
 - Схема Lab: `PATTERN_REGISTRY['level_breakout_retest']` (также копируется в `SIGNAL_ENGINE_PATTERN_SCHEMAS` для AC задачи #107 / `GET /api/patterns`). Дефолты: `level_timeframe=4h`, `retest_window_bars=20`, `retest_zone_atr=0.5`, `entry_trigger_bullish=true`, `stop_atr=1.0`, `risk_reward=2.0`. Порог бычьего тела `0.6` не настраивается в Lab; живёт в `LEVEL_BREAKOUT_RETEST` в `trading_config.py`.
 - Критерии (все обязательны): состояние трекера `broken_up` или `flipped_support`; close в `[level ± retest_zone_atr×ATR]`; close ≥ пробитого `level_price`; `bars_since_breakout <= retest_window_bars`; если `entry_trigger_bullish` — `close > prev_high` ИЛИ бычье тело.
 - Stop/take: `stop = entry − stop_atr×ATR`, `take = entry + risk_reward×(entry−stop)`. При включённом паттерне они заменяют levels stop/take; верхнеуровневый RR-фильтр конфига поверх не применяется (RR паттерна уже задаёт отношение).
-- Контекст: `build_strategy_context` возвращает `htf_bars` (тот же ТФ, что и уровни). Evaluator подаёт в трекер только HTF-бары, чей close ≤ текущий 1min ts (без lookahead). Paper/live `load_context` / `update_context` прокидывают этот кадр.
+- Контекст: `build_strategy_context` возвращает `htf_bars` (тот же ТФ, что и уровни). Evaluator подаёт в трекер только HTF-бары, чей close ≤ текущий 1min ts (без lookahead). Paper/live `load_context` / `update_context` прокидывают этот кадр. Lab/plugin-путь: `portfolio_backtest` кладёт тот же кадр в `MarketContext.htf_bars` (задача #116); на `candles_4h` не опираться.
 - Взаимодействие с вето: при включённом паттерне пробитое сопротивление больше не opposing zone (`is_broken`). Без паттерна любое перекрывающееся сопротивление по-прежнему ветирует (locked `test_20260731`).
 - Компонуемость: AND с `levels_reversal` (по-прежнему обязателен для пути зоны поддержки) и с фильтрами SignalEngine / `signal_4h_buy`. Чип Lab: handover §24. `GET /api/patterns` — источник имён, подсказок, иконки и схемы параметров.
 - Locked `test_20260731` не перезаписывать.

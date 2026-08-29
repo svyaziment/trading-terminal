@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-21 (Issue #109 Strategy Lab chip for level_breakout_retest). Companion to project-context.md.
+Last refreshed: 2026-08-29 (Issue #116 Lab/plugin HTF feed for LevelsTracker). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -59,11 +59,12 @@ See project-context.md section 9.
 - **Heredoc loss**: large bash heredocs can lose blocks when copied in Git Bash. Always verify file size after creation (`wc -c`). If bytes < expected, re-copy.
 - **Docker rebuild**: after backend code changes, MUST rebuild (`docker compose up -d --build backend`).
 - **Unbuffered logging**: Background processes (start_processes.sh) use `python -u` + `logging.basicConfig(level=INFO, stream=sys.stdout)` for immediate log writing to files. Without this, logs are block-buffered and appear empty until the buffer fills.
-- **JSON NaN**: pandas produces NaN/NaT that `json.dumps` rejects ("Out of range float values"). Sanitize API responses (see `_json_safe` in strategy_jobs.py / paper_trading_jobs.py) and cast timestamps to text in SQL (`created_at::text`).
+- **JSON NaN / Infinity**: pandas produces NaN/NaT, and a single winning trade yields `pf: Infinity`. Python `json.dumps` writes non-strict JSON that PostgreSQL JSONB rejects (`invalid input syntax for type json`). Sanitize API responses **and** `backtest_results` INSERTs via `_json_dumps` → `_json_safe` in `strategy_jobs.py` (`inf`/`nan` → `null`). Also used for API payloads in `paper_trading_jobs.py`. Cast timestamps to text in SQL (`created_at::text`).
 - **JSONB as string**: DBManager returns JSONB columns as Python-repr strings, not dicts. Normalize with `_to_dict` (json.loads, then ast.literal_eval fallback).
 - **Backtest matrix runtime**: full matrix takes ~10-15 min. Use quick=true for liveness.
 - **Reports mount**: backend mounts `./reports` (docker-compose). Strategy runs write `reports/strategy-lab/last_run.json` - send it on any Strategy Lab error.
 - **Resistance-zone veto (Issue #97)**: `levels_reversal` must not enter when the 1min close sits in an active resistance zone, even if `nearest_level_at(..., 'support')` returns a valid support and the 0.5×ATR extension covers the fill. That is a structural defect, not role-reversal (ALRS paper #711: fill 19.80 inside impulse resistance 19.67). Guard: `overlapping_resistance_zone_at` in `StrategyEvaluator.check_entry`. Issue #106: the same function skips non-`active` zones when a `state` column is present. Issue #107: `StrategyEvaluator` passes `LevelsTracker` (and `is_broken`) into the veto only when `level_breakout_retest` is enabled; locked `test_20260731` does not, so paper/live veto is unchanged. Do not rewrite locked `test_20260731`. Units: `cd backend && python -m pytest -q tests/test_resistance_zone_veto.py tests/test_levels_state_machine.py tests/test_level_breakout_retest.py`.
+- **Lab plugin HTF (Issue #116)**: Strategy Lab always saves `config.strategy_name = "levels_reversal"`, so `_run_job` calls `run_portfolio_backtest`, not `run_strategy_backtest`. `MarketContext.htf_bars` must carry `build_strategy_context()['htf_bars']` (same TF as the levels). `candles_4h` is usually unset on this path. Without HTF, `LevelsTracker._sync_tracker` exits immediately, every level stays `active`, and any breakout pattern (`level_breakout_retest`, future `levels_sr_breakout`) yields **zero trades**. Locked `test_20260731` does not enable breakout, so wiring HTF is a no-op for paper. Units: `cd backend && python -m pytest -q tests/test_strategy_plugin.py tests/test_level_breakout_retest.py`.
 
 ## 11. Collaboration Protocol (agents)
 
@@ -227,7 +228,7 @@ Do not modify the locked strategy, RR, imbalance threshold, or `trading.trading_
 - Lab schema: `PATTERN_REGISTRY['level_breakout_retest']` (also copied onto `SIGNAL_ENGINE_PATTERN_SCHEMAS` for the Issue #107 AC / `GET /api/patterns`). Defaults: `level_timeframe=4h`, `retest_window_bars=20`, `retest_zone_atr=0.5`, `entry_trigger_bullish=true`, `stop_atr=1.0`, `risk_reward=2.0`. The bullish-body ratio `0.6` is not Lab-tunable; it lives in `LEVEL_BREAKOUT_RETEST` in `trading_config.py`.
 - Criteria (all must hold): tracker state `broken_up` or `flipped_support`; close in `[level ± retest_zone_atr×ATR]`; close ≥ broken `level_price`; `bars_since_breakout <= retest_window_bars`; if `entry_trigger_bullish`, `close > prev_high` OR bullish body.
 - Stop/take: `stop = entry − stop_atr×ATR`, `take = entry + risk_reward×(entry−stop)`. When the pattern is enabled these replace levels stop/take; the top-level config RR filter is not applied on top (pattern RR already encodes the ratio).
-- Context: `build_strategy_context` returns `htf_bars` (same TF as levels). The evaluator feeds only HTF bars whose close ≤ current 1min ts (no lookahead). Paper/live `load_context` / `update_context` pass this frame through.
+- Context: `build_strategy_context` returns `htf_bars` (same TF as levels). The evaluator feeds only HTF bars whose close ≤ current 1min ts (no lookahead). Paper/live `load_context` / `update_context` pass this frame through. Lab/plugin path: `portfolio_backtest` puts the same frame on `MarketContext.htf_bars` (Issue #116); do not rely on `candles_4h`.
 - Veto interaction: with the pattern on, a broken resistance is no longer an opposing zone (`is_broken`). Without the pattern, every overlapping resistance still vetoes (locked `test_20260731`).
 - Composability: AND with `levels_reversal` (still required for the support-zone path) and with SignalEngine / `signal_4h_buy` filters. Lab chip: handover §24. `GET /api/patterns` is the source of names, hints, icon, and param schema.
 - Do not rewrite locked `test_20260731`.

@@ -25,6 +25,14 @@ from app.analytics.strategies.context import MarketContext
 logger = logging.getLogger(__name__)
 
 
+def _htf_bars_from_context(context: MarketContext):
+    """Prefer explicit htf_bars (levels TF). Do not bool()-coerce a DataFrame."""
+    htf = getattr(context, "htf_bars", None)
+    if htf is not None:
+        return htf
+    return context.candles_4h
+
+
 class LevelsReversalStrategy(StrategyPlugin):
     """Levels reversal strategy plugin.
 
@@ -48,7 +56,7 @@ class LevelsReversalStrategy(StrategyPlugin):
             buy_ts=context.buy_ts,
             confirm_series=context.confirm_series,
             signal_filter_series=getattr(context, "signal_filter_series", None),
-            htf_bars=getattr(context, "htf_bars", None) or context.candles_4h,
+            htf_bars=_htf_bars_from_context(context),
         )
         self._context_loaded = True
 
