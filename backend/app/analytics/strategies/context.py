@@ -55,6 +55,11 @@ class MarketContext:
     # SignalEngine AND-filters (Issue #79): precomputed HTF BUY timestamps
     signal_filter_series: List = field(default_factory=list)
 
+    # HTF OHLCV+ATR of the levels timeframe (Issue #116). Same frame as
+    # build_strategy_context()['htf_bars']; feeds LevelsTracker on the plugin path.
+    # Distinct from candles_4h (optional raw 4h slice, often unset in Lab).
+    htf_bars: Optional[pd.DataFrame] = None
+
     # Volume data
     volume_current: Optional[float] = None
     volume_sma_20: Optional[float] = None
