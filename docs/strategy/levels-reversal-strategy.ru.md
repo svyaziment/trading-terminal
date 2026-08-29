@@ -1,7 +1,7 @@
 # Стратегия «Уровни + подтверждение разворота»
 
 > Статус: валидирована на SBER/GAZP/VTBR (2 года истории). Продакшн-мозг: `StrategyEvaluator.check_entry`. Прототип: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-29 (задача #118 чип Strategy Lab для levels_sr_breakout).
+> Last refreshed: 2026-08-29 (задача #119 AFKS smoke для levels_sr_breakout).
 
 ## 1. Обзор
 
@@ -305,4 +305,8 @@ Unit: `backend/tests/test_levels_state_machine.py`. Locked `test_20260731` не 
 ### Lab
 
 `GET /api/patterns`: `category=levels`, `label` «Поддержка + пробой сопротивления», `label_en` «Support Reversal + Resistance Breakout», иконка `support_breakout` (не `breakout_up`). Параметры = все поля `levels_reversal` + поля ретеста. Чип Lab (задача #118) в группе **Уровни**; `PatternSettingsModal` schema-driven. Файл: `backend/app/analytics/patterns/levels_sr_breakout.py`. Тесты: `backend/tests/test_levels_sr_breakout.py`; frontend: `cd frontend && npm test`.
+
+### AFKS smoke (задача #119)
+
+Изолированный бэктест одного тикера, не портфель 50k. Пакет: `analytics/issue-119-afks-sr-breakout-smoke/`. Период `2024-08-01` … `timestamp < 2026-08-21`. A (`levels_reversal` + `signal_4h_buy`): n=39, PF 1.50. B (`levels_sr_breakout` + `signal_4h_buy`): n=116, PF 1.46; путь поддержки n=78 PF 1.70; путь сопротивления n=38 PF 1.20. B-support больше A, потому что композит передаёт `LevelsTracker` в вето. Вердикт: расширять вселенную; не lock в paper. Не перезаписывать `test_20260731` / `test_20260820` / `test_20260821`.
 

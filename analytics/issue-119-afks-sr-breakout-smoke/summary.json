@@ -1,0 +1,166 @@
+{
+  "issue": 119,
+  "ticker": "AFKS",
+  "date_from": "2024-08-01",
+  "date_to": "2026-08-21",
+  "period_last_day": "2026-08-20",
+  "extracted_at": "2026-08-29 23:01:21",
+  "updated_at": "2026-08-29 23:50:18",
+  "protected_untouched": true,
+  "reference": {
+    "id": 118,
+    "name": "test_20260821",
+    "in_paper_test": false,
+    "locked": false
+  },
+  "config_sha": {
+    "A": "d859dae12afc4316ceef9b4f28f310273f9e5d71dc0afc65acdf8d9a5454167e",
+    "B": "e7d5e90c555ba3bc853216492a96ec92e4a8e985a51ce136b28d452d1452482f"
+  },
+  "runs": {
+    "A": {
+      "engine": "run_strategy_backtest",
+      "metrics": {
+        "n": 39,
+        "pf": 1.5,
+        "pf_infinite": false,
+        "exp_pct": 0.385,
+        "wr": 30.8,
+        "maxdd_pct": 9.3
+      }
+    },
+    "B": {
+      "engine": "run_strategy_backtest",
+      "metrics": {
+        "n": 116,
+        "pf": 1.46,
+        "pf_infinite": false,
+        "exp_pct": 0.359,
+        "wr": 35.3,
+        "maxdd_pct": 13.5
+      },
+      "source": {
+        "support": {
+          "source": "levels_sr_breakout_support",
+          "metrics": {
+            "n": 78,
+            "pf": 1.7,
+            "pf_infinite": false,
+            "exp_pct": 0.419,
+            "wr": 34.6,
+            "maxdd_pct": 9.9
+          },
+          "n": 78
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 38,
+            "pf": 1.2,
+            "pf_infinite": false,
+            "exp_pct": 0.236,
+            "wr": 36.8,
+            "maxdd_pct": 14.1
+          },
+          "n": 38
+        },
+        "unlabeled_n": 0
+      }
+    },
+    "B_plugin": {
+      "ran": true,
+      "status": "success",
+      "n_match": true,
+      "n_b": 116,
+      "n_plugin": 116,
+      "pf_b": 1.46,
+      "pf_plugin": 1.46,
+      "source_on_plugin_trades": false
+    }
+  },
+  "extra_vs_a": {
+    "n_a": 39,
+    "n_b": 116,
+    "added": 77
+  },
+  "path_b_examples": [
+    {
+      "entry_ts": "2025-01-22 18:10:00",
+      "exit_ts": "2025-01-22 19:10:00",
+      "entry_price": 14.931,
+      "exit_price": 14.543785714285713,
+      "exit_reason": "stop",
+      "net_return_pct": -2.65336,
+      "source": "levels_sr_breakout_resistance",
+      "note": "Path B: confirmed resistance break + retest. No native support zone required. Stop/take are ATR×RR, not a purchase inside an *active* resistance without a break."
+    },
+    {
+      "entry_ts": "2025-02-14 13:37:00",
+      "exit_ts": "2025-02-17 22:03:00",
+      "entry_price": 16.126,
+      "exit_price": 17.18557142857143,
+      "exit_reason": "take",
+      "net_return_pct": 6.51058,
+      "source": "levels_sr_breakout_resistance",
+      "note": "Path B: confirmed resistance break + retest. No native support zone required. Stop/take are ATR×RR, not a purchase inside an *active* resistance without a break."
+    }
+  ],
+  "books": {
+    "issue_44_afks": {
+      "issue": 44,
+      "kind": "portfolio_replay",
+      "strategy_name": "test_20260731",
+      "resistance_veto": false,
+      "date_to": "2026-08-15",
+      "n_trades": 95,
+      "pnl_rub": 2002.06,
+      "note": "Published portfolio book (50k / 10k slots), not an isolated ticker backtest. Period exclusive date_to=2026-08-15, engine before veto #97."
+    },
+    "issue_103": {
+      "issue": 103,
+      "kind": "portfolio_replay",
+      "strategy_name": "test_20260821",
+      "resistance_veto": true,
+      "date_from": "2024-08-01",
+      "date_to": "2026-08-21",
+      "portfolio_n_trades": 2070,
+      "portfolio_pf": 1.34,
+      "published_afks_isolated": false,
+      "note": "Published #103 package is a 28-ticker portfolio replay. It does not publish an isolated AFKS n/PF. Isolated run A in this smoke is the #103-equivalent on one ticker."
+    },
+    "issue_100_afks_lab": {
+      "issue": 100,
+      "kind": "lab_full_sample",
+      "strategy_name": "test_20260820",
+      "level_method": [
+        "swing"
+      ],
+      "date_from": "2024-08-21",
+      "n": 45,
+      "pf": 1.07,
+      "exp_pct": 0.053,
+      "wr": 28.9,
+      "maxdd_pct": 9.7,
+      "note": "Swing-only Lab full-sample after veto #97; different geometry and start date."
+    }
+  },
+  "verdict": {
+    "expand_universe": true,
+    "tune_retest": false,
+    "paper": false,
+    "label": "расширять вселенную",
+    "reasons": [
+      "Путь B добавил 38 сделок с source=levels_sr_breakout_resistance (PF пути B 1.20).",
+      "Support-путь B дал 78 сделок против 39 у A (+39). Композит передаёт LevelsTracker в вето: пробитое сопротивление больше не режет support-вход.",
+      "Смесь B дала на 77 сделок больше, чем база A (39 → 116).",
+      "PF смеси B (1.46) ниже базы A (1.50). Расширять вселенную только если путь B отдельно устойчив.",
+      "Путь A внутри B: 78 сделок (`levels_sr_breakout_support`).",
+      "Это smoke одного тикера, не портфель 50k и не вердикт катить в paper."
+    ]
+  },
+  "plot_files": [
+    "metrics_comparison.png",
+    "equity_curves.png",
+    "source_split.png"
+  ]
+}
