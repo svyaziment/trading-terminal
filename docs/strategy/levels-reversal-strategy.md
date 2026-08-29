@@ -1,7 +1,7 @@
 # Levels Reversal Strategy
 
 > Status: validated on SBER/GAZP/VTBR (2-year history). Production brain: `StrategyEvaluator.check_entry`. Prototype: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-21 (Issue #109 Strategy Lab chip for level_breakout_retest).
+> Last refreshed: 2026-08-29 (Issue #117 composite pattern levels_sr_breakout).
 
 ## 1. Overview
 
@@ -280,4 +280,29 @@ A broken resistance is no longer an opposing zone. The ALRS 2026-08-20 fill at 1
 ### Lab
 
 `GET /api/patterns` exposes the schema (`category=breakout`, optional `label_en` / `icon=breakout_up`). Strategy Lab renders the chip in the breakout group and the six params in `PatternSettingsModal` from that payload (Issue #109). File: `backend/app/analytics/patterns/level_breakout_retest.py`. Tests: `backend/tests/test_level_breakout_retest.py`; frontend: `cd frontend && npm test`.
+
+This AND-filter is **not** a substitute for the composite `levels_sr_breakout` (section 13). Do not AND the two chips as a replacement for the isolated Epic #115 engine.
+
+## 13. Composite S/R: support reversal + resistance breakout (Issue #117)
+
+Isolated Lab entry engine `levels_sr_breakout` (Epic #115). It is **not** an AND-filter after `levels_reversal` and not a SignalEngine id. Isolated run: `config.patterns` has `levels_sr_breakout` (optionally `signal_4h_buy`) **without** `levels_reversal`. Locked `test_20260731` stays off this id.
+
+### Two paths (OR)
+
+| Path | When | Stop / take | `source` |
+|---|---|---|---|
+| A — support | Same geometry as `levels_reversal` (zone + 0.5×ATR extension + confirm) + Issue #97 veto of *active* resistance | Levels (support / nearest resistance); top-level config RR applies | `levels_sr_breakout_support` |
+| B — resistance | Confirmed break + retest (`check_breakout_retest`); **no** native support zone required | ATR × pattern `stop_atr` / `risk_reward`; config RR is not applied again | `levels_sr_breakout_resistance` |
+
+Common AND (both paths): session window, active HTF bar, optional `signal_4h_buy` / SignalEngine / 1min indicator filters. If both paths fire on the same bar, **path B wins**.
+
+`LevelsTracker` is on (same as #107). A broken resistance does not veto path A. ALRS 2026-08-20 11:50 @ 19.80 still has no confirmed break, so path A rejects it (active resistance) and path B does not enter.
+
+### Both chips / old retest chip
+
+If `levels_reversal` and `levels_sr_breakout` are both in `config.patterns`, the composite wins (one support path, no doubling). Do not AND with `level_breakout_retest` as a replacement — that remains the Epic #105 AND-filter.
+
+### Lab
+
+`GET /api/patterns`: `category=levels`, `label` «Поддержка + пробой сопротивления», `label_en` «Support Reversal + Resistance Breakout», icon `support_breakout` (distinct from `breakout_up`). Params = all `levels_reversal` fields + retest fields. Frontend chip is Issue #118. File: `backend/app/analytics/patterns/levels_sr_breakout.py`. Tests: `backend/tests/test_levels_sr_breakout.py`.
 

@@ -26,6 +26,11 @@ lookup and is not mixed into that path.
 Issue #107: ``level_breakout_retest`` is a Lab AND-filter after ``levels_reversal``.
 It is not a SignalEngine id. Locked ``test_20260731`` does not enable it, so
 stop/take and the Issue #97 veto stay bit-for-bit on the default path.
+
+Issue #117 / Epic #115: ``levels_sr_breakout`` is an isolated entry engine
+(OR of support path A and resistance-break path B). It does not require
+``levels_reversal`` in ``config.patterns``. The AND-filter contract of
+``level_breakout_retest`` is unchanged.
 """
 from __future__ import annotations
 
@@ -42,6 +47,11 @@ from app.analytics.patterns.level_breakout_retest import (
     PATTERN_ID as BREAKOUT_RETEST_ID,
     check_breakout_retest,
     resolve_params as resolve_breakout_params,
+)
+from app.analytics.patterns.levels_sr_breakout import (
+    PATTERN_ID as SR_BREAKOUT_ID,
+    SOURCE_RESISTANCE,
+    SOURCE_SUPPORT,
 )
 from app.analytics.signal_pattern_filters import (
     SIGNAL_TIMEFRAME_DELTAS,
@@ -84,6 +94,10 @@ class StrategyEvaluator:
         self.use_bb = 'bb_lower' in self.patterns
         self.use_4h_buy = 'signal_4h_buy' in self.patterns
         self.use_breakout_retest = BREAKOUT_RETEST_ID in self.patterns
+        self.use_sr_breakout = SR_BREAKOUT_ID in self.patterns
+        # Tracker is needed for the AND-filter and for the composite (path B +
+        # veto skip of broken resistance on path A). Locked path stays off.
+        self.use_tracker = self.use_breakout_retest or self.use_sr_breakout
         self.signal_filter_specs = enabled_signal_filters(self.patterns)
         self._breakout_params = self._resolve_breakout_params()
 
@@ -102,12 +116,20 @@ class StrategyEvaluator:
         # position state
         self.position = None
 
-    def _resolve_breakout_params(self) -> dict:
-        raw = {}
+    def _pattern_params(self, target_id: str) -> dict:
         for pattern_id, params in iter_pattern_items(self.patterns):
-            if pattern_id == BREAKOUT_RETEST_ID:
-                raw = params
-                break
+            if pattern_id == target_id:
+                return params
+        return {}
+
+    def _resolve_breakout_params(self) -> dict:
+        # Composite owns path-B params when both chips are present.
+        if self.use_sr_breakout:
+            raw = self._pattern_params(SR_BREAKOUT_ID)
+            if not raw:
+                raw = get_pattern_defaults(SR_BREAKOUT_ID)
+            return resolve_breakout_params(raw)
+        raw = self._pattern_params(BREAKOUT_RETEST_ID)
         if self.use_breakout_retest and not raw:
             raw = get_pattern_defaults(BREAKOUT_RETEST_ID)
         return resolve_breakout_params(raw) if self.use_breakout_retest else {}
@@ -157,7 +179,7 @@ class StrategyEvaluator:
     def _init_tracker(self) -> None:
         self._tracker = None
         self._htf_fed = 0
-        if not self.use_breakout_retest or self.levels is None:
+        if not self.use_tracker or self.levels is None:
             return
         self._tracker = LevelsTracker(self.levels)
 
@@ -191,7 +213,7 @@ class StrategyEvaluator:
         return closes[i] if i >= 0 else None
 
     def _check_level_breakout_retest(self, row, atr_val: float):
-        """AND-filter: retest of a broken resistance. None if it does not fire."""
+        """AND-filter / path B: retest of a broken resistance. None if it does not fire."""
         if self._tracker is None:
             return None
         return check_breakout_retest(
@@ -201,6 +223,81 @@ class StrategyEvaluator:
             params=self._breakout_params,
             prev_high=self._prev_high,
         )
+
+    def _common_and_filters_pass(self, row, ts, price) -> bool:
+        """Shared AND gates (session/HTF already checked by the caller)."""
+        if self.use_4h_buy and not _4h_buy_active(self.buy_ts, self.ts_4h, ts):
+            return False
+        if not signal_engine_filters_pass(
+            self.signal_filter_specs, self.signal_filter_series, ts
+        ):
+            return False
+        if self.use_rsi and not (pd.notna(row.get('rsi_14')) and row['rsi_14'] < 30):
+            return False
+        if self.use_macd and not (pd.notna(row.get('macd_hist')) and row['macd_hist'] > 0):
+            return False
+        if self.use_bb and not (pd.notna(row.get('bb_lower')) and price < row['bb_lower']):
+            return False
+        return True
+
+    def _check_sr_breakout_entry(self, row, ts, price, a4):
+        """Issue #117: OR of path B (resistance retest) then path A (support).
+
+        Common AND filters run first. If both paths would fire, path B wins.
+        Path A stop/take are levels-based and take the top-level RR filter.
+        Path B stop/take are ATR × pattern RR — the config RR filter is not
+        applied again. Tracker is passed into the veto so a broken resistance
+        does not cut a valid support entry.
+        """
+        if not self._common_and_filters_pass(row, ts, price):
+            return None
+        atr_val = float(self.atr_by_ts.get(a4, 0.0) or 0.0)
+        retest = self._check_level_breakout_retest(row, atr_val)
+        if retest is not None:
+            return {
+                'action': 'enter',
+                'entry_price': price,
+                'stop': float(retest['stop']),
+                'take': float(retest['take']),
+                'ts': ts,
+                'source': SOURCE_RESISTANCE,
+            }
+
+        sup = nearest_level_at(self.levels, a4, price, 'support')
+        if sup is None:
+            return None
+        zl, zu = sup['zone_lower'], sup['zone_upper']
+        if not ((zl <= price <= zu) or (zu < price <= zu + 0.5 * atr_val)):
+            return None
+        if overlapping_resistance_zone_at(
+            self.levels, a4, price, tracker=self._tracker
+        ) is not None:
+            return None
+        for times, closes in self.confirm_series:
+            hc = self._last_closed(times, closes, ts)
+            if hc is None or hc <= zu:
+                return None
+        stop = float(sup['level_price'])
+        if stop >= price:
+            return None
+        res = nearest_level_at(self.levels, a4, price, 'resistance')
+        if res is None:
+            return None
+        take = float(res['level_price'])
+        if self.risk_reward:
+            risk = price - stop
+            reward = take - price
+            ratio = float(self.risk_reward.get('reward', 2.0)) / float(self.risk_reward.get('risk', 1.0))
+            if risk <= 0 or reward < ratio * risk + self.round_trip * price:
+                return None
+        return {
+            'action': 'enter',
+            'entry_price': price,
+            'stop': stop,
+            'take': take,
+            'ts': ts,
+            'source': SOURCE_SUPPORT,
+        }
 
     def check_entry(self, row) -> dict:
         """Pure entry check for the current bar (NO position state). Identical
@@ -222,8 +319,10 @@ class StrategyEvaluator:
         a4 = self._active_4h_ts(ts)
         if a4 is None:
             return None
-        if self.use_breakout_retest:
+        if self.use_tracker:
             self._sync_tracker(ts)
+        if self.use_sr_breakout:
+            return self._check_sr_breakout_entry(row, ts, price, a4)
         sup = nearest_level_at(self.levels, a4, price, 'support')
         if sup is None:
             return None
@@ -313,6 +412,8 @@ class StrategyEvaluator:
                     'bars_held': idx - self.position['idx'],
                     'net_return_pct': round(net, 5),
                 }
+                if self.position.get('source'):
+                    trade['source'] = self.position['source']
                 self.position = None
                 return {'action': 'exit', 'trade': trade}
             return {'action': 'hold'}
@@ -324,6 +425,7 @@ class StrategyEvaluator:
             self.position = {
                 'entry_ts': dec['ts'], 'entry_price': price, 'entry_exec': price * (1 + self.slip),
                 'stop': dec['stop'], 'take': dec['take'], 'idx': idx,
+                'source': dec.get('source'),
             }
             return {'action': 'enter', 'entry_price': price, 'stop': dec['stop'], 'take': dec['take']}
 

@@ -14,7 +14,7 @@ active → broken_up/down → flipped_support/resistance. Veto skips non-active
 states when a `state` column is present; build_levels output has no `state`.
 Issue #107: optional `tracker` uses `is_broken(level_id)` so a broken
 resistance is no longer an opposing zone. StrategyEvaluator passes the
-tracker only when pattern `level_breakout_retest` is enabled.
+tracker when `level_breakout_retest` or `levels_sr_breakout` is enabled.
 """
 from __future__ import annotations
 
@@ -244,8 +244,8 @@ class LevelsTracker:
     """In-memory state machine over a snapshot from get_levels() / build_levels().
 
     Feed bars of the *same* timeframe as the levels (typically 4h) via update()
-    or update_bars(). No DB persistence. Issue #107 wires this into
-    StrategyEvaluator only when pattern `level_breakout_retest` is enabled.
+    or update_bars(). No DB persistence. StrategyEvaluator wires this when
+    `level_breakout_retest` or `levels_sr_breakout` is enabled.
     """
 
     def __init__(self, levels_df: pd.DataFrame, config: Optional[Mapping[str, Any]] = None):

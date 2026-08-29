@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-29 (Issue #116 Lab/plugin HTF feed for LevelsTracker). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-29 (Issue #117 composite pattern levels_sr_breakout). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -46,7 +46,7 @@ trading-terminal/
 │ │ │ ├── levels_refresher.py # Levels refresh
 │ │ │ ├── strategy_backtest.py # Parameterizable strategy engine + walk-forward (Strategy Lab)
 │   │   ├── strategy_context.py      # Build strategy context (levels, ATR, BUY signals, htf_bars)
-│ │ │ ├── trading_config.py # SINGLE SOURCE OF TRUTH: universe, live top-5, strategies, live risk policy, LEVEL_STATE_MACHINE (#106), LEVEL_BREAKOUT_RETEST (#107)
+│ │ │ ├── trading_config.py # SINGLE SOURCE OF TRUTH: universe, live top-5, strategies, live risk policy, LEVEL_STATE_MACHINE (#106), LEVEL_BREAKOUT_RETEST (#107); tracker also for levels_sr_breakout (#117)
 │ │ │ ├── position_sizer.py # Hybrid risk/concentration sizing + lot rounding
 │ │ │ ├── live_executor.py # Sandbox execution, protection, reconciliation, shutdown
 │ │ │ ├── live_executor_preflight.py # Read-only checks before a sandbox canary
@@ -68,7 +68,7 @@ trading-terminal/
 │   │   ├── atr_backtest.py        # ATR strategy backtest framework
 │ │ │ ├── position_catchup.py # Startup catch-up of pending/open positions
 │ │ │ ├── top_stocks.py # Top stocks by volume logic
-│ │ │ └── patterns/ # 10 SignalEngine modules + Lab level_breakout_retest.py (#107; not under breakout/)
+│ │ │ └── patterns/ # 10 SignalEngine modules + Lab level_breakout_retest.py (#107) + levels_sr_breakout.py (#117; not under breakout/)
 │ │ ├── core/config_manager.py # Settings (pydantic), logger, env vars
 │ │ ├── notifications/
 │ │ │ └── telegram_notifier.py # Rate-limited paper-trading Bot API alerts
@@ -84,6 +84,7 @@ trading-terminal/
 │       ├── test_resistance_zone_veto.py # Issue #97 ALRS #711 opposing-zone guard
 │       ├── test_levels_state_machine.py # Issue #106 breakout / confirmation / veto skip
 │       ├── test_level_breakout_retest.py # Issue #107 retest AND-filter / stop-take / veto skip
+│       ├── test_levels_sr_breakout.py # Issue #117 composite OR paths / source / engine guard
 │       ├── test_issue100_analysis.py # Issue #100 Lab universe/veto/baseline helpers
 │       └── test_portfolio_simulator.py # Portfolio simulator unit + integration tests
 ├── frontend/
@@ -223,8 +224,9 @@ The Signals tab still generates the ten `BasePattern` classes below into `tradin
 | Price Action | PA_ThreeBlackCrows | Three black crows (bearish) |
 
 Strategy Lab patterns (config-driven, AND logic, same config for backtest / paper / live):
-- `levels_reversal` — required; 4h support zone + confirmation; defines stop/take. Issue #97: `check_entry` rejects the bar when the 1min close sits in an active resistance zone (`overlapping_resistance_zone_at`); this is a defect, not role-reversal. Issue #106: when a `state` column is present, the veto skips non-`active` zones. Issue #107: `StrategyEvaluator` passes `LevelsTracker` into the veto only when `level_breakout_retest` is enabled; `build_levels` still has no `state`, so locked `test_20260731` stays bit-for-bit.
-- `level_breakout_retest` — Lab AND-filter after `levels_reversal` (Epic #105 / Issues #107 + #109). Confirmed resistance break + retest in `[level ± retest_zone_atr×ATR]` + close ≥ broken level + bullish trigger. Stop/take = ATR × RR from the pattern params. Not a SignalEngine inline-evaluate id (keep it out of `SIGNAL_ENGINE_PATTERN_IDS`). Schema is in `PATTERN_REGISTRY` (optional `label_en` / `hint_en` / `icon`) and on `GET /api/patterns`. Strategy Lab renders the breakout-group chip and `PatternSettingsModal` fields from that payload — do not hardcode the six params in the frontend. File: `patterns/level_breakout_retest.py` (cannot live under `patterns/breakout/` — that would shadow `breakout.py` / `BO_BB_Squeeze`). Issue #116: Lab plugin path must pass `htf_bars` or the tracker never leaves `active` (zero breakout trades).
+- `levels_reversal` — required for the classic support path; 4h support zone + confirmation; defines stop/take. Issue #97: `check_entry` rejects the bar when the 1min close sits in an active resistance zone (`overlapping_resistance_zone_at`); this is a defect, not role-reversal. Issue #106: when a `state` column is present, the veto skips non-`active` zones. Issue #107: `StrategyEvaluator` passes `LevelsTracker` into the veto when `level_breakout_retest` or `levels_sr_breakout` is enabled; `build_levels` still has no `state`, so locked `test_20260731` stays bit-for-bit. Not required in `config.patterns` when the composite `levels_sr_breakout` is the entry engine.
+- `levels_sr_breakout` — isolated Lab entry engine (Epic #115 / Issue #117), OR of two paths. Path A = support geometry of `levels_reversal` + veto of *active* resistance (`source=levels_sr_breakout_support`). Path B = `check_breakout_retest` without a native support zone (`source=levels_sr_breakout_resistance`, ATR × RR stop/take; top-level config RR is not applied again). Common AND: session, HTF, optional `signal_4h_buy` / SignalEngine. If both paths fire on the same bar, path B wins. If both `levels_reversal` and `levels_sr_breakout` are in `config.patterns`, the composite wins (one support path, no doubling). Do not AND with `level_breakout_retest` as a substitute. Not a SignalEngine id. Category `levels`, icon `support_breakout` (distinct from `breakout_up`). Schema = all `levels_reversal` fields + retest fields; `normalize_patterns` fills defaults. File: `patterns/levels_sr_breakout.py` (not under `patterns/breakout/`). Lab chip is Issue #118.
+- `level_breakout_retest` — Lab AND-filter after `levels_reversal` (Epic #105 / Issues #107 + #109). Confirmed resistance break + retest in `[level ± retest_zone_atr×ATR]` + close ≥ broken level + bullish trigger. Stop/take = ATR × RR from the pattern params. Not a SignalEngine inline-evaluate id (keep it out of `SIGNAL_ENGINE_PATTERN_IDS`). Schema is in `PATTERN_REGISTRY` (optional `label_en` / `hint_en` / `icon`) and on `GET /api/patterns`. Strategy Lab renders the breakout-group chip and `PatternSettingsModal` fields from that payload — do not hardcode the six params in the frontend. File: `patterns/level_breakout_retest.py` (cannot live under `patterns/breakout/` — that would shadow `breakout.py` / `BO_BB_Squeeze`). Issue #116: Lab plugin path must pass `htf_bars` or the tracker never leaves `active` (zero breakout trades). Different contract from `levels_sr_breakout` — do not replace this AND-filter with the composite.
 - `signal_4h_buy` — 4h BUY aggregate from `trading.signals` (TF fixed; not refactored).
 - `rsi_oversold` / `macd_bullish` / `bb_lower` — 1min indicator AND-filters. `rsi_oversold` is not `MR_RSI_Reversal`.
 - The ten SignalEngine ids above — AND-filters on the last closed HTF bar via inline `BasePattern.evaluate` on `trading.indicators`. Schemas come from `GET /api/patterns` (`timeframe` select 30min/1h/2h/4h/1d/1w, default 4h, plus 4h numeric defaults). Timeframe is set in the pattern settings modal. `StrategyLab.tsx` groups chips by API `category` (RU titles: levels / signal / trend / price_action / volume / mean_reversion / breakout). It does not hardcode the ten SignalEngine ids or the `level_breakout_retest` param list; the two-chip fallback is only used when `GET /api/patterns` is empty.
@@ -239,6 +241,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 - **Issue #107 (Epic #105, 2026-08-21)**: Lab pattern `level_breakout_retest` is an AND-filter in `StrategyEvaluator` after `levels_reversal`. Tracker is created and passed into the veto (`is_broken`) only when the pattern is in `config.patterns`. Stop/take then come from `stop_atr` × ATR and pattern `risk_reward`. Locked `test_20260731` does not enable the pattern, so the Issue #97 veto and levels stop/take stay bit-for-bit. Tests: `tests/test_level_breakout_retest.py` plus existing `tests/test_resistance_zone_veto.py` / `tests/test_levels_state_machine.py`.
 - **Issue #109 (Epic #105, 2026-08-21)**: Strategy Lab chip + schema-driven `PatternSettingsModal` for `level_breakout_retest`. Names, hints, icon (`breakout_up`), and the six params come from `GET /api/patterns`. Validation uses schema `min`/`max` (blocks Apply and Save+Run). Locked `test_20260731` stays read-only. Next: analytics validation (#3) and optional chart preview (#5 / Epic #87).
 - **Issue #116 (Epic #115, 2026-08-29)**: Lab `_run_job` uses the portfolio plugin whenever `config.strategy_name` is set (Lab always writes `levels_reversal`). `_backtest_ticker_plugin` now puts `build_strategy_context()['htf_bars']` on `MarketContext.htf_bars` so `LevelsTracker` sees closed 4h bars. `backtest_results` INSERT goes through `_json_safe` (`pf: Infinity` → `null`). Locked `test_20260731` unchanged (no breakout chip). Tests: `tests/test_strategy_plugin.py`, `tests/test_level_breakout_retest.py`. Unblocks Lab smoke for `#115` / `#119`.
+- **Issue #117 (Epic #115, 2026-08-29)**: Lab pattern `levels_sr_breakout` is an isolated entry engine (OR of support path A and resistance-break path B). `run_strategy_backtest` accepts it without `levels_reversal` in `config.patterns`. Tracker + `htf_bars` as in #107/#116. Locked `test_20260731` unchanged. Tests: `tests/test_levels_sr_breakout.py` plus existing veto / breakout-retest / plugin. Next: Lab chip #118, AFKS smoke #119.
 - **Legacy pattern-matrix backtest**: rule-based strategies NOT profitable after commission on MOEX top-3 over 2 years (all PF < 1). Superseded by the levels approach.
 - **Universe**: top-15 by PF (`trading_universe`) remains the paper/data-refresh universe via `get_trading_universe()`. Sandbox live execution uses Issue #66 top-5 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP via `get_live_trading_universe()`. Paper `paper_positions` was empty at the #66 snapshot (equity flat at 100,000 RUB), so the live list is backtest + liquidity + ATR, not forward PnL.
 - **Sandbox canary (Issue #74, 2026-08-19)**: `LiveExecutor` initialized the top-5 on locked strategy `test_20260731` and submitted a sandbox market BUY on RUAL (37 lots at 26.73, take 28.02, stop 26.19). The next signal for the same ticker was skipped with `reason=duplicate_ticker`. Paper equity kept updating during the session. The runbook lives in handover §19.
@@ -269,7 +272,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | Q | SignalEngine patterns in Strategy Lab (Epic #78) | #79–#82 done (evaluator, registry schemas, E2E/docs, Lab UI grouping) |
 | R | Pattern chart preview in Lab + Signals (Epic #87) | #88 preview API + levels overlays done; #89–#92 pending |
 | S | Level Breakout & Role Reversal (Epic #105) | #106 LevelsTracker + #107 `level_breakout_retest` AND-filter + #109 Lab chip done; analytics validation and optional preview pending |
-| T | Composite S/R pattern (Epic #115) | #116 Lab/plugin HTF + JSONB Infinity done; #117 `levels_sr_breakout`, #118 Lab chip, #119 AFKS smoke pending |
+| T | Composite S/R pattern (Epic #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` done; #118 Lab chip, #119 AFKS smoke pending |
 
 ## 9. Important Notes
 

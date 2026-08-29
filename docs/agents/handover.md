@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-29 (Issue #116 Lab/plugin HTF feed for LevelsTracker). Companion to project-context.md.
+Last refreshed: 2026-08-29 (Issue #117 composite pattern levels_sr_breakout). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -64,7 +64,8 @@ See project-context.md section 9.
 - **Backtest matrix runtime**: full matrix takes ~10-15 min. Use quick=true for liveness.
 - **Reports mount**: backend mounts `./reports` (docker-compose). Strategy runs write `reports/strategy-lab/last_run.json` - send it on any Strategy Lab error.
 - **Resistance-zone veto (Issue #97)**: `levels_reversal` must not enter when the 1min close sits in an active resistance zone, even if `nearest_level_at(..., 'support')` returns a valid support and the 0.5×ATR extension covers the fill. That is a structural defect, not role-reversal (ALRS paper #711: fill 19.80 inside impulse resistance 19.67). Guard: `overlapping_resistance_zone_at` in `StrategyEvaluator.check_entry`. Issue #106: the same function skips non-`active` zones when a `state` column is present. Issue #107: `StrategyEvaluator` passes `LevelsTracker` (and `is_broken`) into the veto only when `level_breakout_retest` is enabled; locked `test_20260731` does not, so paper/live veto is unchanged. Do not rewrite locked `test_20260731`. Units: `cd backend && python -m pytest -q tests/test_resistance_zone_veto.py tests/test_levels_state_machine.py tests/test_level_breakout_retest.py`.
-- **Lab plugin HTF (Issue #116)**: Strategy Lab always saves `config.strategy_name = "levels_reversal"`, so `_run_job` calls `run_portfolio_backtest`, not `run_strategy_backtest`. `MarketContext.htf_bars` must carry `build_strategy_context()['htf_bars']` (same TF as the levels). `candles_4h` is usually unset on this path. Without HTF, `LevelsTracker._sync_tracker` exits immediately, every level stays `active`, and any breakout pattern (`level_breakout_retest`, future `levels_sr_breakout`) yields **zero trades**. Locked `test_20260731` does not enable breakout, so wiring HTF is a no-op for paper. Units: `cd backend && python -m pytest -q tests/test_strategy_plugin.py tests/test_level_breakout_retest.py`.
+- **Lab plugin HTF (Issue #116)**: Strategy Lab always saves `config.strategy_name = "levels_reversal"`, so `_run_job` calls `run_portfolio_backtest`, not `run_strategy_backtest`. `MarketContext.htf_bars` must carry `build_strategy_context()['htf_bars']` (same TF as the levels). `candles_4h` is usually unset on this path. Without HTF, `LevelsTracker._sync_tracker` exits immediately, every level stays `active`, and any breakout pattern (`level_breakout_retest`, `levels_sr_breakout`) yields **zero trades**. Locked `test_20260731` does not enable breakout, so wiring HTF is a no-op for paper. Units: `cd backend && python -m pytest -q tests/test_strategy_plugin.py tests/test_level_breakout_retest.py`.
+- **Composite S/R (Issue #117)**: `levels_sr_breakout` is an **entry engine** (OR of path A support and path B resistance retest), not an AND-filter. Isolated Lab run: `config.patterns` has `levels_sr_breakout` (and optionally `signal_4h_buy`) **without** `levels_reversal`. If both chips are on, the composite wins (one support path). Do not AND with `level_breakout_retest` as a replacement. Trades carry `source` (`levels_sr_breakout_support` / `levels_sr_breakout_resistance`). Locked `test_20260731` must stay off this id. Units: `cd backend && python -m pytest -q tests/test_levels_sr_breakout.py tests/test_resistance_zone_veto.py tests/test_level_breakout_retest.py tests/test_strategy_plugin.py`.
 
 ## 11. Collaboration Protocol (agents)
 
@@ -219,7 +220,7 @@ Do not modify the locked strategy, RR, imbalance threshold, or `trading.trading_
 - Thresholds come only from `LEVEL_STATE_MACHINE` in `trading_config.py`: `breakout_buffer_atr=0.25`, `confirm_bars=2`, `min_penetration_atr=0.5`, `zone_extension_atr=0.5`. `zone_extension_atr` documents the current `build_levels` zone width; the tracker does not recompute `zone_lower`/`zone_upper`.
 - Resistance break: last `confirm_bars` closes all above `zone_upper`, last close above `zone_upper + buffer×ATR`, and max(window) at least `zone_upper + min_penetration×ATR`. Support is symmetric below `zone_lower`. First close back inside the native zone after a break flips `broken_up → flipped_support` / `broken_down → flipped_resistance`. Failed breakouts are not reverted to `active` in this iteration.
 - `overlapping_resistance_zone_at` vetoes only `active` resistances when a `state` column exists, and skips `tracker.is_broken(level_id)` when a tracker is passed (Issue #107). Pass a tracker snapshot taken **after** `update()` through closed HTF bars only. Frames without `state` and callers that omit `tracker` keep the Issue #97 behaviour.
-- `StrategyEvaluator` constructs `LevelsTracker` only when `level_breakout_retest` is in `config.patterns`. Locked `test_20260731` does not enable it. `bars_since_breakout(level_id)` counts HTF bars since the confirmed break.
+- `StrategyEvaluator` constructs `LevelsTracker` when `level_breakout_retest` or `levels_sr_breakout` is in `config.patterns`. Locked `test_20260731` enables neither. `bars_since_breakout(level_id)` counts HTF bars since the confirmed break.
 - Unit tests: `cd backend && python -m pytest -q tests/test_levels_state_machine.py tests/test_resistance_zone_veto.py tests/test_level_breakout_retest.py`.
 
 ## 23. Operating the Level Breakout Retest Pattern
@@ -243,4 +244,17 @@ Do not modify the locked strategy, RR, imbalance threshold, or `trading.trading_
 - Combine with `levels_reversal` (still required for the support-zone path) and optional SignalEngine / `signal_4h_buy` filters. AND logic is unchanged. Save goes through existing `POST /api/strategies` then `POST /api/strategies/{id}/run` with `config.patterns` as `{ id: params }` — not `POST /api/backtest`.
 - When to enable: after a confirmed resistance break you want a retest entry (role reversal) instead of (or in addition to) a native support-zone entry. Keep it off on locked `test_20260731` (the Lab row stays read-only).
 - There is no `frontend` service in `docker-compose.yml`. Check locally: `cd frontend && npm test && npm run build`. Backend schema: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
+- This AND-filter is **not** a substitute for `levels_sr_breakout` (handover §25). Epic #115 isolates the composite; do not combine the two chips as “the new strategy”.
+
+## 25. Operating the Composite S/R Pattern (`levels_sr_breakout`)
+
+- Entry points: `PATTERN_ID` / sources in `patterns/levels_sr_breakout.py`; OR logic in `StrategyEvaluator._check_sr_breakout_entry`. Path B reuses `check_breakout_retest`. Not a SignalEngine `BasePattern` — do not add the id to `SIGNAL_ENGINE_PATTERN_IDS`. Do not put the file under `patterns/breakout/`.
+- Lab schema: `PATTERN_REGISTRY['levels_sr_breakout']` (also on `SIGNAL_ENGINE_PATTERN_SCHEMAS` for `GET /api/patterns`). Category `levels` (next to `levels_reversal`, not in breakout). Icon `support_breakout` (must stay distinct from `breakout_up`). Params = all `levels_reversal` fields + retest fields (`retest_window_bars`, `retest_zone_atr`, `entry_trigger_bullish`, `stop_atr`, `risk_reward`). Do not hardcode them in the frontend (Issue #118).
+- Isolated run: `config.patterns` contains `levels_sr_breakout` and optionally `signal_4h_buy` / SignalEngine ids. `levels_reversal` is **not** required. `run_strategy_backtest` treats the composite as a sufficient entry engine.
+- Order in `check_entry` after session / HTF / `_sync_tracker`: (1) common AND (`signal_4h_buy`, SignalEngine, 1min indicator filters); (2) path B — `check_breakout_retest` → `source=levels_sr_breakout_resistance`, ATR stop/take, no second config RR filter; (3) else path A — support zone + confirm + veto of *active* resistance with tracker (`source=levels_sr_breakout_support`, levels stop/take, top-level RR filter). If both would fire, path B wins.
+- Both chips present (`levels_reversal` + `levels_sr_breakout`): composite wins — one support path, no doubling.
+- Do not AND with `level_breakout_retest` as a replacement for this engine. The Epic #105 AND-filter contract stays unchanged.
+- Tracker / `htf_bars`: same feed as #107/#116 (`load_context(htf_bars=...)` / Lab plugin `MarketContext.htf_bars`). Unit tests do not depend on the Lab UI.
+- Locked `test_20260731` must not enable this id (paper/live veto and levels stop/take stay bit-for-bit).
+- Unit tests: `cd backend && python -m pytest -q tests/test_levels_sr_breakout.py tests/test_pattern_registry.py tests/test_resistance_zone_veto.py tests/test_level_breakout_retest.py tests/test_strategy_plugin.py`.
 

@@ -1,7 +1,7 @@
 # Стратегия «Уровни + подтверждение разворота»
 
 > Статус: валидирована на SBER/GAZP/VTBR (2 года истории). Продакшн-мозг: `StrategyEvaluator.check_entry`. Прототип: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-21 (Issue #109 чип Strategy Lab для level_breakout_retest).
+> Last refreshed: 2026-08-29 (задача #117 композитный паттерн levels_sr_breakout).
 
 ## 1. Обзор
 
@@ -280,4 +280,29 @@ Unit: `backend/tests/test_levels_state_machine.py`. Locked `test_20260731` не 
 ### Lab
 
 `GET /api/patterns` отдаёт схему (`category=breakout`, опционально `label_en` / `icon=breakout_up`). Strategy Lab рисует чип в группе «Пробой» и шесть параметров в `PatternSettingsModal` из этого payload (задача #109). Файл: `backend/app/analytics/patterns/level_breakout_retest.py`. Тесты: `backend/tests/test_level_breakout_retest.py`; frontend: `cd frontend && npm test`.
+
+Этот AND-фильтр **не** замена композиту `levels_sr_breakout` (раздел 13). Не AND двух чипов как замену изолированному движку эпика #115.
+
+## 13. Композитный S/R: поддержка + пробой сопротивления (задача #117)
+
+Изолированный Lab-движок входа `levels_sr_breakout` (эпик #115). Это **не** AND-фильтр после `levels_reversal` и не SignalEngine id. Изолированный прогон: в `config.patterns` есть `levels_sr_breakout` (опционально `signal_4h_buy`) **без** `levels_reversal`. Locked `test_20260731` этот id не включает.
+
+### Два пути (OR)
+
+| Путь | Когда | Stop / take | `source` |
+|---|---|---|---|
+| A — поддержка | Та же геометрия, что у `levels_reversal` (зона + расширение 0.5×ATR + confirm) + вето #97 *активного* сопротивления | Уровни (поддержка / ближайшее сопротивление); верхнеуровневый RR конфига применяется | `levels_sr_breakout_support` |
+| B — сопротивление | Подтверждённый пробой + ретест (`check_breakout_retest`); нативная зона поддержки **не** нужна | ATR × `stop_atr` / `risk_reward` паттерна; RR конфига повторно не накладывается | `levels_sr_breakout_resistance` |
+
+Общие AND (оба пути): окно сессии, активный HTF-бар, опционально `signal_4h_buy` / SignalEngine / 1min индикаторы. Если на одном баре сработали оба пути — **побеждает путь B**.
+
+`LevelsTracker` включён (как в #107). Пробитое сопротивление не ветирует путь A. Бар ALRS 2026-08-20 11:50 @ 19.80 по-прежнему без подтверждённого пробоя: путь A отклоняет (активное сопротивление), путь B не входит.
+
+### Оба чипа / старый чип ретеста
+
+Если в `config.patterns` одновременно `levels_reversal` и `levels_sr_breakout` — побеждает композит (один support-путь, без удвоения). Не AND с `level_breakout_retest` как заменой — тот остаётся AND-фильтром эпика #105.
+
+### Lab
+
+`GET /api/patterns`: `category=levels`, `label` «Поддержка + пробой сопротивления», `label_en` «Support Reversal + Resistance Breakout», иконка `support_breakout` (не `breakout_up`). Параметры = все поля `levels_reversal` + поля ретеста. Чип frontend — задача #118. Файл: `backend/app/analytics/patterns/levels_sr_breakout.py`. Тесты: `backend/tests/test_levels_sr_breakout.py`.
 

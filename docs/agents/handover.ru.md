@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-29 (задача #116 Lab/plugin HTF для LevelsTracker; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-29 (задача #117 композитный паттерн levels_sr_breakout; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -64,7 +64,8 @@
 - **Backtest matrix runtime**: полная матрица занимает ~10-15 мин. Для liveness используйте quick=true.
 - **Reports mount**: backend монтирует `./reports` (docker-compose). Прогоны стратегий пишут `reports/strategy-lab/last_run.json` - отправляйте его при любой ошибке Strategy Lab.
 - **Вето зоны сопротивления (задача #97)**: `levels_reversal` не должен входить, если 1min close лежит в активной зоне сопротивления, даже если `nearest_level_at(..., 'support')` вернул валидную поддержку и расширение 0.5×ATR покрывает fill. Это структурный дефект, а не role-reversal (ALRS paper #711: fill 19.80 внутри импульсного сопротивления 19.67). Гард: `overlapping_resistance_zone_at` в `StrategyEvaluator.check_entry`. Задача #106: та же функция пропускает зоны не в `active`, если есть колонка `state`. Задача #107: `StrategyEvaluator` передаёт `LevelsTracker` (и `is_broken`) в вето только если включён `level_breakout_retest`; locked `test_20260731` его не включает, поэтому paper/live вето не меняется. Locked `test_20260731` не перезаписывать. Unit: `cd backend && python -m pytest -q tests/test_resistance_zone_veto.py tests/test_levels_state_machine.py tests/test_level_breakout_retest.py`.
-- **Lab plugin HTF (задача #116)**: Strategy Lab всегда пишет `config.strategy_name = "levels_reversal"`, поэтому `_run_job` вызывает `run_portfolio_backtest`, а не `run_strategy_backtest`. В `MarketContext.htf_bars` должен лежать `build_strategy_context()['htf_bars']` (тот же ТФ, что и уровни). `candles_4h` на этом пути обычно пуст. Без HTF `LevelsTracker._sync_tracker` выходит сразу, все уровни остаются `active`, любой паттерн пробоя (`level_breakout_retest`, будущий `levels_sr_breakout`) даёт **ноль сделок**. Locked `test_20260731` пробой не включает — прокидывание HTF для paper no-op. Unit: `cd backend && python -m pytest -q tests/test_strategy_plugin.py tests/test_level_breakout_retest.py`.
+- **Lab plugin HTF (задача #116)**: Strategy Lab всегда пишет `config.strategy_name = "levels_reversal"`, поэтому `_run_job` вызывает `run_portfolio_backtest`, а не `run_strategy_backtest`. В `MarketContext.htf_bars` должен лежать `build_strategy_context()['htf_bars']` (тот же ТФ, что и уровни). `candles_4h` на этом пути обычно пуст. Без HTF `LevelsTracker._sync_tracker` выходит сразу, все уровни остаются `active`, любой паттерн пробоя (`level_breakout_retest`, `levels_sr_breakout`) даёт **ноль сделок**. Locked `test_20260731` пробой не включает — прокидывание HTF для paper no-op. Unit: `cd backend && python -m pytest -q tests/test_strategy_plugin.py tests/test_level_breakout_retest.py`.
+- **Композитный S/R (задача #117)**: `levels_sr_breakout` — **движок входа** (OR пути A поддержка и пути B ретест сопротивления), не AND-фильтр. Изолированный прогон Lab: в `config.patterns` есть `levels_sr_breakout` (и опционально `signal_4h_buy`) **без** `levels_reversal`. Если оба чипа включены — побеждает композит (один support-путь). Не AND с `level_breakout_retest` как заменой. Сделки несут `source` (`levels_sr_breakout_support` / `levels_sr_breakout_resistance`). Locked `test_20260731` этот id не включает. Unit: `cd backend && python -m pytest -q tests/test_levels_sr_breakout.py tests/test_resistance_zone_veto.py tests/test_level_breakout_retest.py tests/test_strategy_plugin.py`.
 
 ## 11. Протокол сотрудничества (агенты)
 
@@ -219,7 +220,7 @@ ORDER BY id DESC LIMIT 20;
 - Пороги только из `LEVEL_STATE_MACHINE` в `trading_config.py`: `breakout_buffer_atr=0.25`, `confirm_bars=2`, `min_penetration_atr=0.5`, `zone_extension_atr=0.5`. `zone_extension_atr` документирует текущую ширину зоны `build_levels`; трекер не пересчитывает `zone_lower`/`zone_upper`.
 - Пробой сопротивления: последние `confirm_bars` close все выше `zone_upper`, последний close выше `zone_upper + buffer×ATR`, max(window) не ниже `zone_upper + min_penetration×ATR`. Поддержка симметрично ниже `zone_lower`. Первый close обратно внутри нативной зоны после пробоя: `broken_up → flipped_support` / `broken_down → flipped_resistance`. Ложный пробой в этой итерации не возвращается в `active`.
 - `overlapping_resistance_zone_at` ветирует только `active` сопротивления, если есть колонка `state`, и пропускает `tracker.is_broken(level_id)`, если передан трекер (задача #107). Передавайте снимок трекера **после** `update()` только по закрытым HTF-барам. Кадры без `state` и вызовы без `tracker` сохраняют поведение задачи #97.
-- `StrategyEvaluator` создаёт `LevelsTracker` только если `level_breakout_retest` есть в `config.patterns`. Locked `test_20260731` его не включает. `bars_since_breakout(level_id)` считает HTF-бары с момента подтверждённого пробоя.
+- `StrategyEvaluator` создаёт `LevelsTracker`, если в `config.patterns` есть `level_breakout_retest` или `levels_sr_breakout`. Locked `test_20260731` не включает ни один. `bars_since_breakout(level_id)` считает HTF-бары с момента подтверждённого пробоя.
 - Unit-тесты: `cd backend && python -m pytest -q tests/test_levels_state_machine.py tests/test_resistance_zone_veto.py tests/test_level_breakout_retest.py`.
 
 ## 23. Эксплуатация паттерна Level Breakout Retest
@@ -243,4 +244,17 @@ ORDER BY id DESC LIMIT 20;
 - Комбинировать с `levels_reversal` (по-прежнему нужен для пути зоны поддержки) и опциональными фильтрами SignalEngine / `signal_4h_buy`. Логика AND не меняется. Сохранение идёт через существующие `POST /api/strategies` и `POST /api/strategies/{id}/run` с `config.patterns` как `{ id: params }` — не `POST /api/backtest`.
 - Когда включать: после подтверждённого пробоя сопротивления нужен вход на ретесте (смена роли), а не только от нативной зоны поддержки. На locked `test_20260731` оставлять выключенным (строка Lab только для чтения).
 - Сервиса `frontend` в `docker-compose.yml` нет. Проверка локально: `cd frontend && npm test && npm run build`. Схема backend: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
+- Этот AND-фильтр **не** замена `levels_sr_breakout` (handover §25). Эпик #115 испытывает композит изолированно; не комбинировать два чипа как «новую стратегию».
+
+## 25. Эксплуатация композитного S/R паттерна (`levels_sr_breakout`)
+
+- Точки входа: `PATTERN_ID` / `source` в `patterns/levels_sr_breakout.py`; OR-логика в `StrategyEvaluator._check_sr_breakout_entry`. Путь B переиспользует `check_breakout_retest`. Это не SignalEngine `BasePattern` — не добавлять id в `SIGNAL_ENGINE_PATTERN_IDS`. Не класть файл в `patterns/breakout/`.
+- Схема Lab: `PATTERN_REGISTRY['levels_sr_breakout']` (также в `SIGNAL_ENGINE_PATTERN_SCHEMAS` для `GET /api/patterns`). Категория `levels` (рядом с `levels_reversal`, не в breakout). Иконка `support_breakout` (должна отличаться от `breakout_up`). Параметры = все поля `levels_reversal` + поля ретеста (`retest_window_bars`, `retest_zone_atr`, `entry_trigger_bullish`, `stop_atr`, `risk_reward`). Не хардкодить во frontend (задача #118).
+- Изолированный прогон: в `config.patterns` есть `levels_sr_breakout` и опционально `signal_4h_buy` / id SignalEngine. `levels_reversal` **не** обязателен. `run_strategy_backtest` считает композит достаточным движком входа.
+- Порядок в `check_entry` после сессии / HTF / `_sync_tracker`: (1) общие AND (`signal_4h_buy`, SignalEngine, 1min индикаторы); (2) путь B — `check_breakout_retest` → `source=levels_sr_breakout_resistance`, ATR stop/take, без второго RR-фильтра конфига; (3) иначе путь A — зона поддержки + confirm + вето *активного* сопротивления с трекером (`source=levels_sr_breakout_support`, levels stop/take, верхнеуровневый RR). Если сработали оба — побеждает путь B.
+- Оба чипа (`levels_reversal` + `levels_sr_breakout`): побеждает композит — один support-путь, без удвоения.
+- Не AND с `level_breakout_retest` как заменой этому движку. Контракт AND-фильтра эпика #105 не меняется.
+- Трекер / `htf_bars`: тот же корм, что в #107/#116 (`load_context(htf_bars=...)` / Lab plugin `MarketContext.htf_bars`). Unit-тесты не зависят от UI Lab.
+- Locked `test_20260731` этот id не включает (paper/live вето и levels stop/take остаются бит-в-бит).
+- Unit-тесты: `cd backend && python -m pytest -q tests/test_levels_sr_breakout.py tests/test_pattern_registry.py tests/test_resistance_zone_veto.py tests/test_level_breakout_retest.py tests/test_strategy_plugin.py`.
 

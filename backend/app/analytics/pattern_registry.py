@@ -469,6 +469,33 @@ SIGNAL_ENGINE_PATTERN_SCHEMAS["level_breakout_retest"] = PATTERN_REGISTRY[
     "level_breakout_retest"
 ]
 
+# Issue #117 / Epic #115: composite S/R entry engine. All levels_reversal
+# fields plus path-B retest fields. category=levels (next to levels_reversal).
+# Icon is distinct from breakout_up so Lab chips do not look identical.
+_RETEST_ONLY_PARAMS = [
+    copy.deepcopy(param)
+    for param in PATTERN_REGISTRY["level_breakout_retest"]["params"]
+    if param.get("key") != "level_timeframe"
+]
+PATTERN_REGISTRY["levels_sr_breakout"] = {
+    "label": "Поддержка + пробой сопротивления",
+    "label_en": "Support Reversal + Resistance Breakout",
+    "hint": "Путь A — зона поддержки как levels_reversal (вето активного сопротивления). Путь B — только подтверждённый пробой + ретест, без нативной поддержки. Не AND с чипом levels_reversal / level_breakout_retest.",
+    "hint_en": "Path A — support zone like levels_reversal (veto active resistance). Path B — confirmed break + retest only, no native support required. Do not AND with the levels_reversal / level_breakout_retest chips.",
+    "icon": "support_breakout",
+    "category": "levels",
+    "params": (
+        copy.deepcopy(PATTERN_REGISTRY["levels_reversal"]["params"])
+        + _RETEST_ONLY_PARAMS
+    ),
+}
+SIGNAL_ENGINE_PATTERN_SCHEMAS["levels_sr_breakout"] = PATTERN_REGISTRY[
+    "levels_sr_breakout"
+]
+
+# confirm_windows sync: composite wins when both entry engines are present.
+_LEVELS_CONFIRM_PATTERN_IDS = ("levels_sr_breakout", "levels_reversal")
+
 
 def is_signal_engine_pattern(pattern_id: str) -> bool:
     return pattern_id in SIGNAL_ENGINE_PATTERN_IDS
@@ -562,8 +589,9 @@ def normalize_patterns(config: Dict[str, Any]) -> Dict[str, Any]:
     Важно:
     - входной config не мутируется;
     - неизвестные паттерны сохраняются как есть;
-    - для levels_reversal confirm_windows синхронизируется с верхним уровнем
-      config["confirm_windows"], чтобы текущий StrategyEvaluator не сломался.
+    - для levels_reversal / levels_sr_breakout confirm_windows синхронизируется
+      с верхним уровнем config["confirm_windows"], чтобы текущий
+      StrategyEvaluator не сломался. Если оба id есть, побеждает композит.
     """
     if not isinstance(config, dict):
         return {}
@@ -581,7 +609,7 @@ def normalize_patterns(config: Dict[str, Any]) -> Dict[str, Any]:
 
             defaults = get_pattern_defaults(pattern_id)
 
-            if pattern_id == "levels_reversal" and top_confirm is not None:
+            if pattern_id in _LEVELS_CONFIRM_PATTERN_IDS and top_confirm is not None:
                 defaults["confirm_windows"] = copy.deepcopy(top_confirm)
 
             normalized[pattern_id] = apply_signal_pattern_defaults(
@@ -598,7 +626,7 @@ def normalize_patterns(config: Dict[str, Any]) -> Dict[str, Any]:
             defaults.update(copy.deepcopy(provided))
 
             if (
-                pattern_id == "levels_reversal"
+                pattern_id in _LEVELS_CONFIRM_PATTERN_IDS
                 and top_confirm is not None
                 and "confirm_windows" not in provided
             ):
@@ -612,12 +640,16 @@ def normalize_patterns(config: Dict[str, Any]) -> Dict[str, Any]:
 
     cfg["patterns"] = normalized
 
-    if "levels_reversal" in normalized:
-        levels_params = normalized["levels_reversal"]
+    confirm_owner = next(
+        (pid for pid in _LEVELS_CONFIRM_PATTERN_IDS if pid in normalized),
+        None,
+    )
+    if confirm_owner is not None:
+        levels_params = normalized[confirm_owner]
         confirm_windows = levels_params.get("confirm_windows")
 
         if not isinstance(confirm_windows, list):
-            confirm_windows = get_pattern_defaults("levels_reversal").get(
+            confirm_windows = get_pattern_defaults(confirm_owner).get(
                 "confirm_windows", [10]
             )
             levels_params["confirm_windows"] = copy.deepcopy(confirm_windows)

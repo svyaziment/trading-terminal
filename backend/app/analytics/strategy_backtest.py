@@ -12,7 +12,9 @@ Patterns (AND logic): all selected patterns must fire on the same 1min bar for e
                       trading.signals lookup; not a replacement for rsi_oversold.
 
 Config keys:
-  patterns        : list[str]   (AND). If 'levels_reversal' absent, stop/take undefined -> no trades.
+  patterns        : list[str]   (AND filters + one entry engine).
+                    Entry engine is 'levels_reversal' or 'levels_sr_breakout'
+                    (Issue #117). Without either, stop/take are undefined.
   confirm_windows : list[int]   minutes for levels confirmation (AND across windows).
   commission_pct  : float       round-trip commission, e.g. 0.06.
   slippage_pct    : float       per-side slippage, e.g. 0.06.
@@ -44,7 +46,7 @@ DEPTH_PRESETS = {
 }
 
 LAB_PATTERNS = ['levels_reversal', 'signal_4h_buy', 'rsi_oversold', 'macd_bullish', 'bb_lower',
-               'level_breakout_retest']
+               'level_breakout_retest', 'levels_sr_breakout']
 ALL_PATTERNS = LAB_PATTERNS + list(SIGNAL_ENGINE_PATTERN_IDS)
 CONFIRM_WINDOWS = [1, 5, 10, 15, 20, 25, 30, 60, 90, 120]
 
@@ -132,19 +134,20 @@ def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to
     shared with paper/live trading). This function only prepares the data context
     (4h levels, 1min candles, indicators, multi-window confirmation) and loops the
     evaluator over historical bars."""
+    from app.analytics.patterns.levels_sr_breakout import has_levels_entry_engine
+
     patterns = config.get('patterns', ['levels_reversal'])
     confirm_windows = config.get('confirm_windows', [10])
     n_runs = int(config.get('n_runs', 1))
 
-    use_levels = 'levels_reversal' in patterns
     use_rsi = 'rsi_oversold' in patterns
     use_macd = 'macd_bullish' in patterns
     use_bb = 'bb_lower' in patterns
     use_4h_buy = 'signal_4h_buy' in patterns
 
-    if not use_levels:
+    if not has_levels_entry_engine(patterns):
         return {'status': 'failed', 'ticker': ticker,
-                'error': 'levels_reversal required (defines stop/take); indicator patterns are AND-filters'}
+                'error': 'levels_reversal or levels_sr_breakout required (defines stop/take); indicator patterns are AND-filters'}
 
     # 1min candles (date-filtered)
     q = "SELECT timestamp, open, high, low, close FROM trading.candles_1min_raw WHERE ticker=%s "
