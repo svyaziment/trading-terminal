@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { firstPatternValidationError, validateParam, validatePatternValues } from "./patternValidation";
-import { LEVEL_BREAKOUT_RETEST_DEF, LEVEL_BREAKOUT_RETEST_DEFAULTS } from "./test/fixtures";
+import {
+  LEVEL_BREAKOUT_RETEST_DEF,
+  LEVEL_BREAKOUT_RETEST_DEFAULTS,
+  LEVELS_SR_BREAKOUT_DEF,
+  LEVELS_SR_BREAKOUT_DEFAULTS,
+} from "./test/fixtures";
 
 describe("validateParam / level_breakout_retest schema", () => {
   const byKey = Object.fromEntries(LEVEL_BREAKOUT_RETEST_DEF.params.map((p) => [p.key, p]));
@@ -22,6 +27,22 @@ describe("validateParam / level_breakout_retest schema", () => {
   });
 });
 
+describe("validateParam / levels_sr_breakout schema", () => {
+  const byKey = Object.fromEntries(LEVELS_SR_BREAKOUT_DEF.params.map((p) => [p.key, p]));
+
+  it("accepts registry defaults", () => {
+    expect(validatePatternValues(LEVELS_SR_BREAKOUT_DEF, LEVELS_SR_BREAKOUT_DEFAULTS)).toEqual({});
+  });
+
+  it("rejects retest_window_bars below min", () => {
+    expect(validateParam(byKey.retest_window_bars, 0)).toMatch(/допустимо/);
+  });
+
+  it("rejects swing_window above max", () => {
+    expect(validateParam(byKey.swing_window, 51)).toMatch(/допустимо/);
+  });
+});
+
 describe("firstPatternValidationError", () => {
   it("blocks a Lab run when retest_window_bars is out of range", () => {
     const msg = firstPatternValidationError(
@@ -29,6 +50,15 @@ describe("firstPatternValidationError", () => {
       { level_breakout_retest: { ...LEVEL_BREAKOUT_RETEST_DEFAULTS, retest_window_bars: 0 } },
     );
     expect(msg).toMatch(/Пробой уровня с ретестом/);
+    expect(msg).toMatch(/допустимо/);
+  });
+
+  it("blocks a Lab run when composite retest_window_bars is out of range", () => {
+    const msg = firstPatternValidationError(
+      [LEVELS_SR_BREAKOUT_DEF],
+      { levels_sr_breakout: { ...LEVELS_SR_BREAKOUT_DEFAULTS, retest_window_bars: 0 } },
+    );
+    expect(msg).toMatch(/Поддержка \+ пробой сопротивления/);
     expect(msg).toMatch(/допустимо/);
   });
 

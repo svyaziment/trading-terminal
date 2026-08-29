@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-29 (задача #117 композитный паттерн levels_sr_breakout; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-29 (задача #118 чип Strategy Lab для levels_sr_breakout; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -249,7 +249,7 @@ ORDER BY id DESC LIMIT 20;
 ## 25. Эксплуатация композитного S/R паттерна (`levels_sr_breakout`)
 
 - Точки входа: `PATTERN_ID` / `source` в `patterns/levels_sr_breakout.py`; OR-логика в `StrategyEvaluator._check_sr_breakout_entry`. Путь B переиспользует `check_breakout_retest`. Это не SignalEngine `BasePattern` — не добавлять id в `SIGNAL_ENGINE_PATTERN_IDS`. Не класть файл в `patterns/breakout/`.
-- Схема Lab: `PATTERN_REGISTRY['levels_sr_breakout']` (также в `SIGNAL_ENGINE_PATTERN_SCHEMAS` для `GET /api/patterns`). Категория `levels` (рядом с `levels_reversal`, не в breakout). Иконка `support_breakout` (должна отличаться от `breakout_up`). Параметры = все поля `levels_reversal` + поля ретеста (`retest_window_bars`, `retest_zone_atr`, `entry_trigger_bullish`, `stop_atr`, `risk_reward`). Не хардкодить во frontend (задача #118).
+- Схема Lab: `PATTERN_REGISTRY['levels_sr_breakout']` (также в `SIGNAL_ENGINE_PATTERN_SCHEMAS` для `GET /api/patterns`). Категория `levels` (рядом с `levels_reversal`, не в breakout). Иконка `support_breakout` (должна отличаться от `breakout_up`). Параметры = все поля `levels_reversal` + поля ретеста (`retest_window_bars`, `retest_zone_atr`, `entry_trigger_bullish`, `stop_atr`, `risk_reward`). Чип Lab: handover §26. Не хардкодить ключи params в TSX.
 - Изолированный прогон: в `config.patterns` есть `levels_sr_breakout` и опционально `signal_4h_buy` / id SignalEngine. `levels_reversal` **не** обязателен. `run_strategy_backtest` считает композит достаточным движком входа.
 - Порядок в `check_entry` после сессии / HTF / `_sync_tracker`: (1) общие AND (`signal_4h_buy`, SignalEngine, 1min индикаторы); (2) путь B — `check_breakout_retest` → `source=levels_sr_breakout_resistance`, ATR stop/take, без второго RR-фильтра конфига; (3) иначе путь A — зона поддержки + confirm + вето *активного* сопротивления с трекером (`source=levels_sr_breakout_support`, levels stop/take, верхнеуровневый RR). Если сработали оба — побеждает путь B.
 - Оба чипа (`levels_reversal` + `levels_sr_breakout`): побеждает композит — один support-путь, без удвоения.
@@ -257,4 +257,15 @@ ORDER BY id DESC LIMIT 20;
 - Трекер / `htf_bars`: тот же корм, что в #107/#116 (`load_context(htf_bars=...)` / Lab plugin `MarketContext.htf_bars`). Unit-тесты не зависят от UI Lab.
 - Locked `test_20260731` этот id не включает (paper/live вето и levels stop/take остаются бит-в-бит).
 - Unit-тесты: `cd backend && python -m pytest -q tests/test_levels_sr_breakout.py tests/test_pattern_registry.py tests/test_resistance_zone_veto.py tests/test_level_breakout_retest.py tests/test_strategy_plugin.py`.
+
+## 26. Эксплуатация чипа композитного S/R в Lab
+
+- Точки входа: `StrategyLab.tsx` (чипы по `category` из API) и `PatternSettingsModal.tsx` (поля из `PatternDef.params`). Хелперы: `patternLab.ts` (`resolveConfirmWindows`), `patternValidation.ts`. Карта иконок: `PatternIcon.tsx` по API `icon`, не по id паттерна.
+- Включается в группе **Уровни** (не **Пробой**). Видимое имя — API `label` («Поддержка + пробой сопротивления»); EN `label_en` («Support Reversal + Resistance Breakout») в tooltip и под заголовком модалки. Иконка `support_breakout` (линия поддержки + пробой сопротивления) тоже из API и должна отличаться от `breakout_up`.
+- Этот чип **заменяет** `levels_reversal` для новой стратегии. Изолированный прогон: включить `levels_sr_breakout` и опционально `signal_4h_buy` / SignalEngine; `levels_reversal` и `level_breakout_retest` оставить выключенными. Если оба levels-чипа включены, на backend побеждает композит (один support-путь) — это не третий AND.
+- Клик по подписи чипа открывает настройки (включает паттерн и подставляет дефолты схемы). Чекбокс переключает; включение параметризованного чипа тоже открывает модалку. Шестерёнка по-прежнему открывает настройки.
+- Не хардкодить список параметров во frontend. Схема = все поля `levels_reversal` + поля ретеста. Значения вне диапазона — красный бордер и сообщение; «Применить» и «Сохранить и запустить» блокируются. «Сбросить дефолты» возвращает `schema.default`. «Отмена» / Esc отменяет draft.
+- Верхнеуровневый `config.confirm_windows` берётся из включённой схемы, у которой есть этот param; композит побеждает `levels_reversal` (как backend `_LEVELS_CONFIRM_PATTERN_IDS`). Сохранение идёт через существующие `POST /api/strategies` и `POST /api/strategies/{id}/run` с `config.patterns` как `{ id: params }` — не `POST /api/backtest`.
+- Когда включать: нужен один Lab-движок, который входит и от нативной поддержки, и на подтверждённом ретесте сопротивления. На locked `test_20260731` оставлять выключенным (строка Lab только для чтения).
+- Сервиса `frontend` в `docker-compose.yml` нет. Проверка локально: `cd frontend && npm test && npm run build`. Схема backend: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
 

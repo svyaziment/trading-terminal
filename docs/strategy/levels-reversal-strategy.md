@@ -1,7 +1,7 @@
 # Levels Reversal Strategy
 
 > Status: validated on SBER/GAZP/VTBR (2-year history). Production brain: `StrategyEvaluator.check_entry`. Prototype: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-29 (Issue #117 composite pattern levels_sr_breakout).
+> Last refreshed: 2026-08-29 (Issue #118 Strategy Lab chip for levels_sr_breakout).
 
 ## 1. Overview
 
@@ -304,5 +304,5 @@ If `levels_reversal` and `levels_sr_breakout` are both in `config.patterns`, the
 
 ### Lab
 
-`GET /api/patterns`: `category=levels`, `label` «Поддержка + пробой сопротивления», `label_en` «Support Reversal + Resistance Breakout», icon `support_breakout` (distinct from `breakout_up`). Params = all `levels_reversal` fields + retest fields. Frontend chip is Issue #118. File: `backend/app/analytics/patterns/levels_sr_breakout.py`. Tests: `backend/tests/test_levels_sr_breakout.py`.
+`GET /api/patterns`: `category=levels`, `label` «Поддержка + пробой сопротивления», `label_en` «Support Reversal + Resistance Breakout», icon `support_breakout` (distinct from `breakout_up`). Params = all `levels_reversal` fields + retest fields. Lab chip (Issue #118) is in the **Уровни** group; `PatternSettingsModal` is schema-driven. File: `backend/app/analytics/patterns/levels_sr_breakout.py`. Tests: `backend/tests/test_levels_sr_breakout.py`; frontend: `cd frontend && npm test`.
 

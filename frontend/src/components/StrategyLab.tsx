@@ -5,6 +5,7 @@ import FilterChips from "./ui/FilterChips";
 import DatePicker, { localTodayIso } from "./ui/DatePicker";
 import PatternSettingsModal from "./PatternSettingsModal";
 import PatternPreviewModal from "./PatternPreviewModal";
+import { PatternIcon } from "./PatternIcon";
 import { resolveLabPreviewWindow } from "../previewWindow";
 import {
   saveStrategy,
@@ -27,11 +28,13 @@ import type {
   PatternDef,
 } from "../types";
 import {
+  applyTopLevelConfirmWindows,
   effectivePatternParams,
   groupPatternsByCategory,
   patternHint,
   patternLabel,
   patternTooltip,
+  resolveConfirmWindows,
   resolveLabLocale,
 } from "../patternLab";
 import { firstPatternValidationError } from "../patternValidation";
@@ -64,27 +67,6 @@ const FALLBACK_PATTERNS: PatternDef[] = [
   { id: "levels_reversal", label: "Levels Reversal", hint: "цена в зоне 4h + подтверждение", category: "levels", params: [] },
   { id: "signal_4h_buy", label: "4H Buy", hint: "активный BUY из trading.signals", category: "signal", params: [] },
 ];
-
-function BreakoutUpIcon(props: { className?: string }) {
-  return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      className={props.className}
-    >
-      <line x1="2" y1="11" x2="14" y2="11" />
-      <path d="M8 13 V3" />
-      <path d="M5 6.5 L8 3 L11 6.5" />
-    </svg>
-  );
-}
 
 const DEPTHS = [
   { id: "express", label: "Экспресс", hint: "6 мес · 3 тикера" },
@@ -206,7 +188,6 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
   const lastTickerRef = useRef<string | null>(null);
 
   const enabledIds = useMemo(() => Object.keys(patternConfigs), [patternConfigs]);
-  const levelsOn = "levels_reversal" in patternConfigs;
   const locale = resolveLabLocale();
 
   function defById(id: string): PatternDef | undefined {
@@ -227,15 +208,13 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
     return Object.keys(saved).some((k) => JSON.stringify(saved[k] ?? null) !== JSON.stringify(defs[k] ?? null));
   }
 
-  const windows = useMemo(() => {
-    if (!levelsOn) return [] as number[];
-    const w = effectiveParams("levels_reversal").confirm_windows;
-    return Array.isArray(w) ? (w as number[]) : ([] as number[]);
-  }, [patternConfigs, registry, levelsOn]);
-
   const patternDefs = useMemo<PatternDef[]>(
     () => (registry.length > 0 ? registry : FALLBACK_PATTERNS),
     [registry],
+  );
+  const windows = useMemo(
+    () => resolveConfirmWindows(patternDefs, patternConfigs),
+    [patternDefs, patternConfigs],
   );
   const patternGroups = useMemo(
     () => groupPatternsByCategory(patternDefs, locale),
@@ -423,10 +402,7 @@ function toggleTicker(t: string) {
     if (Array.isArray(rawPatterns)) {
       const rec: Record<string, Record<string, unknown>> = {};
       for (const pid of rawPatterns as string[]) rec[pid] = {};
-      if (rec["levels_reversal"] && Array.isArray(c.confirm_windows)) {
-        rec["levels_reversal"] = { confirm_windows: c.confirm_windows };
-      }
-      setPatternConfigs(rec);
+      setPatternConfigs(applyTopLevelConfirmWindows(patternDefs, rec, c.confirm_windows));
     } else {
       setPatternConfigs((rawPatterns as Record<string, Record<string, unknown>> | null) ?? {});
     }
@@ -928,9 +904,10 @@ const progressPct =
                       onClick={() => (hasParams ? openSettings(p.id) : togglePattern(p.id))}
                       className="flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-not-allowed"
                     >
-                      {p.icon === "breakout_up" && (
-                        <BreakoutUpIcon className={"shrink-0 " + (on ? "text-sky-300" : "text-slate-500")} />
-                      )}
+                      <PatternIcon
+                        icon={p.icon}
+                        className={"shrink-0 " + (on ? "text-sky-300" : "text-slate-500")}
+                      />
                       <span className="min-w-0">
                         <span className={"block truncate font-mono text-[11px] " + (on ? "text-sky-200" : "text-slate-300")}>
                           {patternLabel(p, locale)}
