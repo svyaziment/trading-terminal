@@ -61,7 +61,8 @@ def build_strategy_context(
     cfg = normalize_patterns(config)
     patterns = cfg.get("patterns", {})
 
-    lr_params = patterns.get("levels_reversal", {})
+    # Composite owns level-construction params when both chips are present.
+    lr_params = patterns.get("levels_sr_breakout") or patterns.get("levels_reversal") or {}
 
     level_timeframe = lr_params.get("level_timeframe", "4h")
     level_method = lr_params.get("level_method", ["swing", "impulse"])

@@ -83,7 +83,7 @@ class LevelsReversalStrategy(StrategyPlugin):
             take=decision['take'],
             timestamp=decision['ts'],
             confidence=1.0,
-            metadata={'source': 'levels_reversal'},
+            metadata={'source': decision.get('source', 'levels_reversal')},
         )
 
     def manage_position(self, position: Position, context: MarketContext) -> PositionAction:

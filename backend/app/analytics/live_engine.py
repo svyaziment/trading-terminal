@@ -207,6 +207,8 @@ def emit_signal(db: DBManager, ticker: str, dec: Dict, config: Dict,
         'imbalance': imbalance,
         'timestamp': _now_msk().isoformat(),
     }
+    if dec.get('source'):
+        signal['source'] = dec['source']
     db.execute(
         "INSERT INTO trading.alerts (alert_type, ticker, message, details, created_at) "
         "VALUES (%s, %s, %s, %s, now())",

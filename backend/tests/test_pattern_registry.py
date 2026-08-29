@@ -178,6 +178,7 @@ def test_list_patterns_includes_signal_engine_schemas():
         "macd_bullish",
         "bb_lower",
         "level_breakout_retest",
+        "levels_sr_breakout",
     ):
         assert lab_id in by_id
 
@@ -315,4 +316,64 @@ def test_level_breakout_retest_registry_schema():
 
     filled = normalize_patterns({"patterns": ["level_breakout_retest"]})
     assert filled["patterns"]["level_breakout_retest"]["retest_window_bars"] == 20
+
+
+def test_levels_sr_breakout_registry_schema():
+    from app.analytics.pattern_registry import (
+        SIGNAL_ENGINE_PATTERN_IDS,
+        SIGNAL_ENGINE_PATTERN_SCHEMAS,
+        is_signal_engine_pattern,
+    )
+
+    record = {p["id"]: p for p in list_patterns()}["levels_sr_breakout"]
+    assert record["category"] == "levels"
+    assert record["label"] == "Поддержка + пробой сопротивления"
+    assert record["label_en"] == "Support Reversal + Resistance Breakout"
+    assert record["icon"] == "support_breakout"
+    assert record["icon"] != "breakout_up"
+    keys = {param["key"] for param in record["params"]}
+    levels_keys = {
+        "level_timeframe",
+        "level_method",
+        "swing_window",
+        "impulse_body_ratio",
+        "impulse_atr_mult",
+        "zone_atr_mult",
+        "confirm_windows",
+    }
+    retest_keys = {
+        "retest_window_bars",
+        "retest_zone_atr",
+        "entry_trigger_bullish",
+        "stop_atr",
+        "risk_reward",
+    }
+    assert levels_keys <= keys
+    assert retest_keys <= keys
+    defaults = get_pattern_defaults("levels_sr_breakout")
+    assert defaults["level_timeframe"] == "4h"
+    assert defaults["confirm_windows"] == [10]
+    assert defaults["retest_window_bars"] == 20
+    assert defaults["stop_atr"] == 1.0
+    assert defaults["risk_reward"] == 2.0
+    assert "levels_sr_breakout" in SIGNAL_ENGINE_PATTERN_SCHEMAS
+    assert "levels_sr_breakout" not in SIGNAL_ENGINE_PATTERN_IDS
+    assert is_signal_engine_pattern("levels_sr_breakout") is False
+
+    filled = normalize_patterns(
+        {"patterns": ["levels_sr_breakout"], "confirm_windows": [15]}
+    )
+    assert filled["patterns"]["levels_sr_breakout"]["confirm_windows"] == [15]
+    assert filled["confirm_windows"] == [15]
+    assert filled["patterns"]["levels_sr_breakout"]["retest_window_bars"] == 20
+
+    both = normalize_patterns(
+        {
+            "patterns": {
+                "levels_reversal": {"confirm_windows": [5]},
+                "levels_sr_breakout": {"confirm_windows": [20]},
+            }
+        }
+    )
+    assert both["confirm_windows"] == [20]
 
