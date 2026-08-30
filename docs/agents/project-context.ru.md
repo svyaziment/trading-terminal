@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-29 (задача #119 AFKS smoke для levels_sr_breakout). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-30 (задача #124 Lab-вселенная A/B для levels_sr_breakout). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -87,6 +87,7 @@ trading-terminal/
 │       ├── test_levels_sr_breakout.py # Задача #117 композит OR-пути / source / гард движка
 │       ├── test_issue100_analysis.py # Задача #100 вселенная/вето/baseline Lab-прогона
 │       ├── test_issue119_analysis.py # Задача #119 AFKS smoke конфиг/source/вердикт
+│       ├── test_issue124_analysis.py # Задача #124 Lab-вселенная A/B / AFKS / ALRS / вердикт
 │       └── test_portfolio_simulator.py # Unit + integration тесты portfolio simulator
 ├── frontend/
 │ ├── src/
@@ -116,7 +117,8 @@ trading-terminal/
 │ ├── issue-100-test-20260820-portfolio/ # Портфельный replay Lab test_20260820 после вето #97
 │ ├── issue-100-test-20260820-resistance-veto/ # Lab full-sample + walk-forward test_20260820 после вето #97
 │ ├── issue-103-test-20260821-portfolio/ # Портфельный replay Lab test_20260821 после вето #97 (swing+impulse)
-│ └── issue-119-afks-sr-breakout-smoke/ # Изолированный AFKS A/B smoke для levels_sr_breakout (#119)
+│ ├── issue-119-afks-sr-breakout-smoke/ # Изолированный AFKS A/B smoke для levels_sr_breakout (#119)
+│ └── issue-124-sr-breakout-universe/ # Изолированная Lab-вселенная A/B для levels_sr_breakout (#124)
 ├── docs/
 │ ├── agents/ # project-context.md, handover.md (+ .ru versions), documentation-policy.md
 │ ├── strategy/ # levels-reversal-strategy.md, paper-trading.md, testing-rules.md, backtest-report.md (+ .ru)
@@ -247,6 +249,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 - **Задача #117 (эпик #115, 2026-08-29)**: Lab-паттерн `levels_sr_breakout` — изолированный движок входа (OR пути поддержки A и пробоя сопротивления B). `run_strategy_backtest` принимает его без `levels_reversal` в `config.patterns`. Трекер + `htf_bars` как в #107/#116. Locked `test_20260731` не изменён. Тесты: `tests/test_levels_sr_breakout.py` плюс существующие veto / breakout-retest / plugin.
 - **Задача #118 (эпик #115, 2026-08-29)**: чип Strategy Lab + schema-driven `PatternSettingsModal` для `levels_sr_breakout`. Имена, подсказки, иконка (`support_breakout`) и параметры приходят из `GET /api/patterns` (группа **Уровни**). Валидация по `min`/`max` схемы (блокирует «Применить» и «Сохранить и запустить»). `level_breakout_retest` остаётся в **Пробой**. Locked `test_20260731` только для чтения.
 - **Задача #119 (эпик #115, 2026-08-29)**: изолированный AFKS smoke для `levels_sr_breakout` vs #44/#103. Пакет: `analytics/issue-119-afks-sr-breakout-smoke/`. Период `2024-08-01` … `timestamp < 2026-08-21`. A (`levels_reversal` + `signal_4h_buy`): n=39, PF 1.50. B (`levels_sr_breakout` + `signal_4h_buy`): n=116, PF 1.46; путь A `source=levels_sr_breakout_support` n=78 PF 1.70; путь B `source=levels_sr_breakout_resistance` n=38 PF 1.20. B-support > A, потому что композит передаёт `LevelsTracker` в вето. Plugin-путь совпал по n/PF; на plugin-сделках `source` по-прежнему нет. Locked `test_20260731` / `test_20260820` / `test_20260821` не трогались. Вердикт: расширять вселенную (не paper). Это не портфель 50k.
+- **Задача #124 (эпик #115, 2026-08-30)**: изолированный A/B на полной Lab-вселенной для `levels_sr_breakout` vs #103/#119. Пакет: `analytics/issue-124-sr-breakout-universe/`. Те же SHA, что в #119, `get_big_tickers` (28 имён), `2024-08-01` … `timestamp < 2026-08-21`. Isolated A: n=2559, PF 1.46, median PF 1.48, 26/28 PF>1. Isolated B: n=4799, PF 1.39, median PF 1.39, 28/28 PF>1; support n=3811 PF 1.51; resistance n=988 PF 1.17. Extra support vs A: +1252 (трекер в вето). AFKS совпал с #119 (39/1.50 и 116/1.46). Бар ALRS `2026-08-20 11:50:24` @ 19.80 отсутствует в A и B. Опциональный портфель B по методике #44/#103: n=2837, PF 1.32, equity 98 432.94 RUB, без GAME OVER. Locked `test_20260731` / `test_20260820` / `test_20260821` не трогались. Вердикт: портфельный replay сделан; не paper.
 - **Legacy pattern-matrix backtest**: rule-based стратегии НЕ прибыльны после комиссии на MOEX top-3 за 2 года (все PF < 1). Заменены подходом levels.
 - **Вселенная**: top-15 по PF (`trading_universe`) остаётся вселенной paper/data-refresh через `get_trading_universe()`. Sandbox live execution использует топ-5 из задачи #66 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP через `get_live_trading_universe()`. На снимке #66 таблица `paper_positions` была пуста (equity плоская 100 000 RUB), поэтому live-список построен по бэктесту, ликвидности и ATR, а не по forward PnL.
 - **Sandbox canary (задача #74, 2026-08-19)**: `LiveExecutor` инициализировал топ-5 на locked-стратегии `test_20260731` и отправил sandbox market BUY по RUAL (37 лотов по 26.73, take 28.02, stop 26.19). Следующий сигнал по тому же тикеру был пропущен с `reason=duplicate_ticker`. `paper_equity` продолжала писаться во время сессии. Runbook — в handover §19.
@@ -277,7 +280,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | Q | Паттерны SignalEngine в Strategy Lab (эпик #78) | #79–#82 готовы (evaluator, схемы registry, E2E/docs, группировка UI Lab) |
 | R | Превью паттерна на графике Lab + Сигналы (эпик #87) | #88 API preview + оверлеи levels готовы; #89–#92 далее |
 | S | Пробой уровня и смена роли (эпик #105) | #106 LevelsTracker + #107 `level_breakout_retest` AND-фильтр + #109 чип Lab готовы; аналитическая валидация и опциональное превью далее |
-| T | Композитный S/R паттерн (эпик #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 чип Lab + #119 AFKS smoke готово |
+| T | Композитный S/R паттерн (эпик #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 чип Lab + #119 AFKS smoke + #124 Lab-вселенная A/B готово |
 
 ## 9. Важные замечания
 

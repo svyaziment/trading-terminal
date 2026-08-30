@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-29 (задача #119 AFKS smoke для levels_sr_breakout; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-30 (задача #124 Lab-вселенная A/B для levels_sr_breakout; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -67,6 +67,7 @@
 - **Lab plugin HTF (задача #116)**: Strategy Lab всегда пишет `config.strategy_name = "levels_reversal"`, поэтому `_run_job` вызывает `run_portfolio_backtest`, а не `run_strategy_backtest`. В `MarketContext.htf_bars` должен лежать `build_strategy_context()['htf_bars']` (тот же ТФ, что и уровни). `candles_4h` на этом пути обычно пуст. Без HTF `LevelsTracker._sync_tracker` выходит сразу, все уровни остаются `active`, любой паттерн пробоя (`level_breakout_retest`, `levels_sr_breakout`) даёт **ноль сделок**. Locked `test_20260731` пробой не включает — прокидывание HTF для paper no-op. Unit: `cd backend && python -m pytest -q tests/test_strategy_plugin.py tests/test_level_breakout_retest.py`.
 - **Композитный S/R (задача #117)**: `levels_sr_breakout` — **движок входа** (OR пути A поддержка и пути B ретест сопротивления), не AND-фильтр. Изолированный прогон Lab: в `config.patterns` есть `levels_sr_breakout` (и опционально `signal_4h_buy`) **без** `levels_reversal`. Если оба чипа включены — побеждает композит (один support-путь). Не AND с `level_breakout_retest` как заменой. Сделки несут `source` (`levels_sr_breakout_support` / `levels_sr_breakout_resistance`). Locked `test_20260731` этот id не включает. Unit: `cd backend && python -m pytest -q tests/test_levels_sr_breakout.py tests/test_resistance_zone_veto.py tests/test_level_breakout_retest.py tests/test_strategy_plugin.py`.
 - **AFKS smoke (задача #119)**: изолированный тикер, не портфель 50k. Пакет `analytics/issue-119-afks-sr-breakout-smoke/`. A vs B на AFKS `2024-08-01`…`< 2026-08-21`. B-support может быть больше A: композит передаёт `LevelsTracker` в вето. `source` есть у `run_strategy_backtest`; `run_portfolio_backtest` его сейчас теряет. Не lock/overwrite `test_20260731` / `test_20260820` / `test_20260821`. Повтор: `python analytics/issue-119-afks-sr-breakout-smoke/analysis.py` (нужен `results.json`). Unit: `cd backend && python -m pytest -q tests/test_issue119_analysis.py`.
+- **Lab-вселенная A/B (задача #124)**: изолированный прогон 28 тикеров `get_big_tickers`, те же SHA, что #119. Пакет `analytics/issue-124-sr-breakout-universe/`. A n=2559 PF 1.46; B n=4799 PF 1.39 (support 3811 / resistance 988). AFKS совпал с #119; бар ALRS 19.80 отсутствует. Опциональный портфель 50k по B — отдельный блок, не isolated PF. Не lock/overwrite три эталонные стратегии. Повтор: `python analytics/issue-124-sr-breakout-universe/analysis.py`. Unit: `cd backend && python -m pytest -q tests/test_issue124_analysis.py`.
 
 ## 11. Протокол сотрудничества (агенты)
 
@@ -269,7 +270,7 @@ ORDER BY id DESC LIMIT 20;
 - Верхнеуровневый `config.confirm_windows` берётся из включённой схемы, у которой есть этот param; композит побеждает `levels_reversal` (как backend `_LEVELS_CONFIRM_PATTERN_IDS`). Сохранение идёт через существующие `POST /api/strategies` и `POST /api/strategies/{id}/run` с `config.patterns` как `{ id: params }` — не `POST /api/backtest`.
 - Когда включать: нужен один Lab-движок, который входит и от нативной поддержки, и на подтверждённом ретесте сопротивления. На locked `test_20260731` оставлять выключенным (строка Lab только для чтения).
 - Сервиса `frontend` в `docker-compose.yml` нет. Проверка локально: `cd frontend && npm test && npm run build`. Схема backend: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
-- Изолированный AFKS smoke (задача #119): handover §27. Не считать этот пакет вердиктом для paper.
+- Изолированный AFKS smoke (задача #119): handover §27. Lab-вселенная A/B (задача #124): handover §28. Не считать ни один пакет вердиктом для paper.
 
 ## 27. Эксплуатация AFKS smoke композита
 
@@ -280,4 +281,14 @@ ORDER BY id DESC LIMIT 20;
 - Не lock/paper-flag и не overwrite `test_20260731`, `test_20260820`, `test_20260821`.
 - Повтор без БД: `python analytics/issue-119-afks-sr-breakout-smoke/analysis.py`. Полный пересчёт: `python analytics/issue-119-afks-sr-breakout-smoke/extract_inputs.py`.
 - Unit: `cd backend && python -m pytest -q tests/test_issue119_analysis.py`.
+
+## 28. Эксплуатация Lab-вселенной композита A/B
+
+- Пакет: `analytics/issue-124-sr-breakout-universe/`. Изолированная Lab-вселенная 28 тикеров (`get_big_tickers`), не live top-5 и не `run_params.tickers`.
+- Конфиги A/B — опубликованная пара SHA из #119. Период `2024-08-01` … `timestamp < 2026-08-21`. Движок — `run_strategy_backtest`, чтобы на сделках остался `source`.
+- Isolated B больше A по двум причинам: путь B (`levels_sr_breakout_resistance`) и extra support после вето с трекером. Не считать n support-пути B бит-в-бит копией A.
+- Опциональный replay B на 50k / 10k / max 5 — **отдельный** блок. Не смешивать этот PF/equity с isolated PF по тикерам. Это не вердикт для paper.
+- Не lock/paper-flag и не overwrite `test_20260731`, `test_20260820`, `test_20260821`.
+- Повтор без нового бэктеста: `python analytics/issue-124-sr-breakout-universe/analysis.py`. Полный пересчёт: `python analytics/issue-124-sr-breakout-universe/extract_inputs.py` (резюмируется).
+- Unit: `cd backend && python -m pytest -q tests/test_issue124_analysis.py`.
 

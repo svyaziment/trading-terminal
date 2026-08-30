@@ -1,7 +1,7 @@
 # Levels Reversal Strategy
 
 > Status: validated on SBER/GAZP/VTBR (2-year history). Production brain: `StrategyEvaluator.check_entry`. Prototype: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-29 (Issue #119 AFKS smoke for levels_sr_breakout).
+> Last refreshed: 2026-08-30 (Issue #124 Lab-universe A/B for levels_sr_breakout).
 
 ## 1. Overview
 
@@ -309,4 +309,8 @@ If `levels_reversal` and `levels_sr_breakout` are both in `config.patterns`, the
 ### AFKS smoke (Issue #119)
 
 Isolated ticker backtest, not a 50k portfolio. Package: `analytics/issue-119-afks-sr-breakout-smoke/`. Period `2024-08-01` … `timestamp < 2026-08-21`. A (`levels_reversal` + `signal_4h_buy`): n=39, PF 1.50. B (`levels_sr_breakout` + `signal_4h_buy`): n=116, PF 1.46; support path n=78 PF 1.70; resistance path n=38 PF 1.20. B-support exceeds A because the composite passes `LevelsTracker` into the veto. Verdict: expand the universe; not a paper lock. Do not overwrite `test_20260731` / `test_20260820` / `test_20260821`.
+
+### Lab-universe A/B (Issue #124)
+
+Isolated 28-ticker `get_big_tickers` run, same SHA pair as #119. Package: `analytics/issue-124-sr-breakout-universe/`. Isolated A: n=2559, PF 1.46, median PF 1.48. Isolated B: n=4799, PF 1.39, median PF 1.39 (28/28 PF>1); support n=3811 PF 1.51; resistance n=988 PF 1.17. AFKS matched #119; ALRS `2026-08-20 11:50:24` @ 19.80 absent. Optional 50k slot replay of B (n=2837, PF 1.32, equity 98,432.94 RUB) is a separate block, not a paper verdict.
 
