@@ -22,6 +22,12 @@ from app.analytics.live_engine import (
     build_4h_context,
     get_paper_strategy,
 )
+from app.analytics.moex_session import (
+    is_entry_window,
+    next_session_open,
+    now_msk_naive,
+    session_end_for_run,
+)
 from app.analytics.orderbook_imbalance import (
     calculate_volume_imbalance,
     get_imbalance_threshold,
@@ -32,6 +38,7 @@ from app.analytics.strategy_engine import StrategyEvaluator
 from app.analytics.trading_config import (
     get_live_trading_config,
     get_live_trading_universe,
+    get_moex_session_config,
     get_orderbook_imbalance_config,
 )
 from app.broker.tinkoff_sandbox import SandboxAPIError, TinkoffSandboxClient
@@ -62,9 +69,7 @@ def _filter_live_tickers(strategy_tickers: list[str], live_universe: list[str]) 
 
 
 def _now_msk_naive() -> datetime:
-    return datetime.now(timezone.utc).astimezone(
-        timezone(timedelta(hours=3))
-    ).replace(tzinfo=None)
+    return now_msk_naive()
 
 
 class TokenBucket:
@@ -159,6 +164,7 @@ class LiveExecutor:
         evaluator_factory: Callable[[dict], StrategyEvaluator] = StrategyEvaluator,
         clock: Callable[[], float] = time.monotonic,
         sleep_fn: Callable[[float], None] = time.sleep,
+        now_fn: Callable[[], datetime] = _now_msk_naive,
     ) -> None:
         self.db = db or DBManager()
         self.config = {**get_live_trading_config(), **(config or {})}
@@ -175,6 +181,7 @@ class LiveExecutor:
         self.evaluator_factory = evaluator_factory
         self.clock = clock
         self.sleep_fn = sleep_fn
+        self.now_fn = now_fn
         self.shutdown_requested = threading.Event()
         self.evaluators: Dict[str, StrategyEvaluator] = {}
         self.last_processed: Dict[str, Any] = {}
@@ -332,6 +339,16 @@ class LiveExecutor:
         """Validate and execute one BUY decision from ``StrategyEvaluator``."""
         if decision.get("action") not in (None, "enter"):
             return self._skip_signal(ticker, "not_buy_signal")
+        now = self.now_fn()
+        if not is_entry_window(now):
+            session = get_moex_session_config()
+            return self._skip_signal(
+                ticker,
+                "outside_entry_window",
+                hour=now.strftime("%H:%M"),
+                entry_start=session["entry_start_hour"],
+                entry_end=session["entry_end_hour"],
+            )
         if ticker not in self.instruments:
             return self._skip_signal(ticker, "unknown_instrument")
 
@@ -853,26 +870,73 @@ class LiveExecutor:
                     (int(row["id"]),),
                 )
 
-    def run(self, duration_minutes: Optional[int] = None) -> None:
-        """Run evaluation and reconciliation until timeout or SIGTERM/SIGINT."""
+    def wait_for_session_open(self) -> None:
+        """Sleep until the MOEX entry window, logging progress, honoring SIGTERM."""
+        session = get_moex_session_config()
+        poll = float(session["wait_poll_seconds"])
+        log_every = float(session["wait_log_seconds"])
+        last_log = float("-inf")
+        while not self.shutdown_requested.is_set():
+            now = self.now_fn()
+            if is_entry_window(now):
+                logger.info(
+                    "MOEX session is open: %s MSK",
+                    now.strftime("%Y-%m-%d %H:%M"),
+                )
+                return
+            open_at = next_session_open(now)
+            remaining = max(0.0, (open_at - now).total_seconds())
+            mono = self.clock()
+            if mono - last_log >= log_every:
+                logger.info(
+                    "Waiting for MOEX session open at %s MSK (%.0f min remaining)",
+                    open_at.strftime("%Y-%m-%d %H:%M"),
+                    remaining / 60.0,
+                )
+                last_log = mono
+            self.sleep_fn(min(poll, remaining if remaining > 0 else poll))
+
+    def run(
+        self,
+        duration_minutes: Optional[int] = None,
+        until_session_end: bool = False,
+    ) -> None:
+        """Run evaluation and reconciliation until timeout, session close, or signal."""
         self.install_signal_handlers()
-        self.initialize()
-        started_at = self.clock()
-        last_check = float("-inf")
-        last_context_refresh = self.clock()
-        check_interval = float(self.config["check_interval_seconds"])
-        context_interval = float(self.config["context_refresh_seconds"])
-        logger.info(
-            "Sandbox LiveExecutor started: strategy=%s tickers=%s "
-            "ticker_count=%s rate=%.1f/s",
-            self.strategy_name,
-            ",".join(self.evaluators),
-            len(self.evaluators),
-            self.rate_limiter.rate,
-        )
         try:
+            if until_session_end:
+                self.wait_for_session_open()
+                if self.shutdown_requested.is_set():
+                    return
+            self.initialize()
+            started_at = self.clock()
+            last_check = float("-inf")
+            last_context_refresh = self.clock()
+            check_interval = float(self.config["check_interval_seconds"])
+            context_interval = float(self.config["context_refresh_seconds"])
+            session_end = (
+                session_end_for_run(self.now_fn()) if until_session_end else None
+            )
+            logger.info(
+                "Sandbox LiveExecutor started: strategy=%s tickers=%s "
+                "ticker_count=%s rate=%.1f/s until_session_end=%s session_end=%s",
+                self.strategy_name,
+                ",".join(self.evaluators),
+                len(self.evaluators),
+                self.rate_limiter.rate,
+                until_session_end,
+                session_end.strftime("%Y-%m-%d %H:%M") if session_end else "none",
+            )
             while not self.shutdown_requested.is_set():
+                now_msk = self.now_fn()
                 now = self.clock()
+                if until_session_end and session_end is not None and now_msk >= session_end:
+                    logger.info(
+                        "MOEX session closed at %s MSK; stopping LiveExecutor",
+                        now_msk.strftime("%Y-%m-%d %H:%M"),
+                    )
+                    self.monitor_positions()
+                    break
                 if (
                     duration_minutes is not None
                     and now - started_at >= duration_minutes * 60
@@ -883,9 +947,16 @@ class LiveExecutor:
                     last_context_refresh = now
                 if now - last_check >= check_interval:
                     self.monitor_positions()
-                    self.process_latest_bars()
+                    if is_entry_window(now_msk):
+                        self.process_latest_bars()
                     last_check = now
-                self.sleep_fn(min(1.0, check_interval))
+                sleep_for = min(1.0, check_interval)
+                if until_session_end and session_end is not None:
+                    remaining = (session_end - now_msk).total_seconds()
+                    if remaining <= 0:
+                        continue
+                    sleep_for = min(sleep_for, remaining)
+                self.sleep_fn(sleep_for)
         finally:
             try:
                 self.shutdown()
@@ -901,4 +972,7 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     duration = int(sys.argv[1]) if len(sys.argv) > 1 else None
-    LiveExecutor().run(duration_minutes=duration)
+    LiveExecutor().run(
+        duration_minutes=duration,
+        until_session_end=duration is None,
+    )

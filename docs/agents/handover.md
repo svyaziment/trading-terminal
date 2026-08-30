@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-30 (Issue #135 paper + sandbox for test_20260830_new_level). Companion to project-context.md.
+Last refreshed: 2026-08-30 (Issue #137 overnight LiveExecutor session). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -59,6 +59,7 @@ See project-context.md section 9.
 - **Heredoc loss**: large bash heredocs can lose blocks when copied in Git Bash. Always verify file size after creation (`wc -c`). If bytes < expected, re-copy.
 - **Docker rebuild**: after backend code changes, MUST rebuild (`docker compose up -d --build backend`).
 - **Unbuffered logging**: Background processes (start_processes.sh) use `python -u` + `logging.basicConfig(level=INFO, stream=sys.stdout)` for immediate log writing to files. Without this, logs are block-buffered and appear empty until the buffer fills.
+- **Overnight LiveExecutor duration (Issue #137)**: without `DURATION_MINUTES`, `start_processes.sh` sizes paper until the next MOEX 19:00 MSK and LiveExecutor waits for 10:00. A leftover `DURATION_MINUTES=540` from a 23:00 launch still dies at 08:00. Canary still needs an explicit `DURATION_MINUTES=N`. Units: `cd backend && python -m pytest -q tests/test_moex_session.py tests/test_live_executor.py`.
 - **JSON NaN / Infinity**: pandas produces NaN/NaT, and a single winning trade yields `pf: Infinity`. Python `json.dumps` writes non-strict JSON that PostgreSQL JSONB rejects (`invalid input syntax for type json`). Sanitize API responses **and** `backtest_results` INSERTs via `_json_dumps` → `_json_safe` in `strategy_jobs.py` (`inf`/`nan` → `null`). Also used for API payloads in `paper_trading_jobs.py`. Cast timestamps to text in SQL (`created_at::text`).
 - **JSONB as string**: DBManager returns JSONB columns as Python-repr strings, not dicts. Normalize with `_to_dict` (json.loads, then ast.literal_eval fallback).
 - **Backtest matrix runtime**: full matrix takes ~10-15 min. Use quick=true for liveness.
@@ -120,14 +121,16 @@ python docs/refresh/context_collector.py
 
 - Prerequisites: backend rebuilt, streaming online data running, one active locked strategy, a funded sandbox account, and `LIVE_TRADING.enabled=true`.
 - Apply the migration explicitly when provisioning a database: `psql ... -f backend/migrations/20260817_01_live_positions.sql`. `LiveExecutor.initialize()` also applies the same idempotent schema automatically.
-- Safe start: `START_LIVE_EXECUTOR=1 ./start_processes.sh`. This additional opt-in prevents the normal paper workflow from placing sandbox broker orders. Logs: `reports/live-executor/executor.log`.
-- Processing order is fixed: `StrategyEvaluator` BUY -> fresh imbalance -> free RUB -> position sizing -> market BUY -> take sell-limit -> DB record/reconciliation.
+- Safe overnight start (Issue #137): rebuild backend, then `START_LIVE_EXECUTOR=1 ./start_processes.sh` with **no** `DURATION_MINUTES`. Paper processes run until the next weekday 19:00 MSK plus a 15-minute margin. LiveExecutor sleeps until 10:00 MSK, then trades until 19:00. Clock is the computer clock converted to MSK (UTC+3). `START_LIVE_EXECUTOR=1` remains opt-in so a normal paper launch does not place sandbox orders. Logs: `reports/live-executor/executor.log`.
+- Canary / fixed window: `DURATION_MINUTES=N` still starts immediately and stops N minutes after launch. Do not use that for an overnight Sunday→Monday session.
+- LiveExecutor entries are gated to [10:00, 19:00) MSK (`reason=outside_entry_window`) even if `StrategyEvaluator.entry_window` is 7–19. Stop/take monitoring continues until session close. Shutdown policy is unchanged (`close_positions_on_shutdown=false`).
+- Processing order is fixed: `StrategyEvaluator` BUY -> session window -> fresh imbalance -> free RUB -> position sizing -> market BUY -> take sell-limit -> DB record/reconciliation.
 - Stop protection is synthetic. Never place the stop sell-limit at entry: a sell-limit below the market executes immediately. The monitor waits for `current_price <= stop_price`, cancels take, then submits a sell-limit at the observed price.
 - Every physical broker attempt, including SDK retries and account discovery, shares one token bucket (`api_rate_limit`, maximum 10/sec). Do not add independent broker calls outside `_broker_call` or bypass the client's `before_request` hook.
 - SIGTERM/SIGINT requests cleanup. Pending entry and protection orders are cancelled; open holdings are flattened only when `close_positions_on_shutdown=true`. With the default false value, holdings remain open and their protection IDs are cleared in DB.
-- Read rejected BUY diagnostics in `reports/live-executor/executor.log`. Each `Live signal skipped` record contains `ticker=<ticker>`, a stable `reason=<code>`, and relevant values. Expected filter/capacity codes are `stale_or_missing_orderbook`, `imbalance_below_threshold`, `insufficient_cash`, `invalid_stop`, `insufficient_capital`, `max_open_positions`, and `broker_error`; `min_lot` remains executable under the sizing contract. For example, `reason=imbalance_below_threshold imbalance=0.9 imbalance_threshold=1.0` means the stream is live but the filter rejected entry, while `reason=stale_or_missing_orderbook orderbook_age_seconds=missing` indicates absent book data. These records are emitted only after `StrategyEvaluator` produces a BUY decision; no skip records can simply mean that no BUY signal was generated. Broker errors log only the operation and exception type, never credentials, account details, or exception text.
+- Read rejected BUY diagnostics in `reports/live-executor/executor.log`. Each `Live signal skipped` record contains `ticker=<ticker>`, a stable `reason=<code>`, and relevant values. Expected filter/capacity codes are `outside_entry_window`, `stale_or_missing_orderbook`, `imbalance_below_threshold`, `insufficient_cash`, `invalid_stop`, `insufficient_capital`, `max_open_positions`, and `broker_error`; `min_lot` remains executable under the sizing contract. For example, `reason=imbalance_below_threshold imbalance=0.9 imbalance_threshold=1.0` means the stream is live but the filter rejected entry, while `reason=stale_or_missing_orderbook orderbook_age_seconds=missing` indicates absent book data. These records are emitted only after `StrategyEvaluator` produces a BUY decision; no skip records can simply mean that no BUY signal was generated. Broker errors log only the operation and exception type, never credentials, account details, or exception text.
 - Diagnostics: `SELECT * FROM trading.live_positions WHERE status IN ('pending','open') ORDER BY id;`.
-- Tests: `cd backend && python -m pytest -q tests/test_live_executor.py`.
+- Tests: `cd backend && python -m pytest -q tests/test_live_executor.py tests/test_moex_session.py`.
 
 ## 16. Operating Telegram Paper Alerts
 
@@ -354,8 +357,10 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
 4. Preflight in the MOEX session (books will be stale on Sunday):
    `docker compose exec -T backend python -m app.analytics.live_executor_preflight`.
    It fails unless backend is healthy, `LIVE_UNIVERSE` is the nine PO names, the only locked strategy is `test_20260830_new_level`, free sandbox RUB > 0, all nine books are ≤5 minutes old, each paper process has exactly one instance, the DB universe still has 15 rows, and `allow_real_trading=false`.
-5. Full sandbox day (10:00–19:00 MSK, ~540 minutes), paper already running:
-   `START_LIVE_EXECUTOR=1 PRESERVE_PAPER_PROCESSES=1 DURATION_MINUTES=540 ./start_processes.sh`.
+5. Overnight sandbox day (Issue #137), after backend rebuild:
+   `START_LIVE_EXECUTOR=1 ./start_processes.sh`
+   Do not set `DURATION_MINUTES`. Launch Sunday evening; LiveExecutor waits until Monday 10:00 MSK. If paper is already running and covers Monday 19:00: `START_LIVE_EXECUTOR=1 PRESERVE_PAPER_PROCESSES=1 ./start_processes.sh`.
 6. Leftover canary RUAL is already `closed_stop`. No open sandbox holdings at the #135 start.
-7. After the window, record in Issue #135: init tickers, `reason=` counts, BUY count, latest `live_positions`, and evidence that `paper_equity` advanced. Never set `allow_real_trading=true`.
+7. After the window, record in Issue #135 / #137: init tickers, `reason=` counts, BUY count, latest `live_positions`, and evidence that `paper_equity` advanced. Never set `allow_real_trading=true`.
+   Historical canary with a fixed window remains `DURATION_MINUTES=60` (handover §19).
 

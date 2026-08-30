@@ -7,6 +7,7 @@ Central trading configuration - SINGLE SOURCE OF TRUTH for:
   5) live order-book imbalance defaults;
   6) live position-sizing risk limits;
   7) live sandbox executor policy;
+  7b) MOEX main-session calendar for overnight LiveExecutor (Issue #137);
   8) levels state-machine breakout thresholds (Issue #106 / Epic #105);
   9) level_breakout_retest trigger constant (Issue #107; Lab params live in pattern_registry).
 
@@ -55,6 +56,28 @@ LIVE_TRADING: Dict[str, Any] = {
     'check_interval_seconds': 30,
     'context_refresh_seconds': 900,
 }
+
+# Issue #137: MOEX main-session clock for overnight LiveExecutor.
+# Wall clock is converted to MSK (UTC+3). Entries are [10:00, 19:00) weekdays.
+# start_processes.sh uses this to size paper duration; LiveExecutor waits until
+# session open when until_session_end=True. Holidays are not modelled in v1.
+MOEX_SESSION: Dict[str, Any] = {
+    'tz_offset_hours': 3,
+    'entry_start_hour': 10,
+    'entry_end_hour': 19,
+    'session_end_hour': 19,
+    'weekdays': (0, 1, 2, 3, 4),
+    'wait_poll_seconds': 60,
+    'wait_log_seconds': 900,
+    'duration_margin_minutes': 15,
+}
+
+
+def get_moex_session_config() -> Dict[str, Any]:
+    """Return an isolated copy of the MOEX main-session calendar."""
+    cfg = dict(MOEX_SESSION)
+    cfg['weekdays'] = tuple(cfg['weekdays'])
+    return cfg
 
 
 def get_live_trading_config() -> Dict[str, Any]:

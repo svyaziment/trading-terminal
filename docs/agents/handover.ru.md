@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-30 (задача #135 paper + sandbox для test_20260830_new_level; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-30 (задача #137 автономный overnight LiveExecutor; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -58,6 +58,7 @@
 - **close_pool()**: никогда не вызывайте `db.close_pool()` в FastAPI-хендлерах или долгоживущих фоновых циклах (pool на весь процесс). Только в standalone-скриптах, которые завершаются. В `data_refresher` pool живёт между циклами.
 - **Heredoc loss**: большие bash heredocs могут терять блоки при копировании в Git Bash. Всегда проверяйте размер файла после создания (`wc -c`). Если байт меньше ожидаемого, повторите копирование.
 - **Буферизация логов**: фоновые процессы (start_processes.sh) используют `python -u` + `logging.basicConfig(level=INFO, stream=sys.stdout)` для немедленной записи логов в файлы. Без этого логи блочно буферизуются и кажутся пустыми до заполнения буфера.
+- **Overnight-длительность LiveExecutor (задача #137)**: без `DURATION_MINUTES` `start_processes.sh` поднимает paper до следующего 19:00 МСК, а LiveExecutor ждёт 10:00. Оставленный `DURATION_MINUTES=540` при старте в 23:00 всё ещё умрёт в 08:00. Для canary по-прежнему нужен явный `DURATION_MINUTES=N`. Unit: `cd backend && python -m pytest -q tests/test_moex_session.py tests/test_live_executor.py`.
 - **Docker rebuild**: после изменений backend-кода ОБЯЗАТЕЛЬНО пересоберите (`docker compose up -d --build backend`).
 - **JSON NaN / Infinity**: pandas создаёт NaN/NaT, а одна выигрышная сделка даёт `pf: Infinity`. Python `json.dumps` пишет нестрогий JSON, который PostgreSQL JSONB отклоняет (`invalid input syntax for type json`). Санируйте API-ответы **и** INSERT в `backtest_results` через `_json_dumps` → `_json_safe` в `strategy_jobs.py` (`inf`/`nan` → `null`). То же для API-ответов в `paper_trading_jobs.py`. Timestamp в SQL приводите к тексту (`created_at::text`).
 - **JSONB as string**: DBManager возвращает JSONB-колонки как Python-repr строки, а не dict. Нормализуйте через `_to_dict` (json.loads, затем fallback ast.literal_eval).
@@ -120,14 +121,16 @@ python docs/refresh/context_collector.py
 
 - Условия запуска: backend пересобран, streaming online data работает, активна одна заблокированная стратегия, sandbox-счёт пополнен и `LIVE_TRADING.enabled=true`.
 - При подготовке новой БД примените миграцию явно: `psql ... -f backend/migrations/20260817_01_live_positions.sql`. `LiveExecutor.initialize()` также автоматически применяет ту же идемпотентную схему.
-- Безопасный запуск: `START_LIVE_EXECUTOR=1 ./start_processes.sh`. Дополнительный opt-in не даёт обычному paper workflow выставлять sandbox-ордера. Лог: `reports/live-executor/executor.log`.
-- Порядок обработки фиксирован: BUY от `StrategyEvaluator` -> свежий imbalance -> свободные RUB -> position sizing -> market BUY -> take sell-limit -> запись/сверка БД.
+- Безопасный overnight-запуск (задача #137): пересобрать backend, затем `START_LIVE_EXECUTOR=1 ./start_processes.sh` **без** `DURATION_MINUTES`. Paper-процессы живут до ближайшего будничного 19:00 МСК плюс запас 15 минут. LiveExecutor спит до 10:00 МСК и торгует до 19:00. Часы — системные, приведённые к МСК (UTC+3). `START_LIVE_EXECUTOR=1` остаётся opt-in, чтобы обычный paper-запуск не выставлял sandbox-ордера. Лог: `reports/live-executor/executor.log`.
+- Canary / фиксированное окно: `DURATION_MINUTES=N` по-прежнему стартует сразу и останавливается через N минут после запуска. Так нельзя запускать overnight вс.→пн.
+- Входы LiveExecutor только в [10:00, 19:00) МСК (`reason=outside_entry_window`), даже если `StrategyEvaluator.entry_window` равен 7–19. Стоп/тейк мониторятся до закрытия сессии. Политика shutdown без изменений (`close_positions_on_shutdown=false`).
+- Порядок обработки фиксирован: BUY от `StrategyEvaluator` -> окно сессии -> свежий imbalance -> свободные RUB -> position sizing -> market BUY -> take sell-limit -> запись/сверка БД.
 - Stop-защита синтетическая. Нельзя выставлять stop sell-limit при входе: limit ниже рынка исполнился бы сразу. Монитор ждёт `current_price <= stop_price`, отменяет take и затем выставляет sell-limit по наблюдаемой цене.
 - Каждая физическая попытка broker API, включая retry SDK и обнаружение счёта, использует один token bucket (`api_rate_limit`, максимум 10/сек). Не добавляйте вызовы в обход `_broker_call` или клиентского hook `before_request`.
 - SIGTERM/SIGINT запрашивает очистку. Ожидающие entry/protection заявки отменяются; открытые позиции закрываются только при `close_positions_on_shutdown=true`. При значении false по умолчанию позиции остаются открытыми, а их protection IDs очищаются в БД.
-- Причины отказа BUY читайте в `reports/live-executor/executor.log`. Каждая запись `Live signal skipped` содержит `ticker=<тикер>`, стабильный `reason=<код>` и релевантные значения. Ожидаемые коды фильтров и лимитов: `stale_or_missing_orderbook`, `imbalance_below_threshold`, `insufficient_cash`, `invalid_stop`, `insufficient_capital`, `max_open_positions` и `broker_error`; `min_lot` по контракту sizing остаётся исполнимым. Например, `reason=imbalance_below_threshold imbalance=0.9 imbalance_threshold=1.0` означает, что стрим работает, но фильтр отклонил вход, а `reason=stale_or_missing_orderbook orderbook_age_seconds=missing` — что данных стакана нет. Эти записи появляются только после BUY-решения от `StrategyEvaluator`; отсутствие записей об отказах может означать, что BUY-сигналов не было. Для broker errors логируются только операция и тип исключения, без реквизитов счёта, credentials и текста исключения.
+- Причины отказа BUY читайте в `reports/live-executor/executor.log`. Каждая запись `Live signal skipped` содержит `ticker=<тикер>`, стабильный `reason=<код>` и релевантные значения. Ожидаемые коды фильтров и лимитов: `outside_entry_window`, `stale_or_missing_orderbook`, `imbalance_below_threshold`, `insufficient_cash`, `invalid_stop`, `insufficient_capital`, `max_open_positions` и `broker_error`; `min_lot` по контракту sizing остаётся исполнимым. Например, `reason=imbalance_below_threshold imbalance=0.9 imbalance_threshold=1.0` означает, что стрим работает, но фильтр отклонил вход, а `reason=stale_or_missing_orderbook orderbook_age_seconds=missing` — что данных стакана нет. Эти записи появляются только после BUY-решения от `StrategyEvaluator`; отсутствие записей об отказах может означать, что BUY-сигналов не было. Для broker errors логируются только операция и тип исключения, без реквизитов счёта, credentials и текста исключения.
 - Диагностика: `SELECT * FROM trading.live_positions WHERE status IN ('pending','open') ORDER BY id;`.
-- Тесты: `cd backend && python -m pytest -q tests/test_live_executor.py`.
+- Тесты: `cd backend && python -m pytest -q tests/test_live_executor.py tests/test_moex_session.py`.
 
 ## 16. Эксплуатация Telegram alerts для paper trading
 
@@ -354,8 +357,10 @@ ORDER BY id DESC LIMIT 20;
 4. Preflight в сессию MOEX (в воскресенье стаканы будут stale):
    `docker compose exec -T backend python -m app.analytics.live_executor_preflight`.
    Проверка падает, если backend нездоров, `LIVE_UNIVERSE` не равен девяти PO-именам, locked-стратегия не одна и не `test_20260830_new_level`, нет свободных sandbox RUB, хотя бы один из девяти стаканов старше пяти минут, paper-процессы запущены не в единственном экземпляре, во вселенной БД не 15 строк или `allow_real_trading` не равен false.
-5. Полный sandbox-день (10:00–19:00 МСК, ~540 минут), paper уже жив:
-   `START_LIVE_EXECUTOR=1 PRESERVE_PAPER_PROCESSES=1 DURATION_MINUTES=540 ./start_processes.sh`.
+5. Overnight sandbox-день (задача #137), после пересборки backend:
+   `START_LIVE_EXECUTOR=1 ./start_processes.sh`
+   Не задавать `DURATION_MINUTES`. Запуск в воскресенье вечером; LiveExecutor ждёт понедельника 10:00 МСК. Если paper уже жив и покрывает понедельник 19:00: `START_LIVE_EXECUTOR=1 PRESERVE_PAPER_PROCESSES=1 ./start_processes.sh`.
 6. Leftover canary RUAL уже `closed_stop`. На старте #135 открытых sandbox-позиций нет.
-7. После окна записать в задачу #135: init-тикеры, числа `reason=`, число BUY, последние `live_positions` и подтверждение, что `paper_equity` писалась. Никогда не включать `allow_real_trading`.
+7. После окна записать в задачи #135 / #137: init-тикеры, числа `reason=`, число BUY, последние `live_positions` и подтверждение, что `paper_equity` писалась. Никогда не включать `allow_real_trading`.
+   Исторический canary с фиксированным окном по-прежнему `DURATION_MINUTES=60` (handover §19).
 

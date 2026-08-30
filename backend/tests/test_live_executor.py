@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pandas as pd
@@ -11,6 +12,9 @@ from app.analytics.live_executor import (
     ensure_live_positions_table,
 )
 from app.broker.tinkoff_sandbox import SandboxAPIError
+
+
+IN_SESSION_NOW = datetime(2026, 8, 31, 11, 0, 0)
 
 
 class Result:
@@ -84,7 +88,12 @@ class FakeBroker:
         return SimpleNamespace(order_id=order_id)
 
 
-def make_executor(*, db=None, broker=None, **config):
+def make_executor(*, db=None, broker=None, now_fn=None, clock=None, sleep_fn=None, **config):
+    kwargs = {}
+    if clock is not None:
+        kwargs["clock"] = clock
+    if sleep_fn is not None:
+        kwargs["sleep_fn"] = sleep_fn
     executor = LiveExecutor(
         db=db or FakeDB(),
         broker=broker or FakeBroker(),
@@ -97,6 +106,8 @@ def make_executor(*, db=None, broker=None, **config):
             "max_position_pct": 20.0,
             **config,
         },
+        now_fn=now_fn or (lambda: IN_SESSION_NOW),
+        **kwargs,
     )
     executor.strategy_name = "active-strategy"
     executor.strategy_config = {"patterns": ["levels_reversal"]}
@@ -197,6 +208,43 @@ def test_buy_flow_checks_balance_sizes_entry_and_places_take_limit(caplog):
         "Live BUY submitted: ticker=SBER status=open "
         "size_lots=10 position_id=41"
     ) in caplog.text
+
+
+def test_buy_outside_entry_window_is_skipped_without_broker(caplog):
+    broker = FakeBroker()
+    executor = make_executor(
+        broker=broker,
+        now_fn=lambda: datetime(2026, 8, 30, 23, 0, 0),
+    )
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal(
+            "SBER",
+            {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
+            imbalance=1.5,
+        )
+
+    assert result == {"executed": False, "reason": "outside_entry_window"}
+    assert broker.calls == []
+    assert "reason=outside_entry_window" in caplog.text
+    assert "hour=23:00" in caplog.text
+
+
+def test_buy_at_session_close_is_skipped_without_broker():
+    broker = FakeBroker()
+    executor = make_executor(
+        broker=broker,
+        now_fn=lambda: datetime(2026, 8, 31, 19, 0, 0),
+    )
+
+    result = executor.process_signal(
+        "SBER",
+        {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
+        imbalance=1.5,
+    )
+
+    assert result["reason"] == "outside_entry_window"
+    assert broker.calls == []
 
 
 def test_imbalance_is_mandatory_before_any_broker_request(caplog):
@@ -489,6 +537,7 @@ def test_initialize_builds_unmodified_strategy_evaluator(monkeypatch):
         [],
         [],
         [],
+        None,
     )
     assert isinstance(executor.evaluators["SBER"], Evaluator)
 
@@ -590,3 +639,94 @@ def test_runtime_migration_is_idempotent():
     assert "CREATE SCHEMA IF NOT EXISTS trading" in statements[0]
     assert "CREATE TABLE IF NOT EXISTS trading.live_positions" in statements[1]
     assert "CREATE INDEX IF NOT EXISTS idx_live_positions_active" in statements[2]
+
+
+class _FakeWallClock:
+    def __init__(self, wall: datetime):
+        self.wall = wall
+        self.mono = 0.0
+
+    def now(self) -> datetime:
+        return self.wall
+
+    def clock(self) -> float:
+        return self.mono
+
+    def sleep(self, seconds: float) -> None:
+        if seconds <= 1.0 and self.wall >= datetime(2026, 8, 31, 10, 0, 0):
+            seconds = 15 * 60
+        self.wall += timedelta(seconds=seconds)
+        self.mono += seconds
+
+
+def test_until_session_end_waits_until_ten_then_stops_at_nineteen(caplog):
+    fake = _FakeWallClock(datetime(2026, 8, 30, 23, 0, 0))
+    events = {"init": [], "monitor": 0, "bars": 0}
+    executor = make_executor(
+        now_fn=fake.now,
+        clock=fake.clock,
+        sleep_fn=fake.sleep,
+        check_interval_seconds=60,
+        context_refresh_seconds=10**6,
+    )
+    executor.install_signal_handlers = lambda: None
+
+    def initialize():
+        events["init"].append(datetime(
+            fake.wall.year, fake.wall.month, fake.wall.day,
+            fake.wall.hour, fake.wall.minute,
+        ))
+        executor.evaluators = {"SBER": object()}
+        executor.strategy_name = "active-strategy"
+
+    executor.initialize = initialize
+    executor.monitor_positions = lambda: events.__setitem__(
+        "monitor", events["monitor"] + 1
+    )
+    executor.process_latest_bars = lambda: events.__setitem__(
+        "bars", events["bars"] + 1
+    )
+    executor.refresh_contexts = lambda: None
+    executor.shutdown = lambda: None
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        executor.run(until_session_end=True)
+
+    assert events["init"] == [datetime(2026, 8, 31, 10, 0)]
+    assert fake.wall >= datetime(2026, 8, 31, 19, 0, 0)
+    assert events["monitor"] >= 1
+    assert events["bars"] >= 1
+    assert "Waiting for MOEX session open at 2026-08-31 10:00 MSK" in caplog.text
+    assert "MOEX session closed at 2026-08-31 19:00 MSK" in caplog.text
+
+
+def test_duration_minutes_does_not_wait_for_session_open():
+    fake = _FakeWallClock(datetime(2026, 8, 30, 23, 0, 0))
+    events = {"init": []}
+    executor = make_executor(
+        now_fn=fake.now,
+        clock=fake.clock,
+        sleep_fn=fake.sleep,
+        check_interval_seconds=60,
+        context_refresh_seconds=10**6,
+    )
+    executor.install_signal_handlers = lambda: None
+
+    def initialize():
+        events["init"].append(datetime(
+            fake.wall.year, fake.wall.month, fake.wall.day,
+            fake.wall.hour, fake.wall.minute,
+        ))
+        executor.evaluators = {"SBER": object()}
+        executor.strategy_name = "active-strategy"
+
+    executor.initialize = initialize
+    executor.monitor_positions = lambda: None
+    executor.process_latest_bars = lambda: None
+    executor.refresh_contexts = lambda: None
+    executor.shutdown = lambda: None
+
+    executor.run(duration_minutes=1)
+
+    assert events["init"] == [datetime(2026, 8, 30, 23, 0)]
+    assert fake.wall < datetime(2026, 8, 31, 10, 0, 0)

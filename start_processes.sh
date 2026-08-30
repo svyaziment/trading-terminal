@@ -1,8 +1,25 @@
 #!/usr/bin/env bash
 set -u
 export PYTHONUNBUFFERED=1
-DURATION=${DURATION_MINUTES:-1200}
 PRESERVE_PAPER=${PRESERVE_PAPER_PROCESSES:-0}
+
+if [[ -n "${DURATION_MINUTES:-}" ]]; then
+    DURATION="${DURATION_MINUTES}"
+    SESSION_AWARE=0
+    echo "=== Fixed duration: ${DURATION} min from launch (DURATION_MINUTES) ==="
+else
+    SESSION_AWARE=1
+    echo "=== Session-aware duration: until next MOEX 19:00 MSK + margin ==="
+    DURATION=$(docker compose exec -T backend python -c "from app.analytics.moex_session import minutes_until_session_end; print(minutes_until_session_end())")
+    DURATION=$(echo "${DURATION}" | tr -d '\r' | tr -d '[:space:]')
+    if ! [[ "${DURATION}" =~ ^[0-9]+$ ]]; then
+        echo "Failed to compute session duration. Rebuild backend first:"
+        echo "  docker compose up -d --build backend"
+        echo "Raw output: ${DURATION}"
+        exit 1
+    fi
+    echo "Paper processes will run for ${DURATION} min"
+fi
 
 if [[ "${PRESERVE_PAPER}" == "1" ]]; then
     if [[ "${START_LIVE_EXECUTOR:-0}" != "1" ]]; then
@@ -87,7 +104,13 @@ fi
 echo "=== Step 6: Start sandbox live executor when explicitly requested ==="
 if [[ "${START_LIVE_EXECUTOR:-0}" == "1" ]]; then
     mkdir -p reports/live-executor
-    nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.live_executor import LiveExecutor; LiveExecutor().run(duration_minutes=${DURATION})" > reports/live-executor/executor.log 2>&1 &
+    if [[ "${SESSION_AWARE}" == "1" ]]; then
+        echo "LiveExecutor: until_session_end (wait 10:00 MSK, stop 19:00 MSK)"
+        nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.live_executor import LiveExecutor; LiveExecutor().run(until_session_end=True)" > reports/live-executor/executor.log 2>&1 &
+    else
+        echo "LiveExecutor: duration_minutes=${DURATION} from launch"
+        nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.live_executor import LiveExecutor; LiveExecutor().run(duration_minutes=${DURATION})" > reports/live-executor/executor.log 2>&1 &
+    fi
     sleep 1
 else
     echo "Sandbox LiveExecutor disabled for this launch (set START_LIVE_EXECUTOR=1)"
@@ -113,4 +136,8 @@ for t,c in targets.items():
     status = 'OK' if c==1 else ('MISSING!' if c==0 else f'DUPLICATE({c})')
     print(f'{t}: {c} - {status}')
 "
-echo "All processes started with duration=${DURATION} min"
+if [[ "${SESSION_AWARE}" == "1" ]]; then
+    echo "Paper duration=${DURATION} min; LiveExecutor follows MOEX 10:00-19:00 MSK"
+else
+    echo "All processes started with duration=${DURATION} min"
+fi
