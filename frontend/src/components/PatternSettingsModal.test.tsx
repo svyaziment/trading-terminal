@@ -6,6 +6,8 @@ import {
   LEVEL_BREAKOUT_RETEST_DEFAULTS,
   LEVELS_SR_BREAKOUT_DEF,
   LEVELS_SR_BREAKOUT_DEFAULTS,
+  LEVELS_SR_SUPPORT_DEF,
+  LEVELS_SR_SUPPORT_DEFAULTS,
 } from "../test/fixtures";
 
 function renderModal(
@@ -93,6 +95,42 @@ describe("PatternSettingsModal · levels_sr_breakout", () => {
     renderComposite();
     fireEvent.change(screen.getByLabelText("Окно ретеста (баров ТФ)"), { target: { value: "0" } });
     expect(screen.getByRole("alert")).toHaveTextContent(/допустимо от 1 до 100/);
+    expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
+  });
+});
+
+describe("PatternSettingsModal · levels_sr_support", () => {
+  function renderSupport(
+    values: Record<string, unknown> = LEVELS_SR_SUPPORT_DEFAULTS,
+  ) {
+    return render(
+      <PatternSettingsModal
+        def={LEVELS_SR_SUPPORT_DEF}
+        values={values}
+        locale="ru"
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+  }
+
+  it("renders every schema field from the API def and no retest keys", () => {
+    renderSupport();
+    expect(screen.getByText("Support Reversal (tracker veto)")).toBeInTheDocument();
+    for (const param of LEVELS_SR_SUPPORT_DEF.params) {
+      expect(screen.getByText(param.label)).toBeInTheDocument();
+    }
+    expect(screen.queryByLabelText("Окно ретеста (баров ТФ)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Зона ретеста (×ATR)")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(
+      LEVELS_SR_SUPPORT_DEF.params.filter((p) => p.type === "number").length,
+    );
+  });
+
+  it("shows a validation error and blocks Apply for swing_window above max", () => {
+    renderSupport();
+    fireEvent.change(screen.getByLabelText("Окно swing (баров)"), { target: { value: "51" } });
+    expect(screen.getByRole("alert")).toHaveTextContent(/допустимо от 2 до 50/);
     expect(screen.getByRole("button", { name: "Применить" })).toBeDisabled();
   });
 });

@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-30 (Issue #127 levels_sr_support support-only engine). Companion to project-context.md.
+Last refreshed: 2026-08-30 (Issue #128 levels_sr_support Lab chip). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -271,7 +271,7 @@ Do not modify the locked strategy, RR, imbalance threshold, or `trading.trading_
 - Top-level `config.confirm_windows` is taken from the enabled schema that owns that param; the composite wins over `levels_reversal` (same as backend `_LEVELS_CONFIRM_PATTERN_IDS`). Save goes through existing `POST /api/strategies` then `POST /api/strategies/{id}/run` with `config.patterns` as `{ id: params }` — not `POST /api/backtest`.
 - When to enable: you want one Lab engine that enters on native support **or** on a confirmed resistance retest. Keep it off on locked `test_20260731` (the Lab row stays read-only).
 - There is no `frontend` service in `docker-compose.yml`. Check locally: `cd frontend && npm test && npm run build`. Backend schema: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
-- Isolated AFKS smoke (Issue #119): handover §27. Lab-universe A/B (Issue #124): handover §28. Support-only engine (Issue #127): handover §29. Do not treat either package as a paper verdict.
+- Isolated AFKS smoke (Issue #119): handover §27. Lab-universe A/B (Issue #124): handover §28. Support-only engine (Issue #127): handover §29. Lab chip (Issue #128): handover §30. Do not treat either package as a paper verdict.
 
 ## 27. Operating the AFKS composite smoke
 
@@ -296,7 +296,7 @@ Do not modify the locked strategy, RR, imbalance threshold, or `trading.trading_
 ## 29. Operating the Support-with-tracker Pattern (`levels_sr_support`)
 
 - Entry points: `PATTERN_ID` / `SOURCE` in `patterns/levels_sr_support.py`; support-only path in `StrategyEvaluator._check_sr_support_entry`. Not a SignalEngine `BasePattern` — do not add the id to `SIGNAL_ENGINE_PATTERN_IDS`. Do not put the file under `patterns/breakout/`.
-- Lab schema: `PATTERN_REGISTRY['levels_sr_support']` (also on `SIGNAL_ENGINE_PATTERN_SCHEMAS` for `GET /api/patterns`). Category `levels` (next to `levels_reversal` and `levels_sr_breakout`, not in breakout). Icon `support_tracker` (must stay distinct from `breakout_up` and `support_breakout`). Params = **only** `levels_reversal` fields — no retest keys. Lab chip is Issue #128. Do not hardcode the param keys in TSX.
+- Lab schema: `PATTERN_REGISTRY['levels_sr_support']` (also on `SIGNAL_ENGINE_PATTERN_SCHEMAS` for `GET /api/patterns`). Category `levels` (next to `levels_reversal` and `levels_sr_breakout`, not in breakout). Icon `support_tracker` (must stay distinct from `breakout_up` and `support_breakout`). Params = **only** `levels_reversal` fields — no retest keys. Lab chip: handover §30. Do not hardcode the param keys in TSX.
 - Isolated run: `config.patterns` contains `levels_sr_support` and optionally `signal_4h_buy` / SignalEngine ids. `levels_reversal` is **not** required. `run_strategy_backtest` treats this id as a sufficient entry engine.
 - Order in `check_entry` after session / HTF / `_sync_tracker`: (1) if `levels_sr_breakout` is on, the composite wins (unchanged); (2) else if `levels_sr_support` is on — common AND, then support zone + confirm + veto of *active* resistance with `tracker=self._tracker` → `source=levels_sr_support`, levels stop/take, top-level RR filter. **Do not** call `check_breakout_retest` on this id.
 - Both chips (`levels_sr_support` + `levels_sr_breakout`): composite wins. `levels_sr_support` + `levels_reversal`: the new id wins (one support path, no doubling). `_LEVELS_CONFIRM_PATTERN_IDS` order is composite > support-with-tracker > `levels_reversal`.
@@ -304,4 +304,16 @@ Do not modify the locked strategy, RR, imbalance threshold, or `trading.trading_
 - Tracker / `htf_bars`: same feed as #107/#116 (`load_context(htf_bars=...)` / Lab plugin `MarketContext.htf_bars`). Unit tests do not depend on the Lab UI.
 - Locked `test_20260731` must not enable this id (paper/live veto and levels stop/take stay bit-for-bit).
 - Unit tests: `cd backend && python -m pytest -q tests/test_levels_sr_support.py tests/test_pattern_registry.py tests/test_resistance_zone_veto.py tests/test_levels_sr_breakout.py tests/test_strategy_plugin.py`.
+
+## 30. Operating the Support-with-tracker Lab chip
+
+- Entry points: `StrategyLab.tsx` (chips grouped by API `category`) and `PatternSettingsModal.tsx` (fields from `PatternDef.params`). Helpers: `patternLab.ts` (`resolveConfirmWindows`, `LEVELS_CONFIRM_PATTERN_IDS`), `patternValidation.ts`. Icon map: `PatternIcon.tsx` keyed by API `icon`, not by pattern id.
+- Enable from the **Уровни** group (not **Пробой**). Visible name is API `label` («Поддержка с трекером»); EN `label_en` («Support Reversal (tracker veto)») is in the tooltip and under the modal title. Icon `support_tracker` (support line + tracker watching the zone, no breakout arrow) is also from the API and must stay distinct from `support_breakout` and `breakout_up`.
+- This chip **replaces** `levels_reversal` / `levels_sr_breakout` for this strategy. Isolated run: turn on `levels_sr_support` and optionally `signal_4h_buy` / SignalEngine; leave `levels_reversal`, `levels_sr_breakout`, and `level_breakout_retest` off. If `levels_sr_breakout` is also on, the backend composite wins. If `levels_sr_support` and `levels_reversal` are both on, the new id wins (one support path) — do not treat either mix as a third AND.
+- Click the chip label to open settings (enables the pattern and prefills schema defaults). The checkbox toggles; turning a parameterized chip on also opens the modal. Gear still opens settings.
+- Do not hardcode the param list in the frontend. Schema = `levels_reversal` fields only — no retest keys. Out-of-range values get a red border + message; Apply and «Сохранить и запустить» are blocked. «Сбросить дефолты» restores `schema.default`. «Отмена» / Esc discards the draft.
+- Top-level `config.confirm_windows` is taken from the enabled schema that owns that param; priority is composite > support-with-tracker > `levels_reversal` (same as backend `_LEVELS_CONFIRM_PATTERN_IDS`). Save goes through existing `POST /api/strategies` then `POST /api/strategies/{id}/run` with `config.patterns` as `{ id: params }` — not `POST /api/backtest`.
+- When to enable: you want the #124 B-support path (tracker-aware veto, no resistance retest). Keep it off on locked `test_20260731` (the Lab row stays read-only).
+- There is no `frontend` service in `docker-compose.yml`. Check locally: `cd frontend && npm test && npm run build`. Backend schema: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
+- Isolated vs #124 B-support is Issue #129. Do not treat this chip as a paper verdict.
 

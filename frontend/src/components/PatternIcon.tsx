@@ -37,8 +37,20 @@ function SupportBreakoutIcon(props: { className?: string }) {
   );
 }
 
+/** Support line with a tracker watching the zone (no breakout arrow). */
+function SupportTrackerIcon(props: { className?: string }) {
+  return (
+    <svg {...svgProps(props.className)}>
+      <line x1="2" y1="13" x2="14" y2="13" />
+      <line x1="3" y1="9" x2="13" y2="9" strokeDasharray="1.5 1.5" />
+      <circle cx="8" cy="11" r="1.6" />
+    </svg>
+  );
+}
+
 export function PatternIcon(props: { icon?: string; className?: string }) {
   if (props.icon === "breakout_up") return <BreakoutUpIcon className={props.className} />;
   if (props.icon === "support_breakout") return <SupportBreakoutIcon className={props.className} />;
+  if (props.icon === "support_tracker") return <SupportTrackerIcon className={props.className} />;
   return null;
 }

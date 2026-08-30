@@ -1,4 +1,65 @@
-import type { PatternDef } from "../types";
+import type { PatternDef, PatternParam } from "../types";
+
+/** Shared levels_reversal fields (also the full levels_sr_support schema). */
+export const LEVELS_REVERSAL_PARAMS: PatternParam[] = [
+  {
+    key: "level_timeframe",
+    label: "Таймфрейм уровней",
+    type: "select",
+    options: ["1h", "4h", "1d", "1w", "1M"],
+    default: "4h",
+  },
+  {
+    key: "level_method",
+    label: "Метод определения уровня",
+    type: "multiselect",
+    options: ["swing", "impulse"],
+    default: ["swing", "impulse"],
+  },
+  {
+    key: "swing_window",
+    label: "Окно swing (баров)",
+    type: "number",
+    min: 2,
+    max: 50,
+    step: 1,
+    default: 10,
+  },
+  {
+    key: "impulse_body_ratio",
+    label: "Доля тела импульсной свечи",
+    type: "number",
+    min: 0.1,
+    max: 1.0,
+    step: 0.05,
+    default: 0.7,
+  },
+  {
+    key: "impulse_atr_mult",
+    label: "Размер импульса (×ATR)",
+    type: "number",
+    min: 0.5,
+    max: 5.0,
+    step: 0.1,
+    default: 1.5,
+  },
+  {
+    key: "zone_atr_mult",
+    label: "Ширина зоны (×ATR)",
+    type: "number",
+    min: 0.1,
+    max: 2.0,
+    step: 0.05,
+    default: 0.5,
+  },
+  {
+    key: "confirm_windows",
+    label: "Окна подтверждения (мин)",
+    type: "multiselect",
+    options: [1, 5, 10, 15, 20, 25, 30, 60, 90, 120],
+    default: [10],
+  },
+];
 
 /** Shape returned by GET /api/patterns for level_breakout_retest (Issue #107/#109). */
 export const LEVEL_BREAKOUT_RETEST_DEF: PatternDef = {
@@ -86,63 +147,7 @@ export const LEVELS_SR_BREAKOUT_DEF: PatternDef = {
   icon: "support_breakout",
   category: "levels",
   params: [
-    {
-      key: "level_timeframe",
-      label: "Таймфрейм уровней",
-      type: "select",
-      options: ["1h", "4h", "1d", "1w", "1M"],
-      default: "4h",
-    },
-    {
-      key: "level_method",
-      label: "Метод определения уровня",
-      type: "multiselect",
-      options: ["swing", "impulse"],
-      default: ["swing", "impulse"],
-    },
-    {
-      key: "swing_window",
-      label: "Окно swing (баров)",
-      type: "number",
-      min: 2,
-      max: 50,
-      step: 1,
-      default: 10,
-    },
-    {
-      key: "impulse_body_ratio",
-      label: "Доля тела импульсной свечи",
-      type: "number",
-      min: 0.1,
-      max: 1.0,
-      step: 0.05,
-      default: 0.7,
-    },
-    {
-      key: "impulse_atr_mult",
-      label: "Размер импульса (×ATR)",
-      type: "number",
-      min: 0.5,
-      max: 5.0,
-      step: 0.1,
-      default: 1.5,
-    },
-    {
-      key: "zone_atr_mult",
-      label: "Ширина зоны (×ATR)",
-      type: "number",
-      min: 0.1,
-      max: 2.0,
-      step: 0.05,
-      default: 0.5,
-    },
-    {
-      key: "confirm_windows",
-      label: "Окна подтверждения (мин)",
-      type: "multiselect",
-      options: [1, 5, 10, 15, 20, 25, 30, 60, 90, 120],
-      default: [10],
-    },
+    ...LEVELS_REVERSAL_PARAMS,
     {
       key: "retest_window_bars",
       label: "Окно ретеста (баров ТФ)",
@@ -193,6 +198,18 @@ export const LEVELS_SR_BREAKOUT_DEF: PatternDef = {
   ],
 };
 
+/** Shape returned by GET /api/patterns for levels_sr_support (Issue #127/#128). */
+export const LEVELS_SR_SUPPORT_DEF: PatternDef = {
+  id: "levels_sr_support",
+  label: "Поддержка с трекером",
+  label_en: "Support Reversal (tracker veto)",
+  hint: "Зона поддержки как levels_reversal + вето активного сопротивления с LevelsTracker (пробитое resistance не режет вход). Без ретеста / пути B композита. Не AND с levels_reversal / levels_sr_breakout / level_breakout_retest.",
+  hint_en: "Support zone like levels_reversal plus Issue #97 veto of active resistance with LevelsTracker (a broken resistance does not cut entry). No retest / composite path B. Do not AND with the levels_reversal / levels_sr_breakout / level_breakout_retest chips.",
+  icon: "support_tracker",
+  category: "levels",
+  params: [...LEVELS_REVERSAL_PARAMS],
+};
+
 export const SIGNAL_4H_BUY_DEF: PatternDef = {
   id: "signal_4h_buy",
   label: "4H Buy",
@@ -230,4 +247,14 @@ export const LEVELS_SR_BREAKOUT_DEFAULTS = {
   entry_trigger_bullish: true,
   stop_atr: 1.0,
   risk_reward: 2.0,
+};
+
+export const LEVELS_SR_SUPPORT_DEFAULTS = {
+  level_timeframe: "4h",
+  level_method: ["swing", "impulse"],
+  swing_window: 10,
+  impulse_body_ratio: 0.7,
+  impulse_atr_mult: 1.5,
+  zone_atr_mult: 0.5,
+  confirm_windows: [10],
 };

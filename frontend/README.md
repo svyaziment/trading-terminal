@@ -51,3 +51,13 @@ Pattern `levels_sr_breakout` appears in the **Уровни / Levels** group afte
 **When to enable.** Use it alone (plus optional `signal_4h_buy` / SignalEngine filters) when you want both support reversals and resistance-retest entries. Leave it off on locked paper strategy `test_20260731` (read-only in the Lab).
 
 **How to configure.** Click the chip to open settings. Schema = all `levels_reversal` fields + retest fields. Out-of-range values block Apply and Save+Run. Reset restores API defaults. Save still goes through `POST /api/strategies` then `POST /api/strategies/{id}/run`.
+
+## Strategy Lab: Support with tracker
+
+Pattern `levels_sr_support` appears in the **Уровни / Levels** group after `GET /api/patterns` returns it (backend Issue #127). The UI does not hardcode its params. Icon `support_tracker` is distinct from `support_breakout` and `breakout_up`.
+
+**What it does.** Isolated entry engine: native support zone of `levels_reversal` plus the Issue #97 veto of *active* resistance **with** `LevelsTracker`. No resistance-retest path. This chip **replaces** `levels_reversal` / `levels_sr_breakout` for this strategy — do not AND it with those chips or `level_breakout_retest`.
+
+**When to enable.** Use it alone (plus optional `signal_4h_buy` / SignalEngine filters) when you want only the #124 B-support path. Leave it off on locked paper strategy `test_20260731` (read-only in the Lab).
+
+**How to configure.** Click the chip to open settings. Schema = `levels_reversal` fields only (no retest keys). Out-of-range values block Apply and Save+Run. Reset restores API defaults. Save still goes through `POST /api/strategies` then `POST /api/strategies/{id}/run`.

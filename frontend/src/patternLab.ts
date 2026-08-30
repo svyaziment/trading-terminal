@@ -129,10 +129,18 @@ function hasConfirmWindowsParam(def: PatternDef): boolean {
 }
 
 /**
+ * Same preference as backend `_LEVELS_CONFIRM_PATTERN_IDS`:
+ * composite > support-with-tracker > levels_reversal.
+ */
+export const LEVELS_CONFIRM_PATTERN_IDS = [
+  "levels_sr_breakout",
+  "levels_sr_support",
+  "levels_reversal",
+] as const;
+
+/**
  * Top-level `confirm_windows` for Lab save.
- * Uses the first enabled schema that owns that param.
- * If several match, skip `levels_reversal` so a composite entry engine wins
- * (same preference as backend `_LEVELS_CONFIRM_PATTERN_IDS`).
+ * Uses the first enabled schema that owns that param, in backend priority order.
  */
 export function resolveConfirmWindows(
   defs: PatternDef[],
@@ -140,7 +148,9 @@ export function resolveConfirmWindows(
 ): number[] {
   const owners = defs.filter((d) => d.id in configs && hasConfirmWindowsParam(d));
   if (!owners.length) return [];
-  const owner = owners.find((d) => d.id !== "levels_reversal") ?? owners[0];
+  const owner =
+    LEVELS_CONFIRM_PATTERN_IDS.map((id) => owners.find((d) => d.id === id)).find(Boolean) ??
+    owners[0];
   const w = effectivePatternParams(owner, configs[owner.id]).confirm_windows;
   return Array.isArray(w) ? (w as number[]) : [];
 }

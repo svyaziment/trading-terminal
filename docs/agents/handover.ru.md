@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-30 (задача #127 levels_sr_support — только поддержка с трекером; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-30 (задача #128 чип Lab levels_sr_support; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -271,7 +271,7 @@ ORDER BY id DESC LIMIT 20;
 - Верхнеуровневый `config.confirm_windows` берётся из включённой схемы, у которой есть этот param; композит побеждает `levels_reversal` (как backend `_LEVELS_CONFIRM_PATTERN_IDS`). Сохранение идёт через существующие `POST /api/strategies` и `POST /api/strategies/{id}/run` с `config.patterns` как `{ id: params }` — не `POST /api/backtest`.
 - Когда включать: нужен один Lab-движок, который входит и от нативной поддержки, и на подтверждённом ретесте сопротивления. На locked `test_20260731` оставлять выключенным (строка Lab только для чтения).
 - Сервиса `frontend` в `docker-compose.yml` нет. Проверка локально: `cd frontend && npm test && npm run build`. Схема backend: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
-- Изолированный AFKS smoke (задача #119): handover §27. Lab-вселенная A/B (задача #124): handover §28. Движок только поддержки (задача #127): handover §29. Не считать ни один пакет вердиктом для paper.
+- Изолированный AFKS smoke (задача #119): handover §27. Lab-вселенная A/B (задача #124): handover §28. Движок только поддержки (задача #127): handover §29. Чип Lab (задача #128): handover §30. Не считать ни один пакет вердиктом для paper.
 
 ## 27. Эксплуатация AFKS smoke композита
 
@@ -296,7 +296,7 @@ ORDER BY id DESC LIMIT 20;
 ## 29. Эксплуатация паттерна «поддержка с трекером» (`levels_sr_support`)
 
 - Точки входа: `PATTERN_ID` / `SOURCE` в `patterns/levels_sr_support.py`; только support-путь в `StrategyEvaluator._check_sr_support_entry`. Это не SignalEngine `BasePattern` — не добавлять id в `SIGNAL_ENGINE_PATTERN_IDS`. Не класть файл в `patterns/breakout/`.
-- Схема Lab: `PATTERN_REGISTRY['levels_sr_support']` (также в `SIGNAL_ENGINE_PATTERN_SCHEMAS` для `GET /api/patterns`). Категория `levels` (рядом с `levels_reversal` и `levels_sr_breakout`, не в breakout). Иконка `support_tracker` (должна отличаться от `breakout_up` и `support_breakout`). Параметры — **только** поля `levels_reversal`, без ключей ретеста. Чип Lab — задача #128. Не хардкодить ключи params в TSX.
+- Схема Lab: `PATTERN_REGISTRY['levels_sr_support']` (также в `SIGNAL_ENGINE_PATTERN_SCHEMAS` для `GET /api/patterns`). Категория `levels` (рядом с `levels_reversal` и `levels_sr_breakout`, не в breakout). Иконка `support_tracker` (должна отличаться от `breakout_up` и `support_breakout`). Параметры — **только** поля `levels_reversal`, без ключей ретеста. Чип Lab: handover §30. Не хардкодить ключи params в TSX.
 - Изолированный прогон: в `config.patterns` есть `levels_sr_support` и опционально `signal_4h_buy` / id SignalEngine. `levels_reversal` **не** обязателен. `run_strategy_backtest` считает этот id достаточным движком входа.
 - Порядок в `check_entry` после сессии / HTF / `_sync_tracker`: (1) если включён `levels_sr_breakout` — побеждает композит (без изменений); (2) иначе если включён `levels_sr_support` — общие AND, затем зона поддержки + confirm + вето *активного* сопротивления с `tracker=self._tracker` → `source=levels_sr_support`, levels stop/take, верхнеуровневый RR. **Не** вызывать `check_breakout_retest` на этом id.
 - Оба чипа (`levels_sr_support` + `levels_sr_breakout`): побеждает композит. `levels_sr_support` + `levels_reversal`: побеждает новый id (один support-путь, без удвоения). Порядок `_LEVELS_CONFIRM_PATTERN_IDS`: композит > поддержка-с-трекером > `levels_reversal`.
@@ -304,4 +304,16 @@ ORDER BY id DESC LIMIT 20;
 - Трекер / `htf_bars`: та же подача, что #107/#116 (`load_context(htf_bars=...)` / Lab plugin `MarketContext.htf_bars`). Unit-тесты не зависят от Lab UI.
 - Locked `test_20260731` этот id не включает (paper/live вето и levels stop/take остаются бит-в-бит).
 - Unit-тесты: `cd backend && python -m pytest -q tests/test_levels_sr_support.py tests/test_pattern_registry.py tests/test_resistance_zone_veto.py tests/test_levels_sr_breakout.py tests/test_strategy_plugin.py`.
+
+## 30. Эксплуатация чипа «поддержка с трекером» в Lab
+
+- Точки входа: `StrategyLab.tsx` (чипы по `category` из API) и `PatternSettingsModal.tsx` (поля из `PatternDef.params`). Хелперы: `patternLab.ts` (`resolveConfirmWindows`, `LEVELS_CONFIRM_PATTERN_IDS`), `patternValidation.ts`. Карта иконок: `PatternIcon.tsx` по API `icon`, не по id паттерна.
+- Включается в группе **Уровни** (не **Пробой**). Видимое имя — API `label` («Поддержка с трекером»); EN `label_en` («Support Reversal (tracker veto)») в tooltip и под заголовком модалки. Иконка `support_tracker` (линия поддержки + трекер в зоне, без стрелки пробоя) тоже из API и должна отличаться от `support_breakout` и `breakout_up`.
+- Этот чип **заменяет** `levels_reversal` / `levels_sr_breakout` для этой стратегии. Изолированный прогон: включить `levels_sr_support` и опционально `signal_4h_buy` / SignalEngine; `levels_reversal`, `levels_sr_breakout` и `level_breakout_retest` оставить выключенными. Если одновременно включён `levels_sr_breakout` — на backend побеждает композит. Если одновременно `levels_sr_support` и `levels_reversal` — побеждает новый id (один support-путь) — это не третий AND.
+- Клик по подписи чипа открывает настройки (включает паттерн и подставляет дефолты схемы). Чекбокс переключает; включение параметризованного чипа тоже открывает модалку. Шестерёнка по-прежнему открывает настройки.
+- Не хардкодить список параметров во frontend. Схема = только поля `levels_reversal`, без ключей ретеста. Значения вне диапазона — красный бордер и сообщение; «Применить» и «Сохранить и запустить» блокируются. «Сбросить дефолты» возвращает `schema.default`. «Отмена» / Esc отменяет draft.
+- Верхнеуровневый `config.confirm_windows` берётся из включённой схемы, у которой есть этот param; приоритет композит > поддержка-с-трекером > `levels_reversal` (как backend `_LEVELS_CONFIRM_PATTERN_IDS`). Сохранение идёт через существующие `POST /api/strategies` и `POST /api/strategies/{id}/run` с `config.patterns` как `{ id: params }` — не `POST /api/backtest`.
+- Когда включать: нужен путь B-support из #124 (вето с трекером, без ретеста сопротивления). На locked `test_20260731` оставлять выключенным (строка Lab только для чтения).
+- Сервиса `frontend` в `docker-compose.yml` нет. Проверка локально: `cd frontend && npm test && npm run build`. Схема backend: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
+- Isolated vs #124 B-support — задача #129. Не считать этот чип вердиктом для paper.
 
