@@ -1,0 +1,227 @@
+{
+  "extracted_at": "2026-08-30 00:10:33",
+  "issue": 124,
+  "date_from": "2024-08-01",
+  "date_to": "2026-08-21",
+  "period_last_day": "2026-08-20",
+  "n_runs": 1,
+  "min_candles": 250000,
+  "reference": {
+    "id": 118,
+    "name": "test_20260821",
+    "in_paper_test": false,
+    "locked": false
+  },
+  "flags_at_start": [
+    {
+      "id": 36,
+      "name": "test_20260731",
+      "in_paper_test": true,
+      "locked": true
+    },
+    {
+      "id": 102,
+      "name": "test_20260820",
+      "in_paper_test": false,
+      "locked": false
+    },
+    {
+      "id": 118,
+      "name": "test_20260821",
+      "in_paper_test": false,
+      "locked": false
+    }
+  ],
+  "protected_names": [
+    "test_20260731",
+    "test_20260820",
+    "test_20260821"
+  ],
+  "lab_universe": [
+    "AFKS",
+    "ALRS",
+    "CBOM",
+    "CHMF",
+    "FEES",
+    "FLOT",
+    "GAZP",
+    "GMKN",
+    "IRAO",
+    "LKOH",
+    "MGNT",
+    "MOEX",
+    "MTLR",
+    "MTSS",
+    "NLMK",
+    "NVTK",
+    "PHOR",
+    "PIKK",
+    "PLZL",
+    "ROSN",
+    "RTKM",
+    "RUAL",
+    "SBER",
+    "SIBN",
+    "SNGS",
+    "TATN",
+    "TRNFP",
+    "VTBR"
+  ],
+  "volume_order": [
+    "FEES",
+    "IRAO",
+    "AFKS",
+    "VTBR",
+    "GAZP",
+    "SNGS",
+    "SBER",
+    "RUAL",
+    "ALRS",
+    "GMKN",
+    "MTLR",
+    "CBOM",
+    "NLMK",
+    "ROSN",
+    "RTKM",
+    "MOEX",
+    "FLOT",
+    "MTSS",
+    "NVTK",
+    "PIKK",
+    "TATN",
+    "CHMF",
+    "SIBN",
+    "PLZL",
+    "LKOH",
+    "TRNFP",
+    "MGNT",
+    "PHOR"
+  ],
+  "run_params_tickers_ignored": [
+    "AFKS",
+    "ALRS",
+    "CBOM",
+    "CHMF",
+    "FEES",
+    "FLOT",
+    "GAZP",
+    "GMKN",
+    "IRAO",
+    "LKOH",
+    "MGNT",
+    "MOEX",
+    "MTLR",
+    "MTSS",
+    "NLMK",
+    "NVTK",
+    "PHOR",
+    "PIKK",
+    "PLZL",
+    "ROSN",
+    "RTKM",
+    "RUAL",
+    "SBER",
+    "SIBN",
+    "SNGS",
+    "TATN",
+    "TRNFP",
+    "VTBR"
+  ],
+  "configs": {
+    "A": {
+      "code": "A",
+      "label": "levels_reversal + signal_4h_buy",
+      "engine": "run_strategy_backtest",
+      "config": {
+        "confirm_windows": [
+          10
+        ],
+        "commission_pct": 0.06,
+        "slippage_pct": 0.0,
+        "risk_reward": {
+          "risk": 1.0,
+          "reward": 2.0
+        },
+        "entry_window": [
+          7,
+          19
+        ],
+        "n_runs": 1,
+        "strategy_name": "levels_reversal",
+        "patterns": {
+          "levels_reversal": {
+            "level_timeframe": "4h",
+            "level_method": [
+              "swing",
+              "impulse"
+            ],
+            "swing_window": 10,
+            "impulse_body_ratio": 0.7,
+            "impulse_atr_mult": 1.5,
+            "zone_atr_mult": 0.5,
+            "confirm_windows": [
+              10
+            ]
+          },
+          "signal_4h_buy": {}
+        }
+      },
+      "config_sha256": "d859dae12afc4316ceef9b4f28f310273f9e5d71dc0afc65acdf8d9a5454167e"
+    },
+    "B": {
+      "code": "B",
+      "label": "levels_sr_breakout + signal_4h_buy",
+      "engine": "run_strategy_backtest",
+      "config": {
+        "confirm_windows": [
+          10
+        ],
+        "commission_pct": 0.06,
+        "slippage_pct": 0.0,
+        "risk_reward": {
+          "risk": 1.0,
+          "reward": 2.0
+        },
+        "entry_window": [
+          7,
+          19
+        ],
+        "n_runs": 1,
+        "strategy_name": "levels_reversal",
+        "patterns": {
+          "levels_sr_breakout": {
+            "level_timeframe": "4h",
+            "level_method": [
+              "swing",
+              "impulse"
+            ],
+            "swing_window": 10,
+            "impulse_body_ratio": 0.7,
+            "impulse_atr_mult": 1.5,
+            "zone_atr_mult": 0.5,
+            "confirm_windows": [
+              10
+            ],
+            "retest_window_bars": 20,
+            "retest_zone_atr": 0.5,
+            "entry_trigger_bullish": true,
+            "stop_atr": 1.0,
+            "risk_reward": 2.0
+          },
+          "signal_4h_buy": {}
+        }
+      },
+      "config_sha256": "e7d5e90c555ba3bc853216492a96ec92e4a8e985a51ce136b28d452d1452482f"
+    }
+  },
+  "issue_119_reference_sha": {
+    "A": "d859dae12afc4316ceef9b4f28f310273f9e5d71dc0afc65acdf8d9a5454167e",
+    "B": "e7d5e90c555ba3bc853216492a96ec92e4a8e985a51ce136b28d452d1452482f"
+  },
+  "notes": [
+    "Isolated Lab-universe backtest (get_big_tickers), not a 50k portfolio replay.",
+    "A/B configs are the published #119 SHA pair.",
+    "Universe is not run_params.tickers and not LIVE_UNIVERSE.",
+    "level_breakout_retest stays off. No strategy row is written."
+  ]
+}

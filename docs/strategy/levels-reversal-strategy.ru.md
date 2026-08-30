@@ -1,7 +1,7 @@
 # Стратегия «Уровни + подтверждение разворота»
 
 > Статус: валидирована на SBER/GAZP/VTBR (2 года истории). Продакшн-мозг: `StrategyEvaluator.check_entry`. Прототип: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-29 (задача #119 AFKS smoke для levels_sr_breakout).
+> Last refreshed: 2026-08-30 (задача #124 Lab-вселенная A/B для levels_sr_breakout).
 
 ## 1. Обзор
 
@@ -309,4 +309,8 @@ Unit: `backend/tests/test_levels_state_machine.py`. Locked `test_20260731` не 
 ### AFKS smoke (задача #119)
 
 Изолированный бэктест одного тикера, не портфель 50k. Пакет: `analytics/issue-119-afks-sr-breakout-smoke/`. Период `2024-08-01` … `timestamp < 2026-08-21`. A (`levels_reversal` + `signal_4h_buy`): n=39, PF 1.50. B (`levels_sr_breakout` + `signal_4h_buy`): n=116, PF 1.46; путь поддержки n=78 PF 1.70; путь сопротивления n=38 PF 1.20. B-support больше A, потому что композит передаёт `LevelsTracker` в вето. Вердикт: расширять вселенную; не lock в paper. Не перезаписывать `test_20260731` / `test_20260820` / `test_20260821`.
+
+### Lab-вселенная A/B (задача #124)
+
+Изолированный прогон 28 тикеров `get_big_tickers`, та же пара SHA, что в #119. Пакет: `analytics/issue-124-sr-breakout-universe/`. Isolated A: n=2559, PF 1.46, median PF 1.48. Isolated B: n=4799, PF 1.39, median PF 1.39 (28/28 PF>1); support n=3811 PF 1.51; resistance n=988 PF 1.17. AFKS совпал с #119; бар ALRS `2026-08-20 11:50:24` @ 19.80 отсутствует. Опциональный портфель B на 50k (n=2837, PF 1.32, equity 98 432.94 RUB) — отдельный блок, не вердикт для paper.
 
