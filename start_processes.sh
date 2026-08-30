@@ -9,8 +9,8 @@ if [[ -n "${DURATION_MINUTES:-}" ]]; then
     echo "=== Fixed duration: ${DURATION} min from launch (DURATION_MINUTES) ==="
 else
     SESSION_AWARE=1
-    echo "=== Session-aware duration: until next MOEX 19:00 MSK + margin ==="
-    DURATION=$(docker compose exec -T backend python -c "from app.analytics.moex_session import minutes_until_session_end; print(minutes_until_session_end())")
+    echo "=== Session-aware duration: until next session open after 19:00 (stop/take after close) ==="
+    DURATION=$(docker compose exec -T backend python -c "from app.analytics.moex_session import minutes_until_stack_end; print(minutes_until_stack_end())")
     DURATION=$(echo "${DURATION}" | tr -d '\r' | tr -d '[:space:]')
     if ! [[ "${DURATION}" =~ ^[0-9]+$ ]]; then
         echo "Failed to compute session duration. Rebuild backend first:"
@@ -105,7 +105,7 @@ echo "=== Step 6: Start sandbox live executor when explicitly requested ==="
 if [[ "${START_LIVE_EXECUTOR:-0}" == "1" ]]; then
     mkdir -p reports/live-executor
     if [[ "${SESSION_AWARE}" == "1" ]]; then
-        echo "LiveExecutor: until_session_end (wait 10:00 MSK, stop 19:00 MSK)"
+        echo "LiveExecutor: until_session_end (entries 10:00-19:00 MSK, stop/take until flat)"
         nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.live_executor import LiveExecutor; LiveExecutor().run(until_session_end=True)" > reports/live-executor/executor.log 2>&1 &
     else
         echo "LiveExecutor: duration_minutes=${DURATION} from launch"
@@ -137,7 +137,7 @@ for t,c in targets.items():
     print(f'{t}: {c} - {status}')
 "
 if [[ "${SESSION_AWARE}" == "1" ]]; then
-    echo "Paper duration=${DURATION} min; LiveExecutor follows MOEX 10:00-19:00 MSK"
+    echo "Paper duration=${DURATION} min; LiveExecutor entries 10:00-19:00 MSK, stop/take by price"
 else
     echo "All processes started with duration=${DURATION} min"
 fi

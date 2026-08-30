@@ -659,7 +659,7 @@ class _FakeWallClock:
         self.mono += seconds
 
 
-def test_until_session_end_waits_until_ten_then_stops_at_nineteen(caplog):
+def test_until_session_end_waits_until_ten_then_stops_when_flat_after_nineteen(caplog):
     fake = _FakeWallClock(datetime(2026, 8, 30, 23, 0, 0))
     events = {"init": [], "monitor": 0, "bars": 0}
     executor = make_executor(
@@ -688,6 +688,7 @@ def test_until_session_end_waits_until_ten_then_stops_at_nineteen(caplog):
     )
     executor.refresh_contexts = lambda: None
     executor.shutdown = lambda: None
+    executor._active_positions = lambda: pd.DataFrame()
 
     with caplog.at_level("INFO", logger=module.__name__):
         executor.run(until_session_end=True)
@@ -697,7 +698,55 @@ def test_until_session_end_waits_until_ten_then_stops_at_nineteen(caplog):
     assert events["monitor"] >= 1
     assert events["bars"] >= 1
     assert "Waiting for MOEX session open at 2026-08-31 10:00 MSK" in caplog.text
-    assert "MOEX session closed at 2026-08-31 19:00 MSK" in caplog.text
+    assert "monitoring stop/take until positions close" in caplog.text
+    assert "No open sandbox positions after session close" in caplog.text
+
+
+def test_stop_take_monitor_continues_after_nineteen_until_position_closes(caplog):
+    fake = _FakeWallClock(datetime(2026, 8, 31, 18, 30, 0))
+    events = {"bars": [], "monitor": 0}
+
+    def active():
+        if fake.wall < datetime(2026, 8, 31, 20, 30, 0):
+            return pd.DataFrame([{"id": 1, "ticker": "SBER"}])
+        return pd.DataFrame()
+
+    executor = make_executor(
+        now_fn=fake.now,
+        clock=fake.clock,
+        sleep_fn=fake.sleep,
+        check_interval_seconds=60,
+        context_refresh_seconds=10**6,
+    )
+    executor.install_signal_handlers = lambda: None
+
+    def initialize():
+        executor.evaluators = {"SBER": object()}
+        executor.strategy_name = "active-strategy"
+
+    def process_bars():
+        events["bars"].append(datetime(
+            fake.wall.year, fake.wall.month, fake.wall.day,
+            fake.wall.hour, fake.wall.minute,
+        ))
+
+    executor.initialize = initialize
+    executor.monitor_positions = lambda: events.__setitem__(
+        "monitor", events["monitor"] + 1
+    )
+    executor.process_latest_bars = process_bars
+    executor.refresh_contexts = lambda: None
+    executor.shutdown = lambda: None
+    executor._active_positions = active
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        executor.run(until_session_end=True)
+
+    assert fake.wall >= datetime(2026, 8, 31, 20, 30, 0)
+    assert events["monitor"] >= 1
+    assert events["bars"]
+    assert all(ts < datetime(2026, 8, 31, 19, 0, 0) for ts in events["bars"])
+    assert "monitoring stop/take until positions close" in caplog.text
 
 
 def test_duration_minutes_does_not_wait_for_session_open():

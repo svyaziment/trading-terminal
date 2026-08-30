@@ -1,7 +1,7 @@
 # Paper Trading Architecture
 
 The paper trading system emulates live trading on real market data (no real orders).
-Four background processes (started via `start_processes.sh`; default duration is until the next MOEX 19:00 MSK plus a 15-minute margin, Issue #137):
+Four background processes (started via `start_processes.sh`; default duration is until the next session open after 19:00 MSK, so leftover stop/take still have streaming, Issue #137):
 
 1. **Data Refresher** (`app/analytics/data_refresher.py`): every 15 min pulls 1min
    candles from MOEX ISS API into `candles_1min_raw`, aggregates to 30min/1h/4h/1d

@@ -901,7 +901,11 @@ class LiveExecutor:
         duration_minutes: Optional[int] = None,
         until_session_end: bool = False,
     ) -> None:
-        """Run evaluation and reconciliation until timeout, session close, or signal."""
+        """Run evaluation and reconciliation until timeout, flat after session, or signal.
+
+        ``until_session_end`` only closes **entries** at 19:00 MSK. Stop/take
+        stay under monitor until every sandbox position is gone.
+        """
         self.install_signal_handlers()
         try:
             if until_session_end:
@@ -927,16 +931,15 @@ class LiveExecutor:
                 until_session_end,
                 session_end.strftime("%Y-%m-%d %H:%M") if session_end else "none",
             )
+            entry_closed_logged = False
             while not self.shutdown_requested.is_set():
                 now_msk = self.now_fn()
                 now = self.clock()
-                if until_session_end and session_end is not None and now_msk >= session_end:
-                    logger.info(
-                        "MOEX session closed at %s MSK; stopping LiveExecutor",
-                        now_msk.strftime("%Y-%m-%d %H:%M"),
-                    )
-                    self.monitor_positions()
-                    break
+                session_closed = (
+                    until_session_end
+                    and session_end is not None
+                    and now_msk >= session_end
+                )
                 if (
                     duration_minutes is not None
                     and now - started_at >= duration_minutes * 60
@@ -949,14 +952,22 @@ class LiveExecutor:
                     self.monitor_positions()
                     if is_entry_window(now_msk):
                         self.process_latest_bars()
+                    elif session_closed:
+                        if not entry_closed_logged:
+                            logger.info(
+                                "MOEX entry window closed at %s MSK; "
+                                "monitoring stop/take until positions close",
+                                now_msk.strftime("%Y-%m-%d %H:%M"),
+                            )
+                            entry_closed_logged = True
+                        if self._active_positions().empty:
+                            logger.info(
+                                "No open sandbox positions after session close; "
+                                "stopping LiveExecutor"
+                            )
+                            break
                     last_check = now
-                sleep_for = min(1.0, check_interval)
-                if until_session_end and session_end is not None:
-                    remaining = (session_end - now_msk).total_seconds()
-                    if remaining <= 0:
-                        continue
-                    sleep_for = min(sleep_for, remaining)
-                self.sleep_fn(sleep_for)
+                self.sleep_fn(min(1.0, check_interval))
         finally:
             try:
                 self.shutdown()

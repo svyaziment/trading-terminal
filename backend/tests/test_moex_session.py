@@ -3,8 +3,10 @@ from datetime import datetime, timezone
 from app.analytics.moex_session import (
     is_entry_window,
     minutes_until_session_end,
+    minutes_until_stack_end,
     next_session_open,
     now_msk_naive,
+    protection_end_for_run,
     session_end_for_run,
 )
 from app.analytics.trading_config import MOEX_SESSION, get_moex_session_config
@@ -42,6 +44,14 @@ def test_monday_session_is_open_until_nineteen():
     assert next_session_open(now) == datetime(2026, 8, 31, 10, 0, 0)
     assert session_end_for_run(now) == datetime(2026, 8, 31, 19, 0, 0)
     assert minutes_until_session_end(now, margin_minutes=15) == 8 * 60 + 15
+    assert protection_end_for_run(now) == datetime(2026, 9, 1, 10, 0, 0)
+    assert minutes_until_stack_end(now, margin_minutes=15) == 23 * 60 + 15
+
+
+def test_sunday_night_paper_stack_covers_leftover_stop_take():
+    now = datetime(2026, 8, 30, 23, 0, 0)
+    assert protection_end_for_run(now) == datetime(2026, 9, 1, 10, 0, 0)
+    assert minutes_until_stack_end(now, margin_minutes=15) == 35 * 60 + 15
 
 
 def test_friday_evening_skips_weekend_to_monday():

@@ -79,7 +79,7 @@ def minutes_until_session_end(
     cfg: Optional[Dict[str, Any]] = None,
     margin_minutes: Optional[int] = None,
 ) -> int:
-    """Paper-process duration: minutes until session close plus a small margin."""
+    """Minutes until this run's 19:00 MSK plus a small margin."""
     cfg = _config(cfg)
     if now is None:
         now = now_msk_naive()
@@ -92,6 +92,35 @@ def minutes_until_session_end(
     return max(1, math.ceil(remaining) + margin)
 
 
+def protection_end_for_run(
+    now: datetime,
+    cfg: Optional[Dict[str, Any]] = None,
+) -> datetime:
+    """Keep streaming until the next session open after this run's 19:00.
+
+    Entries stop at session close; leftover stop/take still need live books.
+    """
+    return next_session_open(session_end_for_run(now, cfg), cfg)
+
+
+def minutes_until_stack_end(
+    now: Optional[datetime] = None,
+    cfg: Optional[Dict[str, Any]] = None,
+    margin_minutes: Optional[int] = None,
+) -> int:
+    """Paper-process duration: until the next open after this session, plus margin."""
+    cfg = _config(cfg)
+    if now is None:
+        now = now_msk_naive()
+    remaining = (protection_end_for_run(now, cfg) - now).total_seconds() / 60.0
+    margin = (
+        int(cfg["duration_margin_minutes"])
+        if margin_minutes is None
+        else int(margin_minutes)
+    )
+    return max(1, math.ceil(remaining) + margin)
+
+
 if __name__ == "__main__":
     now = now_msk_naive()
-    print(minutes_until_session_end(now))
+    print(minutes_until_stack_end(now))
