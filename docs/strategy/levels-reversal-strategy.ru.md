@@ -1,7 +1,7 @@
 # Стратегия «Уровни + подтверждение разворота»
 
 > Статус: валидирована на SBER/GAZP/VTBR (2 года истории). Продакшн-мозг: `StrategyEvaluator.check_entry`. Прототип: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-30 (задача #127 levels_sr_support — только поддержка с трекером).
+> Last refreshed: 2026-08-30 (задача #130 портфель 50k levels_sr_support).
 
 ## 1. Обзор
 
@@ -340,5 +340,9 @@ Unit: `backend/tests/test_levels_state_machine.py`. Locked `test_20260731` не 
 ### Isolated Lab-вселенная (задача #129)
 
 Изолированный прогон 28 тикеров `get_big_tickers`, тот же период, что #124. Пакет: `analytics/issue-129-sr-support-universe/`. Isolated C (`levels_sr_support` + `signal_4h_buy`): n=4380, PF 1.45, median PF 1.48. Exclusive B-support из #124 (3811 / 1.51) — подпись композита (путь B занимает слот), не runnable-книга. Extra 611: occupancy 610 + leftover 1; missing 42 cascade. AFKS C 89 / 1.49 (exclusive 78 ⊆ C). Бар ALRS `2026-08-20 11:50:24` @ 19.80 заблокирован. Resistance n=0. Задача #130 должна брать C, не exclusive. Не вердикт для paper.
+
+### Портфель 50k (задача #130)
+
+Replay слотов published C по правилам Issue #44 (50k / 10k / max 5, volume-order #103). Пакет: `analytics/issue-130-sr-support-portfolio/`. Кандидаты = isolated C 4380, не exclusive 3811 / 1.51 и не фильтр `source=` из #124 B-mix. Портфель: n=3237, PF 1.33, equity 96 204.63 RUB, daily Max DD 6.08%, без GAME OVER. Бар ALRS 19.80 отсутствует. Сравнение: #44 96 343.49 / 3500 / 1.31; #103 89 055.31 / 2070 / 1.34; #124 B-mix 98 432.94 / 2837 / 1.32. Вердикт: не paper.
 
 

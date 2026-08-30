@@ -1,0 +1,163 @@
+{
+  "issue": 130,
+  "strategy_config_name": "levels_sr_support",
+  "plugin": "levels_reversal",
+  "config_sha256": "3b7864c4de2cb2c7d271be8c21c7d99c29bfd8a7dd05980b3c5497b6b2aedb1b",
+  "date_from": "2024-08-01",
+  "date_to": "2026-08-21",
+  "period_last_day": "2026-08-20",
+  "tickers_volume_order": [
+    "FEES",
+    "IRAO",
+    "AFKS",
+    "VTBR",
+    "GAZP",
+    "SNGS",
+    "SBER",
+    "RUAL",
+    "ALRS",
+    "GMKN",
+    "MTLR",
+    "CBOM",
+    "NLMK",
+    "ROSN",
+    "RTKM",
+    "MOEX",
+    "FLOT",
+    "MTSS",
+    "NVTK",
+    "PIKK",
+    "TATN",
+    "CHMF",
+    "SIBN",
+    "PLZL",
+    "LKOH",
+    "TRNFP",
+    "MGNT",
+    "PHOR"
+  ],
+  "candidate_trades": 4380,
+  "paper": false,
+  "paper_gates_pass": true,
+  "alrs_veto_absent": true,
+  "resistance_n": 0,
+  "verdict": {
+    "paper": false,
+    "paper_gates_pass": true,
+    "match": true,
+    "label": "не paper",
+    "reasons": [
+      "Портфель C построен на isolated `levels_sr_support` из #129 (n кандидатов 4380, SHA конфига стабилен), не фильтром source из композита #124.",
+      "Слоты 50k / 10k / max 5: n=3237, PF 1.33, equity 96,204.63 RUB, GAME OVER=нет.",
+      "Бар ALRS 2026-08-20 11:50 @ 19.80 отсутствует среди candidates и портфельных входов.",
+      "Resistance-source n=0 (ожидается 0).",
+      "Сравнение с #44/#103 — другие конфиги; #124 B-mix — другой набор кандидатов (support+resistance).",
+      "По умолчанию не paper без явного решения Product Owner."
+    ]
+  },
+  "metrics": [
+    {
+      "strategy": "levels_sr_support",
+      "final_equity_rub": 96204.63,
+      "pnl_rub": 46204.63,
+      "pnl_pct": 92.41,
+      "n_trades": 3237,
+      "win_rate_pct": 28.7,
+      "profit_factor": 1.33,
+      "event_max_drawdown_pct": 6.98,
+      "game_over": false,
+      "skipped_entries": 1143,
+      "candidate_trades": 4380,
+      "max_drawdown_pct": 6.08,
+      "max_drawdown_peak_date": "2025-02-17",
+      "max_drawdown_trough_date": "2025-03-13",
+      "max_drawdown_peak_equity_rub": 66889.89,
+      "max_drawdown_trough_equity_rub": 62820.64,
+      "max_drawdown_rub": 4069.25
+    }
+  ],
+  "input_sha256": "0c2ccb5f8cbbd3f8438a050daa6de17f77628d05229ae6ea6aa30df310da8921",
+  "plot_files": [
+    "equity_curves.png",
+    "metrics_comparison.png",
+    "ticker_pnl_heatmap.png",
+    "trade_pnl_distribution.png"
+  ],
+  "issue44_context": {
+    "book": "#44 test_20260731",
+    "strategy_id": 36,
+    "strategy_name": "test_20260731",
+    "patterns": [
+      "levels_reversal",
+      "signal_4h_buy"
+    ],
+    "level_method": [
+      "swing",
+      "impulse"
+    ],
+    "date_to": "2026-08-15",
+    "tracker_veto": false,
+    "resistance_path": false,
+    "final_equity_rub": 96343.49,
+    "pnl_rub": 46343.49,
+    "pnl_pct": 92.69,
+    "n_trades": 3500,
+    "win_rate_pct": 28.3,
+    "profit_factor": 1.31,
+    "max_drawdown_pct": 5.47,
+    "event_max_drawdown_pct": 5.93,
+    "game_over": false
+  },
+  "issue103_context": {
+    "book": "#103 test_20260821",
+    "strategy_id": 118,
+    "strategy_name": "test_20260821",
+    "patterns": [
+      "levels_reversal",
+      "signal_4h_buy"
+    ],
+    "level_method": [
+      "swing",
+      "impulse"
+    ],
+    "date_to": "2026-08-21",
+    "tracker_veto": false,
+    "resistance_path": false,
+    "final_equity_rub": 89055.31,
+    "pnl_rub": 39055.31,
+    "pnl_pct": 78.11,
+    "n_trades": 2070,
+    "win_rate_pct": 28.7,
+    "profit_factor": 1.34,
+    "max_drawdown_pct": 6.82,
+    "event_max_drawdown_pct": 9.58,
+    "game_over": false
+  },
+  "issue124_bmix": {
+    "book": "#124 B-mix (optional)",
+    "strategy_name": "levels_sr_breakout",
+    "patterns": [
+      "levels_sr_breakout",
+      "signal_4h_buy"
+    ],
+    "date_to": "2026-08-21",
+    "tracker_veto": true,
+    "resistance_path": true,
+    "final_equity_rub": 98432.94,
+    "pnl_rub": 48432.94,
+    "pnl_pct": 96.87,
+    "n_trades": 2837,
+    "win_rate_pct": 30.3,
+    "profit_factor": 1.32,
+    "event_max_drawdown_pct": 7.93,
+    "game_over": false,
+    "candidate_n": 4799,
+    "note": "Composite OR (support+resistance). Do not mix with C."
+  },
+  "issue129_isolated_c": {
+    "book": "#129 isolated C",
+    "n": 4380,
+    "pf": 1.45,
+    "note": "Isolated ticker PF, not a 50k portfolio."
+  }
+}

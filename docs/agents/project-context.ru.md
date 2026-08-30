@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-08-30 (задача #129 isolated levels_sr_support на Lab-вселенной). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-08-30 (задача #130 портфель 50k levels_sr_support). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -90,6 +90,7 @@ trading-terminal/
 │       ├── test_issue119_analysis.py # Задача #119 AFKS smoke конфиг/source/вердикт
 │       ├── test_issue124_analysis.py # Задача #124 Lab-вселенная A/B / AFKS / ALRS / вердикт
 │       ├── test_issue129_analysis.py # Задача #129 isolated support vs #124 B-support
+│       ├── test_issue130_analysis.py # Задача #130 портфель 50k levels_sr_support vs #44/#103
 │       └── test_portfolio_simulator.py # Unit + integration тесты portfolio simulator
 ├── frontend/
 │ ├── src/
@@ -121,7 +122,8 @@ trading-terminal/
 │ ├── issue-103-test-20260821-portfolio/ # Портфельный replay Lab test_20260821 после вето #97 (swing+impulse)
 │ ├── issue-119-afks-sr-breakout-smoke/ # Изолированный AFKS A/B smoke для levels_sr_breakout (#119)
 │ ├── issue-124-sr-breakout-universe/ # Изолированная Lab-вселенная A/B для levels_sr_breakout (#124)
-│ └── issue-129-sr-support-universe/ # Изолированная Lab-вселенная C vs #124 B-support (#129)
+│ ├── issue-129-sr-support-universe/ # Изолированная Lab-вселенная C vs #124 B-support (#129)
+│ └── issue-130-sr-support-portfolio/ # Портфельный replay 50k levels_sr_support (#130)
 ├── docs/
 │ ├── agents/ # project-context.md, handover.md (+ .ru versions), documentation-policy.md
 │ ├── strategy/ # levels-reversal-strategy.md, paper-trading.md, testing-rules.md, backtest-report.md (+ .ru)
@@ -257,6 +259,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 - **Задача #127 (эпик #126, 2026-08-30)**: Lab-паттерн `levels_sr_support` — изолированный движок B-support из #124 (вето с трекером, без ретеста). `run_strategy_backtest` принимает его без `levels_reversal` в `config.patterns`. Трекер + `htf_bars` как в #107/#116. Locked `test_20260731` не изменён. Тесты: `tests/test_levels_sr_support.py` плюс существующие veto / композит / plugin. Чип Lab — #128; isolated vs #124 B-support — #129.
 - **Задача #128 (эпик #126, 2026-08-30)**: чип Strategy Lab + schema-driven `PatternSettingsModal` для `levels_sr_support`. Имена, подсказки, иконка (`support_tracker`) и параметры приходят из `GET /api/patterns` (группа **Уровни**). Валидация по `min`/`max` схемы (блокирует «Применить» и «Сохранить и запустить»). Полей ретеста нет. `resolveConfirmWindows` следует backend-порядку: `levels_sr_breakout` > `levels_sr_support` > `levels_reversal`. Locked `test_20260731` только для чтения. Isolated vs #124 B-support — #129.
 - **Задача #129 (эпик #126, 2026-08-30)**: изолированный бэктест Lab-вселенной `levels_sr_support` + `signal_4h_buy` vs exclusive B-support из #124. Пакет: `analytics/issue-129-sr-support-universe/`. Те же 28 имён / период, что #124. Isolated C: n=4380 PF 1.45, median PF 1.48, 26/28 PF>1, только `source=levels_sr_support` (resistance n=0). Exclusive B-support 3811 / 1.51 — подпись композита (путь B занимает слот), не runnable-книга. Extra 611: occupancy 610 + leftover 1 (PHOR 2026-08-14 14:48); missing 42 cascade. AFKS C 89 / 1.49, exclusive 78 ⊆ C (не mix 116 / 1.46). Бар ALRS `2026-08-20 11:50:24` @ 19.80 заблокирован. Locked `test_20260731` / `test_20260820` / `test_20260821` не трогались. Вердикт: совпало; #130 должен брать C, не exclusive. Не paper.
+- **Задача #130 (эпик #126, 2026-08-30)**: портфельный replay isolated C (`levels_sr_support` + `signal_4h_buy`) по слотам Issue #44. Пакет: `analytics/issue-130-sr-support-portfolio/`. Те же 28 имён / volume-order, что #103, `2024-08-01` … `< 2026-08-21`. Кандидаты = published C из #129 (n=4380, SHA `3b7864c4…aedb1b`), не exclusive 3811 / 1.51 и не фильтр `source=` из #124 B-mix. Портфель C: n=3237, PF 1.33, equity 96 204.63 RUB, daily Max DD 6.08%, skipped 1143, без GAME OVER. Бар ALRS `2026-08-20 11:50:24` @ 19.80 отсутствует среди candidates и портфеля. Resistance n=0. Сравнение: #44 96 343.49 / 3500 / 1.31; #103 89 055.31 / 2070 / 1.34; #124 B-mix 98 432.94 / 2837 / 1.32. Locked `test_20260731` / `test_20260820` / `test_20260821` не трогались. Вердикт: не paper.
 - **Legacy pattern-matrix backtest**: rule-based стратегии НЕ прибыльны после комиссии на MOEX top-3 за 2 года (все PF < 1). Заменены подходом levels.
 - **Вселенная**: top-15 по PF (`trading_universe`) остаётся вселенной paper/data-refresh через `get_trading_universe()`. Sandbox live execution использует топ-5 из задачи #66 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP через `get_live_trading_universe()`. На снимке #66 таблица `paper_positions` была пуста (equity плоская 100 000 RUB), поэтому live-список построен по бэктесту, ликвидности и ATR, а не по forward PnL.
 - **Sandbox canary (задача #74, 2026-08-19)**: `LiveExecutor` инициализировал топ-5 на locked-стратегии `test_20260731` и отправил sandbox market BUY по RUAL (37 лотов по 26.73, take 28.02, stop 26.19). Следующий сигнал по тому же тикеру был пропущен с `reason=duplicate_ticker`. `paper_equity` продолжала писаться во время сессии. Runbook — в handover §19.
@@ -288,7 +291,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | R | Превью паттерна на графике Lab + Сигналы (эпик #87) | #88 API preview + оверлеи levels готовы; #89–#92 далее |
 | S | Пробой уровня и смена роли (эпик #105) | #106 LevelsTracker + #107 `level_breakout_retest` AND-фильтр + #109 чип Lab готовы; аналитическая валидация и опциональное превью далее |
 | T | Композитный S/R паттерн (эпик #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 чип Lab + #119 AFKS smoke + #124 Lab-вселенная A/B готово |
-| U | Поддержка с трекером (эпик #126) | #127 backend `levels_sr_support` + #128 чип Lab + #129 isolated Lab-вселенная готово; #130 портфель #44 в ожидании |
+| U | Поддержка с трекером (эпик #126) | #127 backend `levels_sr_support` + #128 чип Lab + #129 isolated Lab-вселенная + #130 портфель #44 готово |
 
 ## 9. Важные замечания
 
