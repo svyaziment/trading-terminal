@@ -1,7 +1,7 @@
 # Стратегия «Уровни + подтверждение разворота»
 
 > Статус: валидирована на SBER/GAZP/VTBR (2 года истории). Продакшн-мозг: `StrategyEvaluator.check_entry`. Прототип: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-30 (задача #124 Lab-вселенная A/B для levels_sr_breakout).
+> Last refreshed: 2026-08-30 (задача #127 levels_sr_support — только поддержка с трекером).
 
 ## 1. Обзор
 
@@ -253,7 +253,7 @@ print(res['metrics'])  # n_trades, profit_factor, expectancy, win_rate, total_ne
 
 ### Взаимодействие с вето
 
-`overlapping_resistance_zone_at` пропускает строки, у которых `state` не `active`. `build_levels` / `get_levels` колонку `state` не добавляют. Задача #107 передаёт `LevelsTracker` в вето из `StrategyEvaluator` только если включён паттерн `level_breakout_retest` (`is_broken(level_id)`). Locked `test_20260731` его не включает, поэтому дефолтный `check_entry` по-прежнему ветирует любое перекрывающееся сопротивление.
+`overlapping_resistance_zone_at` пропускает строки, у которых `state` не `active`. `build_levels` / `get_levels` колонку `state` не добавляют. Задача #107 передаёт `LevelsTracker` в вето из `StrategyEvaluator`, если включён `level_breakout_retest`, `levels_sr_breakout` или `levels_sr_support` (`is_broken(level_id)`). Locked `test_20260731` не включает ни один, поэтому дефолтный `check_entry` по-прежнему ветирует любое перекрывающееся сопротивление.
 
 Unit: `backend/tests/test_levels_state_machine.py`. Locked `test_20260731` не перезаписывать.
 
@@ -313,4 +313,28 @@ Unit: `backend/tests/test_levels_state_machine.py`. Locked `test_20260731` не 
 ### Lab-вселенная A/B (задача #124)
 
 Изолированный прогон 28 тикеров `get_big_tickers`, та же пара SHA, что в #119. Пакет: `analytics/issue-124-sr-breakout-universe/`. Isolated A: n=2559, PF 1.46, median PF 1.48. Isolated B: n=4799, PF 1.39, median PF 1.39 (28/28 PF>1); support n=3811 PF 1.51; resistance n=988 PF 1.17. AFKS совпал с #119; бар ALRS `2026-08-20 11:50:24` @ 19.80 отсутствует. Опциональный портфель B на 50k (n=2837, PF 1.32, equity 98 432.94 RUB) — отдельный блок, не вердикт для paper.
+
+## 14. Поддержка с трекером: только B-support (задача #127)
+
+Изолированный Lab-движок входа `levels_sr_support` (эпик #126). Это **только путь B-support из #124**: та же геометрия поддержки, что у `levels_reversal`, плюс вето #97 *активного* сопротивления **с** `LevelsTracker`. Это **не** AND-фильтр, не SignalEngine id и **не** замена композиту `levels_sr_breakout`. Изолированный прогон: в `config.patterns` есть `levels_sr_support` (опционально `signal_4h_buy`) **без** `levels_reversal` / `levels_sr_breakout` / `level_breakout_retest`. Locked `test_20260731` этот id не включает.
+
+### Чем отличается
+
+| | `levels_reversal` | `levels_sr_support` | `levels_sr_breakout` |
+|---|---|---|---|
+| Зона поддержки + confirm + levels stop/take + RR конфига | да | да | путь A |
+| Трекер в вето #97 | нет (пока не включён другой чип с трекером) | **да** | да |
+| Ретест сопротивления / `check_breakout_retest` | нет | **нет** | путь B |
+| `source` | нет | `levels_sr_support` | `levels_sr_breakout_support` / `_resistance` |
+
+Пробитое сопротивление больше не режет валидный support-вход (+1252 сделки относительно книги A в #124). Ретест **без** нативной зоны поддержки позицию **не** открывает. Бар ALRS 2026-08-20 11:50 @ 19.80 по-прежнему отклоняется (активное сопротивление, нет подтверждённого пробоя).
+
+### Оба чипа
+
+Если одновременно `levels_sr_support` и `levels_sr_breakout` — побеждает композит. Если одновременно `levels_sr_support` и `levels_reversal` — побеждает новый id (один support-путь). Не включать трекер «молча» на `levels_reversal` / locked `test_20260731`.
+
+### Lab
+
+`GET /api/patterns`: `category=levels`, `label` «Поддержка с трекером», `label_en` «Support Reversal (tracker veto)», иконка `support_tracker` (не `breakout_up` и не `support_breakout`). Параметры — только поля `levels_reversal`, без ключей ретеста. Чип Lab — задача #128. Файл: `backend/app/analytics/patterns/levels_sr_support.py`. Тесты: `backend/tests/test_levels_sr_support.py`.
+
 

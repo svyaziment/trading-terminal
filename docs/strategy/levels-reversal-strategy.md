@@ -1,7 +1,7 @@
 # Levels Reversal Strategy
 
 > Status: validated on SBER/GAZP/VTBR (2-year history). Production brain: `StrategyEvaluator.check_entry`. Prototype: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-30 (Issue #124 Lab-universe A/B for levels_sr_breakout).
+> Last refreshed: 2026-08-30 (Issue #127 levels_sr_support support-only engine).
 
 ## 1. Overview
 
@@ -253,7 +253,7 @@ Resistance break (support is symmetric below `zone_lower`):
 
 ### Veto interaction
 
-`overlapping_resistance_zone_at` skips rows whose `state` is not `active`. `build_levels` / `get_levels` do not add `state`. Issue #107 passes a `LevelsTracker` into the veto from `StrategyEvaluator` only when pattern `level_breakout_retest` is enabled (`is_broken(level_id)`). Locked `test_20260731` does not enable it, so default `check_entry` still vetoes every overlapping resistance.
+`overlapping_resistance_zone_at` skips rows whose `state` is not `active`. `build_levels` / `get_levels` do not add `state`. Issue #107 passes a `LevelsTracker` into the veto from `StrategyEvaluator` when `level_breakout_retest`, `levels_sr_breakout`, or `levels_sr_support` is enabled (`is_broken(level_id)`). Locked `test_20260731` enables none of them, so default `check_entry` still vetoes every overlapping resistance.
 
 Unit: `backend/tests/test_levels_state_machine.py`. Do not rewrite locked `test_20260731`.
 
@@ -313,4 +313,28 @@ Isolated ticker backtest, not a 50k portfolio. Package: `analytics/issue-119-afk
 ### Lab-universe A/B (Issue #124)
 
 Isolated 28-ticker `get_big_tickers` run, same SHA pair as #119. Package: `analytics/issue-124-sr-breakout-universe/`. Isolated A: n=2559, PF 1.46, median PF 1.48. Isolated B: n=4799, PF 1.39, median PF 1.39 (28/28 PF>1); support n=3811 PF 1.51; resistance n=988 PF 1.17. AFKS matched #119; ALRS `2026-08-20 11:50:24` @ 19.80 absent. Optional 50k slot replay of B (n=2837, PF 1.32, equity 98,432.94 RUB) is a separate block, not a paper verdict.
+
+## 14. Support with tracker: B-support only (Issue #127)
+
+Isolated Lab entry engine `levels_sr_support` (Epic #126). It is the **#124 B-support path only**: same support geometry as `levels_reversal`, plus the Issue #97 veto of *active* resistance **with** `LevelsTracker`. It is **not** an AND-filter, not a SignalEngine id, and **not** a replacement for the composite `levels_sr_breakout`. Isolated run: `config.patterns` has `levels_sr_support` (optionally `signal_4h_buy`) **without** `levels_reversal` / `levels_sr_breakout` / `level_breakout_retest`. Locked `test_20260731` stays off this id.
+
+### How it differs
+
+| | `levels_reversal` | `levels_sr_support` | `levels_sr_breakout` |
+|---|---|---|---|
+| Support zone + confirm + levels stop/take + config RR | yes | yes | path A |
+| Tracker in the #97 veto | no (unless another tracker chip is on) | **yes** | yes |
+| Resistance retest / `check_breakout_retest` | no | **no** | path B |
+| `source` | omitted | `levels_sr_support` | `levels_sr_breakout_support` / `_resistance` |
+
+A broken resistance no longer blocks a valid support entry (the +1252 trades vs book A in #124). A retest **without** a native support zone does **not** open a position. ALRS 2026-08-20 11:50 @ 19.80 stays rejected (active resistance, no confirmed break).
+
+### Both chips
+
+If `levels_sr_support` and `levels_sr_breakout` are both on, the composite wins. If `levels_sr_support` and `levels_reversal` are both on, the new id wins (one support path). Do not silently enable the tracker on `levels_reversal` / locked `test_20260731`.
+
+### Lab
+
+`GET /api/patterns`: `category=levels`, `label` «Поддержка с трекером», `label_en` «Support Reversal (tracker veto)», icon `support_tracker` (distinct from `breakout_up` and `support_breakout`). Params = `levels_reversal` fields only — no retest keys. Lab chip is Issue #128. File: `backend/app/analytics/patterns/levels_sr_support.py`. Tests: `backend/tests/test_levels_sr_support.py`.
+
 

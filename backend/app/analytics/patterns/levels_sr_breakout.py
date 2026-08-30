@@ -21,7 +21,7 @@ PATTERN_ID = "levels_sr_breakout"
 SOURCE_SUPPORT = "levels_sr_breakout_support"
 SOURCE_RESISTANCE = "levels_sr_breakout_resistance"
 
-_ENTRY_ENGINE_IDS = (PATTERN_ID, "levels_reversal")
+_ENTRY_ENGINE_IDS = (PATTERN_ID, "levels_sr_support", "levels_reversal")
 
 
 def _pattern_ids(patterns: Any) -> Iterable[str]:
