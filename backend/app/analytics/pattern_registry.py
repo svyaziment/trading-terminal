@@ -493,8 +493,29 @@ SIGNAL_ENGINE_PATTERN_SCHEMAS["levels_sr_breakout"] = PATTERN_REGISTRY[
     "levels_sr_breakout"
 ]
 
-# confirm_windows sync: composite wins when both entry engines are present.
-_LEVELS_CONFIRM_PATTERN_IDS = ("levels_sr_breakout", "levels_reversal")
+# Issue #127 / Epic #126: support-only engine with tracker veto. Same
+# levels_reversal fields, no retest params. Icon is distinct from
+# breakout_up and support_breakout. Confirm owner: composite stays
+# stronger than this id; this id wins over levels_reversal.
+PATTERN_REGISTRY["levels_sr_support"] = {
+    "label": "Поддержка с трекером",
+    "label_en": "Support Reversal (tracker veto)",
+    "hint": "Зона поддержки как levels_reversal + вето активного сопротивления с LevelsTracker (пробитое resistance не режет вход). Без ретеста / пути B композита. Не AND с levels_reversal / levels_sr_breakout / level_breakout_retest.",
+    "hint_en": "Support zone like levels_reversal plus Issue #97 veto of active resistance with LevelsTracker (a broken resistance does not cut entry). No retest / composite path B. Do not AND with the levels_reversal / levels_sr_breakout / level_breakout_retest chips.",
+    "icon": "support_tracker",
+    "category": "levels",
+    "params": copy.deepcopy(PATTERN_REGISTRY["levels_reversal"]["params"]),
+}
+SIGNAL_ENGINE_PATTERN_SCHEMAS["levels_sr_support"] = PATTERN_REGISTRY[
+    "levels_sr_support"
+]
+
+# confirm_windows sync: composite > support-with-tracker > levels_reversal.
+_LEVELS_CONFIRM_PATTERN_IDS = (
+    "levels_sr_breakout",
+    "levels_sr_support",
+    "levels_reversal",
+)
 
 
 def is_signal_engine_pattern(pattern_id: str) -> bool:
@@ -589,9 +610,11 @@ def normalize_patterns(config: Dict[str, Any]) -> Dict[str, Any]:
     Важно:
     - входной config не мутируется;
     - неизвестные паттерны сохраняются как есть;
-    - для levels_reversal / levels_sr_breakout confirm_windows синхронизируется
-      с верхним уровнем config["confirm_windows"], чтобы текущий
-      StrategyEvaluator не сломался. Если оба id есть, побеждает композит.
+    - для levels_reversal / levels_sr_breakout / levels_sr_support
+      confirm_windows синхронизируется с верхним уровнем
+      config["confirm_windows"], чтобы текущий StrategyEvaluator не сломался.
+      Если несколько id есть: композит сильнее levels_sr_support, тот сильнее
+      levels_reversal.
     """
     if not isinstance(config, dict):
         return {}

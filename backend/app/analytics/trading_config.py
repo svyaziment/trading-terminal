@@ -88,7 +88,8 @@ def get_sandbox_trading_config() -> Dict[str, Any]:
 
 # Issue #106: in-memory support/resistance lifecycle (breakout + role reversal).
 # LevelsTracker reads these thresholds. StrategyEvaluator wires the tracker
-# when `level_breakout_retest` (Issue #107) or `levels_sr_breakout` (#117) is on.
+# when `level_breakout_retest` (Issue #107), `levels_sr_breakout` (#117),
+# or `levels_sr_support` (#127) is on.
 # zone_extension_atr documents the current build_levels zone width (zone_atr_mult);
 # the tracker does not recompute zones — it uses zone_lower / zone_upper as given.
 LEVEL_STATE_MACHINE: Dict[str, Any] = {

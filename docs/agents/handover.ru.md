@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-30 (задача #124 Lab-вселенная A/B для levels_sr_breakout; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-30 (задача #127 levels_sr_support — только поддержка с трекером; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -68,6 +68,7 @@
 - **Композитный S/R (задача #117)**: `levels_sr_breakout` — **движок входа** (OR пути A поддержка и пути B ретест сопротивления), не AND-фильтр. Изолированный прогон Lab: в `config.patterns` есть `levels_sr_breakout` (и опционально `signal_4h_buy`) **без** `levels_reversal`. Если оба чипа включены — побеждает композит (один support-путь). Не AND с `level_breakout_retest` как заменой. Сделки несут `source` (`levels_sr_breakout_support` / `levels_sr_breakout_resistance`). Locked `test_20260731` этот id не включает. Unit: `cd backend && python -m pytest -q tests/test_levels_sr_breakout.py tests/test_resistance_zone_veto.py tests/test_level_breakout_retest.py tests/test_strategy_plugin.py`.
 - **AFKS smoke (задача #119)**: изолированный тикер, не портфель 50k. Пакет `analytics/issue-119-afks-sr-breakout-smoke/`. A vs B на AFKS `2024-08-01`…`< 2026-08-21`. B-support может быть больше A: композит передаёт `LevelsTracker` в вето. `source` есть у `run_strategy_backtest`; `run_portfolio_backtest` его сейчас теряет. Не lock/overwrite `test_20260731` / `test_20260820` / `test_20260821`. Повтор: `python analytics/issue-119-afks-sr-breakout-smoke/analysis.py` (нужен `results.json`). Unit: `cd backend && python -m pytest -q tests/test_issue119_analysis.py`.
 - **Lab-вселенная A/B (задача #124)**: изолированный прогон 28 тикеров `get_big_tickers`, те же SHA, что #119. Пакет `analytics/issue-124-sr-breakout-universe/`. A n=2559 PF 1.46; B n=4799 PF 1.39 (support 3811 / resistance 988). AFKS совпал с #119; бар ALRS 19.80 отсутствует. Опциональный портфель 50k по B — отдельный блок, не isolated PF. Не lock/overwrite три эталонные стратегии. Повтор: `python analytics/issue-124-sr-breakout-universe/analysis.py`. Unit: `cd backend && python -m pytest -q tests/test_issue124_analysis.py`.
+- **Поддержка с трекером (задача #127 / эпик #126)**: `levels_sr_support` — **только B-support** из #124 (PF 1.51, n=3811). Та же геометрия поддержки, что у `levels_reversal`, плюс вето #97 **с** `LevelsTracker`. Без `check_breakout_retest`. Изолированный прогон: в `config.patterns` есть `levels_sr_support` (опционально `signal_4h_buy`) **без** `levels_reversal` / `levels_sr_breakout` / `level_breakout_retest`. Композит по-прежнему побеждает, если оба движка включены. Не включать трекер «молча» на locked `test_20260731`. Unit: `cd backend && python -m pytest -q tests/test_levels_sr_support.py tests/test_levels_sr_breakout.py tests/test_resistance_zone_veto.py tests/test_strategy_plugin.py`.
 
 ## 11. Протокол сотрудничества (агенты)
 
@@ -222,7 +223,7 @@ ORDER BY id DESC LIMIT 20;
 - Пороги только из `LEVEL_STATE_MACHINE` в `trading_config.py`: `breakout_buffer_atr=0.25`, `confirm_bars=2`, `min_penetration_atr=0.5`, `zone_extension_atr=0.5`. `zone_extension_atr` документирует текущую ширину зоны `build_levels`; трекер не пересчитывает `zone_lower`/`zone_upper`.
 - Пробой сопротивления: последние `confirm_bars` close все выше `zone_upper`, последний close выше `zone_upper + buffer×ATR`, max(window) не ниже `zone_upper + min_penetration×ATR`. Поддержка симметрично ниже `zone_lower`. Первый close обратно внутри нативной зоны после пробоя: `broken_up → flipped_support` / `broken_down → flipped_resistance`. Ложный пробой в этой итерации не возвращается в `active`.
 - `overlapping_resistance_zone_at` ветирует только `active` сопротивления, если есть колонка `state`, и пропускает `tracker.is_broken(level_id)`, если передан трекер (задача #107). Передавайте снимок трекера **после** `update()` только по закрытым HTF-барам. Кадры без `state` и вызовы без `tracker` сохраняют поведение задачи #97.
-- `StrategyEvaluator` создаёт `LevelsTracker`, если в `config.patterns` есть `level_breakout_retest` или `levels_sr_breakout`. Locked `test_20260731` не включает ни один. `bars_since_breakout(level_id)` считает HTF-бары с момента подтверждённого пробоя.
+- `StrategyEvaluator` создаёт `LevelsTracker`, если в `config.patterns` есть `level_breakout_retest`, `levels_sr_breakout` или `levels_sr_support`. Locked `test_20260731` не включает ни один. `bars_since_breakout(level_id)` считает HTF-бары с момента подтверждённого пробоя.
 - Unit-тесты: `cd backend && python -m pytest -q tests/test_levels_state_machine.py tests/test_resistance_zone_veto.py tests/test_level_breakout_retest.py`.
 
 ## 23. Эксплуатация паттерна Level Breakout Retest
@@ -270,7 +271,7 @@ ORDER BY id DESC LIMIT 20;
 - Верхнеуровневый `config.confirm_windows` берётся из включённой схемы, у которой есть этот param; композит побеждает `levels_reversal` (как backend `_LEVELS_CONFIRM_PATTERN_IDS`). Сохранение идёт через существующие `POST /api/strategies` и `POST /api/strategies/{id}/run` с `config.patterns` как `{ id: params }` — не `POST /api/backtest`.
 - Когда включать: нужен один Lab-движок, который входит и от нативной поддержки, и на подтверждённом ретесте сопротивления. На locked `test_20260731` оставлять выключенным (строка Lab только для чтения).
 - Сервиса `frontend` в `docker-compose.yml` нет. Проверка локально: `cd frontend && npm test && npm run build`. Схема backend: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
-- Изолированный AFKS smoke (задача #119): handover §27. Lab-вселенная A/B (задача #124): handover §28. Не считать ни один пакет вердиктом для paper.
+- Изолированный AFKS smoke (задача #119): handover §27. Lab-вселенная A/B (задача #124): handover §28. Движок только поддержки (задача #127): handover §29. Не считать ни один пакет вердиктом для paper.
 
 ## 27. Эксплуатация AFKS smoke композита
 
@@ -291,4 +292,16 @@ ORDER BY id DESC LIMIT 20;
 - Не lock/paper-flag и не overwrite `test_20260731`, `test_20260820`, `test_20260821`.
 - Повтор без нового бэктеста: `python analytics/issue-124-sr-breakout-universe/analysis.py`. Полный пересчёт: `python analytics/issue-124-sr-breakout-universe/extract_inputs.py` (резюмируется).
 - Unit: `cd backend && python -m pytest -q tests/test_issue124_analysis.py`.
+
+## 29. Эксплуатация паттерна «поддержка с трекером» (`levels_sr_support`)
+
+- Точки входа: `PATTERN_ID` / `SOURCE` в `patterns/levels_sr_support.py`; только support-путь в `StrategyEvaluator._check_sr_support_entry`. Это не SignalEngine `BasePattern` — не добавлять id в `SIGNAL_ENGINE_PATTERN_IDS`. Не класть файл в `patterns/breakout/`.
+- Схема Lab: `PATTERN_REGISTRY['levels_sr_support']` (также в `SIGNAL_ENGINE_PATTERN_SCHEMAS` для `GET /api/patterns`). Категория `levels` (рядом с `levels_reversal` и `levels_sr_breakout`, не в breakout). Иконка `support_tracker` (должна отличаться от `breakout_up` и `support_breakout`). Параметры — **только** поля `levels_reversal`, без ключей ретеста. Чип Lab — задача #128. Не хардкодить ключи params в TSX.
+- Изолированный прогон: в `config.patterns` есть `levels_sr_support` и опционально `signal_4h_buy` / id SignalEngine. `levels_reversal` **не** обязателен. `run_strategy_backtest` считает этот id достаточным движком входа.
+- Порядок в `check_entry` после сессии / HTF / `_sync_tracker`: (1) если включён `levels_sr_breakout` — побеждает композит (без изменений); (2) иначе если включён `levels_sr_support` — общие AND, затем зона поддержки + confirm + вето *активного* сопротивления с `tracker=self._tracker` → `source=levels_sr_support`, levels stop/take, верхнеуровневый RR. **Не** вызывать `check_breakout_retest` на этом id.
+- Оба чипа (`levels_sr_support` + `levels_sr_breakout`): побеждает композит. `levels_sr_support` + `levels_reversal`: побеждает новый id (один support-путь, без удвоения). Порядок `_LEVELS_CONFIRM_PATTERN_IDS`: композит > поддержка-с-трекером > `levels_reversal`.
+- Отличие от `levels_reversal`: трекер передаётся в вето, пробитое сопротивление больше не режет валидный support-вход. Отличие от `levels_sr_breakout`: нет пути B / ретеста.
+- Трекер / `htf_bars`: та же подача, что #107/#116 (`load_context(htf_bars=...)` / Lab plugin `MarketContext.htf_bars`). Unit-тесты не зависят от Lab UI.
+- Locked `test_20260731` этот id не включает (paper/live вето и levels stop/take остаются бит-в-бит).
+- Unit-тесты: `cd backend && python -m pytest -q tests/test_levels_sr_support.py tests/test_pattern_registry.py tests/test_resistance_zone_veto.py tests/test_levels_sr_breakout.py tests/test_strategy_plugin.py`.
 

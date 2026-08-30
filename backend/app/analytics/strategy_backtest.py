@@ -13,8 +13,9 @@ Patterns (AND logic): all selected patterns must fire on the same 1min bar for e
 
 Config keys:
   patterns        : list[str]   (AND filters + one entry engine).
-                    Entry engine is 'levels_reversal' or 'levels_sr_breakout'
-                    (Issue #117). Without either, stop/take are undefined.
+                    Entry engine is 'levels_reversal', 'levels_sr_breakout'
+                    (Issue #117) or 'levels_sr_support' (Issue #127).
+                    Without one of these, stop/take are undefined.
   confirm_windows : list[int]   minutes for levels confirmation (AND across windows).
   commission_pct  : float       round-trip commission, e.g. 0.06.
   slippage_pct    : float       per-side slippage, e.g. 0.06.
@@ -46,7 +47,7 @@ DEPTH_PRESETS = {
 }
 
 LAB_PATTERNS = ['levels_reversal', 'signal_4h_buy', 'rsi_oversold', 'macd_bullish', 'bb_lower',
-               'level_breakout_retest', 'levels_sr_breakout']
+               'level_breakout_retest', 'levels_sr_breakout', 'levels_sr_support']
 ALL_PATTERNS = LAB_PATTERNS + list(SIGNAL_ENGINE_PATTERN_IDS)
 CONFIRM_WINDOWS = [1, 5, 10, 15, 20, 25, 30, 60, 90, 120]
 
@@ -147,7 +148,7 @@ def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to
 
     if not has_levels_entry_engine(patterns):
         return {'status': 'failed', 'ticker': ticker,
-                'error': 'levels_reversal or levels_sr_breakout required (defines stop/take); indicator patterns are AND-filters'}
+                'error': 'levels_reversal, levels_sr_breakout or levels_sr_support required (defines stop/take); indicator patterns are AND-filters'}
 
     # 1min candles (date-filtered)
     q = "SELECT timestamp, open, high, low, close FROM trading.candles_1min_raw WHERE ticker=%s "

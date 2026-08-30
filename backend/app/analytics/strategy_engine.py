@@ -31,6 +31,10 @@ Issue #117 / Epic #115: ``levels_sr_breakout`` is an isolated entry engine
 (OR of support path A and resistance-break path B). It does not require
 ``levels_reversal`` in ``config.patterns``. The AND-filter contract of
 ``level_breakout_retest`` is unchanged.
+
+Issue #127 / Epic #126: ``levels_sr_support`` is the support-only engine
+from #124 B-support (tracker veto, no ``check_breakout_retest``). It does
+not require ``levels_reversal``. The composite still wins if both ids are on.
 """
 from __future__ import annotations
 
@@ -52,6 +56,10 @@ from app.analytics.patterns.levels_sr_breakout import (
     PATTERN_ID as SR_BREAKOUT_ID,
     SOURCE_RESISTANCE,
     SOURCE_SUPPORT,
+)
+from app.analytics.patterns.levels_sr_support import (
+    PATTERN_ID as SR_SUPPORT_ID,
+    SOURCE as SR_SUPPORT_SOURCE,
 )
 from app.analytics.signal_pattern_filters import (
     SIGNAL_TIMEFRAME_DELTAS,
@@ -95,9 +103,13 @@ class StrategyEvaluator:
         self.use_4h_buy = 'signal_4h_buy' in self.patterns
         self.use_breakout_retest = BREAKOUT_RETEST_ID in self.patterns
         self.use_sr_breakout = SR_BREAKOUT_ID in self.patterns
-        # Tracker is needed for the AND-filter and for the composite (path B +
-        # veto skip of broken resistance on path A). Locked path stays off.
-        self.use_tracker = self.use_breakout_retest or self.use_sr_breakout
+        self.use_sr_support = SR_SUPPORT_ID in self.patterns
+        # Tracker is needed for the AND-filter, the composite (path B +
+        # veto skip of broken resistance on path A), and the support-only
+        # engine. Locked path stays off.
+        self.use_tracker = (
+            self.use_breakout_retest or self.use_sr_breakout or self.use_sr_support
+        )
         self.signal_filter_specs = enabled_signal_filters(self.patterns)
         self._breakout_params = self._resolve_breakout_params()
 
@@ -132,7 +144,15 @@ class StrategyEvaluator:
         raw = self._pattern_params(BREAKOUT_RETEST_ID)
         if self.use_breakout_retest and not raw:
             raw = get_pattern_defaults(BREAKOUT_RETEST_ID)
-        return resolve_breakout_params(raw) if self.use_breakout_retest else {}
+        if self.use_breakout_retest:
+            return resolve_breakout_params(raw)
+        # Support-only engine: tracker sync needs level_timeframe, no retest.
+        if self.use_sr_support:
+            raw = self._pattern_params(SR_SUPPORT_ID)
+            if not raw:
+                raw = get_pattern_defaults(SR_SUPPORT_ID)
+            return {"level_timeframe": raw.get("level_timeframe", "4h")}
+        return {}
 
     def _set_signal_filter_series(self, series) -> None:
         prepared = []
@@ -262,11 +282,28 @@ class StrategyEvaluator:
                 'ts': ts,
                 'source': SOURCE_RESISTANCE,
             }
+        return self._check_support_zone_entry(ts, price, a4, SOURCE_SUPPORT)
 
+    def _check_sr_support_entry(self, row, ts, price, a4):
+        """Issue #127: support-only path with tracker veto, no retest.
+
+        Same geometry as ``levels_reversal`` / composite path A. Common AND
+        filters run first. Stop/take are levels-based and take the top-level
+        RR filter. Tracker is passed into the veto so a broken resistance
+        does not cut a valid support entry. ``check_breakout_retest`` is not
+        called.
+        """
+        if not self._common_and_filters_pass(row, ts, price):
+            return None
+        return self._check_support_zone_entry(ts, price, a4, SR_SUPPORT_SOURCE)
+
+    def _check_support_zone_entry(self, ts, price, a4, source: str):
+        """Shared support geometry + tracker-aware veto + levels stop/take."""
         sup = nearest_level_at(self.levels, a4, price, 'support')
         if sup is None:
             return None
         zl, zu = sup['zone_lower'], sup['zone_upper']
+        atr_val = float(self.atr_by_ts.get(a4, 0.0) or 0.0)
         if not ((zl <= price <= zu) or (zu < price <= zu + 0.5 * atr_val)):
             return None
         if overlapping_resistance_zone_at(
@@ -296,7 +333,7 @@ class StrategyEvaluator:
             'stop': stop,
             'take': take,
             'ts': ts,
-            'source': SOURCE_SUPPORT,
+            'source': source,
         }
 
     def check_entry(self, row) -> dict:
@@ -323,6 +360,8 @@ class StrategyEvaluator:
             self._sync_tracker(ts)
         if self.use_sr_breakout:
             return self._check_sr_breakout_entry(row, ts, price, a4)
+        if self.use_sr_support:
+            return self._check_sr_support_entry(row, ts, price, a4)
         sup = nearest_level_at(self.levels, a4, price, 'support')
         if sup is None:
             return None
