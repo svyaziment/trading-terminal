@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-30 (задача #130 портфель 50k levels_sr_support; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-30 (задача #135 paper + sandbox для test_20260830_new_level; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -11,7 +11,7 @@
 
 Полное дерево см. в разделе 2 `project-context.ru.md`. Ключевые операционные точки входа:
 - `backend/app/main.py` - приложение FastAPI + регистрация маршрутов.
-- `backend/app/analytics/trading_config.py` - торговая вселенная, live top-5 и реестр стратегий (единый источник истины).
+- `backend/app/analytics/trading_config.py` - торговая вселенная, LIVE_UNIVERSE (PO-список задачи #135) и реестр стратегий (единый источник истины).
 - `start_processes.sh` / `stop_processes.sh` - процессы paper trading и опционального sandbox-исполнения.
 - `docs/refresh/context_collector.py` - сборщик контекста для задач агента.
 
@@ -22,7 +22,7 @@
 ## 4. Конвейер данных
 
 См. раздел 4 `project-context.ru.md`. По умолчанию запускаются четыре paper-процесса:
-1. `data_refresher` - MOEX 1min + агрегация + индикаторы + сигналы (каждые 15 минут, top-15).
+1. `data_refresher` - MOEX 1min + агрегация + индикаторы + сигналы (каждые 15 минут, top-15 ∪ LIVE_UNIVERSE).
 2. `online_data` - стриминг 1min свечей + стакана.
 3. `live_engine` - читает активную стратегию из БД (`paper_strategy.get_active_paper_strategy`), строит 4h контекст через `build_strategy_context`, передаёт живые 1min бары в per-ticker `StrategyEvaluator` (единая логика входа, та же что в бэктесте), генерирует сигналы в `trading.alerts`.
 4. `paper_trader` - читает конфиг стратегии из БД (RR из `config.risk_reward`), alerts -> market позиции (open по best_ask, один arm) -> мониторинг stop/take -> запись equity и best-effort Telegram-уведомления. Записывает `strategy_name` в `paper_positions`.
@@ -148,10 +148,11 @@ python docs/refresh/context_collector.py
 
 ## 18. Эксплуатация live-вселенной
 
-- Paper и data refresh оставляют `get_trading_universe()` (top-15 из `trading.trading_universe`).
-- Sandbox-исполнение использует `LIVE_UNIVERSE` / `get_live_trading_universe()`: SBER, LKOH, RUAL, NVTK, GAZP (задача #66). `LiveExecutor.initialize()` пересекает тикеры paper-стратегии с этим списком.
-- Не сужайте таблицу БД до пяти имён: это остановит стриминг и paper trading по остальному top-15.
-- Код рейтинга и отчёт: `analytics/issue-66-live-universe/`. После нового снимка `extract_inputs.py` перезапустите `analysis.py` и синхронизируйте `LIVE_UNIVERSE` с `summary.json`.
+- Рейтинг paper остаётся `get_trading_universe()` (top-15 из `trading.trading_universe`). Таблицу не сужать.
+- Streaming и data refresh используют `get_streaming_universe()` = top-15 ∪ `LIVE_UNIVERSE`.
+- Sandbox-исполнение использует `LIVE_UNIVERSE` / `get_live_trading_universe()`: ROSN, IRAO, AFKS, NVTK, SBER, MTSS, PHOR, MOEX, FLOT (PO-список задачи #135). Геттер **не** обрезает имена вне paper top-15. `LiveExecutor.initialize()` пересекает тикеры paper-стратегии с этим списком.
+- Исторический рейтинг задачи #66 (SBER, LKOH, RUAL, NVTK, GAZP) живёт в `analytics/issue-66-live-universe/`. Не переписывать тот пакет под текущий PO-список.
+- Имя locked paper для preflight: `EXPECTED_LOCKED_STRATEGY` = `test_20260830_new_level`.
 - Тесты: `cd backend && python -m pytest -q tests/test_trading_config.py tests/test_live_universe_analysis.py tests/test_live_executor.py`.
 
 ## 19. Первая canary-сессия sandbox LiveExecutor
@@ -342,4 +343,19 @@ ORDER BY id DESC LIMIT 20;
 - Вердикт: не paper (по умолчанию без явного решения PO). Не lock/paper-flag и не overwrite `test_20260731`, `test_20260820`, `test_20260821`. Черновик Lab при необходимости: `test_YYYYMMDD_sr_support`.
 - Повтор без нового бэктеста: `python analytics/issue-130-sr-support-portfolio/analysis.py`. JSON слотов: `python analytics/issue-130-sr-support-portfolio/generate_inputs.py --source 129`. Notebook: `python analytics/issue-130-sr-support-portfolio/build_notebook.py --execute`.
 - Unit: `cd backend && python -m pytest -q tests/test_issue130_analysis.py`.
+
+## 33. Эксплуатация sandbox LiveExecutor на `test_20260830_new_level` (задача #135)
+
+Явное решение PO поверх вердикта #130 «не paper» для **другой** Lab-строки: `test_20260830_new_level` (`levels_sr_support` + `signal_4h_buy`, RR 1:3). Это не published C (RR 1:2) и не задача #77 (`test_20260731` + top-5 из #66).
+
+1. Ровно одна locked paper-стратегия: `test_20260830_new_level`. `test_20260731` оставить разблокированной; её конфиг не перезаписывать. Открытая paper-позиция FEES на старом имени остаётся под монитор.
+2. Пересобрать: `docker compose up -d --build backend`. `/health` должен быть `ok`.
+3. Paper-стек должен покрывать понедельничную сессию с запасом. Не останавливать paper ради live. Streaming/refresh покрывает top-15 ∪ LIVE_UNIVERSE (21 имя). `trading.trading_universe` не сужать.
+4. Preflight в сессию MOEX (в воскресенье стаканы будут stale):
+   `docker compose exec -T backend python -m app.analytics.live_executor_preflight`.
+   Проверка падает, если backend нездоров, `LIVE_UNIVERSE` не равен девяти PO-именам, locked-стратегия не одна и не `test_20260830_new_level`, нет свободных sandbox RUB, хотя бы один из девяти стаканов старше пяти минут, paper-процессы запущены не в единственном экземпляре, во вселенной БД не 15 строк или `allow_real_trading` не равен false.
+5. Полный sandbox-день (10:00–19:00 МСК, ~540 минут), paper уже жив:
+   `START_LIVE_EXECUTOR=1 PRESERVE_PAPER_PROCESSES=1 DURATION_MINUTES=540 ./start_processes.sh`.
+6. Leftover canary RUAL уже `closed_stop`. На старте #135 открытых sandbox-позиций нет.
+7. После окна записать в задачу #135: init-тикеры, числа `reason=`, число BUY, последние `live_positions` и подтверждение, что `paper_equity` писалась. Никогда не включать `allow_real_trading`.
 

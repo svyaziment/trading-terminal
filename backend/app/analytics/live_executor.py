@@ -44,7 +44,7 @@ ACTIVE_STATUSES = ("pending", "open")
 
 
 def _filter_live_tickers(strategy_tickers: list[str], live_universe: list[str]) -> list[str]:
-    """Keep strategy tickers that belong to the Issue #66 live universe."""
+    """Keep strategy tickers that belong to the configured LIVE_UNIVERSE."""
     if not live_universe:
         return list(strategy_tickers)
     allowed = set(live_universe)

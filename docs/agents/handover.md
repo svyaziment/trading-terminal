@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-30 (Issue #130 50k levels_sr_support portfolio). Companion to project-context.md.
+Last refreshed: 2026-08-30 (Issue #135 paper + sandbox for test_20260830_new_level). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -11,7 +11,7 @@ Operational knowledge to work on this project safely: structure, DB schema, pipe
 
 See project-context.md section 2 for the full tree. Key operational entry points:
 - `backend/app/main.py` - FastAPI app + route registration.
-- `backend/app/analytics/trading_config.py` - trading universe, live top-5, and strategy registry (single source of truth).
+- `backend/app/analytics/trading_config.py` - trading universe, LIVE_UNIVERSE (Issue #135 PO list), and strategy registry (single source of truth).
 - `start_processes.sh` / `stop_processes.sh` - paper trading and opt-in sandbox execution processes.
 - `docs/refresh/context_collector.py` - context collector for agent tasks.
 
@@ -22,7 +22,7 @@ See project-context.md section 3. New tables include `strategies`, `backtest_res
 ## 4. Data Pipeline
 
 See project-context.md section 4. Four paper processes are started by default:
-1. `data_refresher` - MOEX 1min + aggregation + indicators + signals (every 15 min, top-15).
+1. `data_refresher` - MOEX 1min + aggregation + indicators + signals (every 15 min, top-15 ∪ LIVE_UNIVERSE).
 2. `online_data` - streaming 1min candles + order book.
 3. `live_engine` - reads active strategy from DB (`paper_strategy.get_active_paper_strategy`), builds 4h context via `build_strategy_context`, feeds live 1min bars into per-ticker `StrategyEvaluator` instances (unified entry logic, same as backtest), emits signals to `trading.alerts`.
 4. `paper_trader` - reads strategy config from DB (RR from `config.risk_reward`), alerts -> market positions (open at best_ask, single arm) -> monitor stop/take -> write equity and best-effort Telegram notifications. Records `strategy_name` in `paper_positions`.
@@ -148,10 +148,11 @@ python docs/refresh/context_collector.py
 
 ## 18. Operating the Live Trading Universe
 
-- Paper/data refresh keep `get_trading_universe()` (top-15 from `trading.trading_universe`).
-- Sandbox execution uses `LIVE_UNIVERSE` / `get_live_trading_universe()`: SBER, LKOH, RUAL, NVTK, GAZP (Issue #66). `LiveExecutor.initialize()` intersects paper-strategy tickers with this list.
-- Do not shrink the DB table to five names: that would stop streaming and paper trading on the rest of the top-15.
-- Ranking code and report: `analytics/issue-66-live-universe/`. Re-run `analysis.py` after a new `extract_inputs.py` snapshot; keep `LIVE_UNIVERSE` in sync with `summary.json`.
+- Paper ranking stays `get_trading_universe()` (top-15 from `trading.trading_universe`). Do not shrink that table.
+- Streaming and data refresh use `get_streaming_universe()` = top-15 ∪ `LIVE_UNIVERSE`.
+- Sandbox execution uses `LIVE_UNIVERSE` / `get_live_trading_universe()`: ROSN, IRAO, AFKS, NVTK, SBER, MTSS, PHOR, MOEX, FLOT (Issue #135 PO list). The getter does **not** clip names that sit outside the paper top-15. `LiveExecutor.initialize()` intersects paper-strategy tickers with this list.
+- Historical Issue #66 ranking (SBER, LKOH, RUAL, NVTK, GAZP) lives in `analytics/issue-66-live-universe/`. Do not rewrite that package to match the current PO list.
+- Locked paper name for preflight is `EXPECTED_LOCKED_STRATEGY` = `test_20260830_new_level`.
 - Tests: `cd backend && python -m pytest -q tests/test_trading_config.py tests/test_live_universe_analysis.py tests/test_live_executor.py`.
 
 ## 19. First Sandbox LiveExecutor Canary
@@ -342,4 +343,19 @@ Do not modify the locked strategy, RR, imbalance threshold, or `trading.trading_
 - Verdict: not paper (default without an explicit PO decision). Do not lock/paper-flag or overwrite `test_20260731`, `test_20260820`, `test_20260821`. Lab draft if needed: `test_YYYYMMDD_sr_support`.
 - Replay without a new backtest: `python analytics/issue-130-sr-support-portfolio/analysis.py`. Slot JSON: `python analytics/issue-130-sr-support-portfolio/generate_inputs.py --source 129`. Notebook: `python analytics/issue-130-sr-support-portfolio/build_notebook.py --execute`.
 - Units: `cd backend && python -m pytest -q tests/test_issue130_analysis.py`.
+
+## 33. Operating sandbox LiveExecutor on `test_20260830_new_level` (Issue #135)
+
+PO override of the #130 «not paper» verdict for a **different** Lab row: `test_20260830_new_level` (`levels_sr_support` + `signal_4h_buy`, RR 1:3). Not the published C book (RR 1:2). Not Issue #77 (`test_20260731` + #66 top-5).
+
+1. Confirm exactly one locked paper strategy: `test_20260830_new_level`. Keep `test_20260731` unlocked; do not rewrite its config. An open FEES paper position on the old name stays under monitor.
+2. Rebuild: `docker compose up -d --build backend`. `/health` must be `ok`.
+3. Paper stack must cover the Monday session with margin. Do not stop paper for live. Streaming/refresh covers top-15 ∪ LIVE_UNIVERSE (21 names). Do not shrink `trading.trading_universe`.
+4. Preflight in the MOEX session (books will be stale on Sunday):
+   `docker compose exec -T backend python -m app.analytics.live_executor_preflight`.
+   It fails unless backend is healthy, `LIVE_UNIVERSE` is the nine PO names, the only locked strategy is `test_20260830_new_level`, free sandbox RUB > 0, all nine books are ≤5 minutes old, each paper process has exactly one instance, the DB universe still has 15 rows, and `allow_real_trading=false`.
+5. Full sandbox day (10:00–19:00 MSK, ~540 minutes), paper already running:
+   `START_LIVE_EXECUTOR=1 PRESERVE_PAPER_PROCESSES=1 DURATION_MINUTES=540 ./start_processes.sh`.
+6. Leftover canary RUAL is already `closed_stop`. No open sandbox holdings at the #135 start.
+7. After the window, record in Issue #135: init tickers, `reason=` counts, BUY count, latest `live_positions`, and evidence that `paper_equity` advanced. Never set `allow_real_trading=true`.
 

@@ -125,10 +125,24 @@ DEFAULT_UNIVERSE = [
     'TATN', 'CHMF', 'ALRS', 'PLZL', 'MOEX',
 ]
 
-# Issue #66: sandbox live-trading subset. Paper trading and data refresh keep
-# the full trading.trading_universe (top-15). LiveExecutor intersects with this
-# list so sandbox orders stay on the ranked names that still have a live book.
-LIVE_UNIVERSE = ['SBER', 'LKOH', 'RUAL', 'NVTK', 'GAZP']
+# Issue #135: PO sandbox list for locked paper strategy test_20260830_new_level.
+# Issue #66 ranking (SBER/LKOH/RUAL/NVTK/GAZP) remains historical in
+# analytics/issue-66-live-universe/. Do not shrink trading.trading_universe.
+LIVE_UNIVERSE = [
+    'ROSN', 'IRAO', 'AFKS', 'NVTK', 'SBER', 'MTSS', 'PHOR', 'MOEX', 'FLOT',
+]
+EXPECTED_LOCKED_STRATEGY = 'test_20260830_new_level'
+
+
+def _unique_extend(base: List[str], extra: List[str]) -> List[str]:
+    """Preserve base order, then append unseen names from extra."""
+    seen = set(base)
+    out = list(base)
+    for ticker in extra:
+        if ticker not in seen:
+            seen.add(ticker)
+            out.append(ticker)
+    return out
 
 
 def get_trading_universe(db=None, limit: Optional[int] = None) -> List[str]:
@@ -147,11 +161,17 @@ def get_trading_universe(db=None, limit: Optional[int] = None) -> List[str]:
 
 
 def get_live_trading_universe(db=None) -> List[str]:
-    """Tickers allowed for sandbox live execution (Issue #66 top-5)."""
-    selected = list(LIVE_UNIVERSE)
-    traded = set(get_trading_universe(db))
-    filtered = [ticker for ticker in selected if ticker in traded]
-    return filtered or selected
+    """Tickers allowed for sandbox live execution (PO list, Issue #135).
+
+    Returns LIVE_UNIVERSE as configured. Names may sit outside the paper
+    top-15; do not clip them against trading.trading_universe.
+    """
+    return list(LIVE_UNIVERSE)
+
+
+def get_streaming_universe(db=None) -> List[str]:
+    """Paper top-15 plus sandbox live names, without shrinking either list."""
+    return _unique_extend(get_trading_universe(db), get_live_trading_universe(db))
 
 
 # --- Strategy registry -------------------------------------------------------

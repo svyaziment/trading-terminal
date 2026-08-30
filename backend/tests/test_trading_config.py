@@ -6,9 +6,10 @@ from pathlib import Path
 import pandas as pd
 
 from app.analytics.trading_config import (
-    DEFAULT_UNIVERSE,
+    EXPECTED_LOCKED_STRATEGY,
     LIVE_UNIVERSE,
     get_live_trading_universe,
+    get_streaming_universe,
     get_trading_universe,
 )
 
@@ -34,33 +35,60 @@ class FakeDB:
         return Result(pd.DataFrame({"ticker": self.tickers}))
 
 
-def test_live_universe_is_top_five_and_subset_of_traded_fallback():
-    assert LIVE_UNIVERSE == ["SBER", "LKOH", "RUAL", "NVTK", "GAZP"]
-    assert len(LIVE_UNIVERSE) == 5
-    assert len(set(LIVE_UNIVERSE)) == 5
-    assert set(LIVE_UNIVERSE).issubset(set(DEFAULT_UNIVERSE))
+def test_live_universe_is_po_sandbox_list():
+    assert LIVE_UNIVERSE == [
+        "ROSN",
+        "IRAO",
+        "AFKS",
+        "NVTK",
+        "SBER",
+        "MTSS",
+        "PHOR",
+        "MOEX",
+        "FLOT",
+    ]
+    assert len(LIVE_UNIVERSE) == 9
+    assert len(set(LIVE_UNIVERSE)) == 9
+    assert EXPECTED_LOCKED_STRATEGY == "test_20260830_new_level"
 
 
-def test_get_live_trading_universe_intersects_db_universe():
+def test_get_live_trading_universe_is_not_clipped_by_paper_universe():
     db = FakeDB(tickers=["SBER", "GAZP", "CBOM"])
-    assert get_live_trading_universe(db) == ["SBER", "GAZP"]
-
-
-def test_get_live_trading_universe_keeps_selection_when_db_empty():
+    assert get_live_trading_universe(db) == list(LIVE_UNIVERSE)
     assert get_live_trading_universe(FakeDB()) == list(LIVE_UNIVERSE)
     assert get_live_trading_universe(None) == list(LIVE_UNIVERSE)
 
 
-def test_paper_universe_is_not_shrunk_to_live_top_five():
+def test_paper_universe_is_not_shrunk_to_live_list():
     traded = get_trading_universe(FakeDB(tickers=["RUAL", "GMKN", "SBER"]))
     assert traded == ["RUAL", "GMKN", "SBER"]
-    assert get_live_trading_universe(FakeDB(tickers=["RUAL", "GMKN", "SBER"])) == [
-        "SBER",
+    assert get_live_trading_universe(FakeDB(tickers=["RUAL", "GMKN", "SBER"])) == list(
+        LIVE_UNIVERSE
+    )
+
+
+def test_streaming_universe_unions_paper_and_live():
+    db = FakeDB(tickers=["RUAL", "GMKN", "SBER"])
+    stream = get_streaming_universe(db)
+    assert stream[:3] == ["RUAL", "GMKN", "SBER"]
+    for ticker in LIVE_UNIVERSE:
+        assert ticker in stream
+    assert stream == [
         "RUAL",
+        "GMKN",
+        "SBER",
+        "ROSN",
+        "IRAO",
+        "AFKS",
+        "NVTK",
+        "MTSS",
+        "PHOR",
+        "MOEX",
+        "FLOT",
     ]
 
 
-def test_published_summary_matches_live_universe():
+def test_issue66_published_selection_stays_historical():
     summary_path = (
         Path(__file__).resolve().parents[2]
         / "analytics/issue-66-live-universe/summary.json"
@@ -70,4 +98,5 @@ def test_published_summary_matches_live_universe():
 
         pytest.skip("published analytics directory is not mounted")
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
-    assert summary["selected"] == LIVE_UNIVERSE
+    assert summary["selected"] == ["SBER", "LKOH", "RUAL", "NVTK", "GAZP"]
+    assert summary["selected"] != LIVE_UNIVERSE

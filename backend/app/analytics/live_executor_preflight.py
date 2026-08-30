@@ -12,6 +12,8 @@ from typing import Any
 import pandas as pd
 
 from app.analytics.trading_config import (
+    EXPECTED_LOCKED_STRATEGY,
+    LIVE_UNIVERSE,
     get_live_trading_universe,
     get_sandbox_trading_config,
     get_trading_universe,
@@ -20,7 +22,7 @@ from app.broker.tinkoff_sandbox import TinkoffSandboxClient
 from app.db.db_manager import DBManager
 
 
-CANARY_TICKERS = ["SBER", "LKOH", "RUAL", "NVTK", "GAZP"]
+CANARY_TICKERS = list(LIVE_UNIVERSE)
 PAPER_PROCESSES = (
     "run_data_refresher",
     "run_online_data",
@@ -124,7 +126,7 @@ def collect_preflight() -> dict[str, Any]:
             "live_universe": live_universe == CANARY_TICKERS,
             "single_locked_strategy": (
                 len(strategy_rows) == 1
-                and strategy_rows[0]["name"] == "test_20260731"
+                and strategy_rows[0]["name"] == EXPECTED_LOCKED_STRATEGY
             ),
             "sandbox_free_rub": free_rub > 0,
             "fresh_orderbooks": (
