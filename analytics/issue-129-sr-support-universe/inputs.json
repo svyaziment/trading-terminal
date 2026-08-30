@@ -1,0 +1,179 @@
+{
+  "extracted_at": "2026-08-30 17:42:59",
+  "issue": 129,
+  "date_from": "2024-08-01",
+  "date_to": "2026-08-21",
+  "period_last_day": "2026-08-20",
+  "n_runs": 1,
+  "min_candles": 250000,
+  "reference": {
+    "id": 118,
+    "name": "test_20260821",
+    "in_paper_test": false,
+    "locked": false
+  },
+  "flags_at_start": [
+    {
+      "id": 36,
+      "name": "test_20260731",
+      "in_paper_test": true,
+      "locked": true
+    },
+    {
+      "id": 102,
+      "name": "test_20260820",
+      "in_paper_test": false,
+      "locked": false
+    },
+    {
+      "id": 118,
+      "name": "test_20260821",
+      "in_paper_test": false,
+      "locked": false
+    }
+  ],
+  "protected_names": [
+    "test_20260731",
+    "test_20260820",
+    "test_20260821"
+  ],
+  "lab_universe": [
+    "AFKS",
+    "ALRS",
+    "CBOM",
+    "CHMF",
+    "FEES",
+    "FLOT",
+    "GAZP",
+    "GMKN",
+    "IRAO",
+    "LKOH",
+    "MGNT",
+    "MOEX",
+    "MTLR",
+    "MTSS",
+    "NLMK",
+    "NVTK",
+    "PHOR",
+    "PIKK",
+    "PLZL",
+    "ROSN",
+    "RTKM",
+    "RUAL",
+    "SBER",
+    "SIBN",
+    "SNGS",
+    "TATN",
+    "TRNFP",
+    "VTBR"
+  ],
+  "volume_order": [
+    "FEES",
+    "IRAO",
+    "AFKS",
+    "VTBR",
+    "GAZP",
+    "SNGS",
+    "SBER",
+    "RUAL",
+    "ALRS",
+    "GMKN",
+    "MTLR",
+    "CBOM",
+    "NLMK",
+    "ROSN",
+    "RTKM",
+    "MOEX",
+    "FLOT",
+    "MTSS",
+    "NVTK",
+    "PIKK",
+    "TATN",
+    "CHMF",
+    "SIBN",
+    "PLZL",
+    "LKOH",
+    "TRNFP",
+    "MGNT",
+    "PHOR"
+  ],
+  "run_params_tickers_ignored": [
+    "AFKS",
+    "ALRS",
+    "CBOM",
+    "CHMF",
+    "FEES",
+    "FLOT",
+    "GAZP",
+    "GMKN",
+    "IRAO",
+    "LKOH",
+    "MGNT",
+    "MOEX",
+    "MTLR",
+    "MTSS",
+    "NLMK",
+    "NVTK",
+    "PHOR",
+    "PIKK",
+    "PLZL",
+    "ROSN",
+    "RTKM",
+    "RUAL",
+    "SBER",
+    "SIBN",
+    "SNGS",
+    "TATN",
+    "TRNFP",
+    "VTBR"
+  ],
+  "configs": {
+    "C": {
+      "code": "C",
+      "label": "levels_sr_support + signal_4h_buy",
+      "engine": "run_strategy_backtest",
+      "config": {
+        "confirm_windows": [
+          10
+        ],
+        "commission_pct": 0.06,
+        "slippage_pct": 0.0,
+        "risk_reward": {
+          "risk": 1.0,
+          "reward": 2.0
+        },
+        "entry_window": [
+          7,
+          19
+        ],
+        "n_runs": 1,
+        "strategy_name": "levels_reversal",
+        "patterns": {
+          "levels_sr_support": {
+            "level_timeframe": "4h",
+            "level_method": [
+              "swing",
+              "impulse"
+            ],
+            "swing_window": 10,
+            "impulse_body_ratio": 0.7,
+            "impulse_atr_mult": 1.5,
+            "zone_atr_mult": 0.5,
+            "confirm_windows": [
+              10
+            ]
+          },
+          "signal_4h_buy": {}
+        }
+      },
+      "config_sha256": "3b7864c4de2cb2c7d271be8c21c7d99c29bfd8a7dd05980b3c5497b6b2aedb1b"
+    }
+  },
+  "notes": [
+    "Isolated Lab-universe backtest (get_big_tickers), not a 50k portfolio replay.",
+    "C is levels_sr_support + signal_4h_buy only — no retest path.",
+    "Target book is #124 B-support (n=3811, PF 1.51).",
+    "Universe is not run_params.tickers and not LIVE_UNIVERSE.",
+    "level_breakout_retest / levels_reversal / levels_sr_breakout stay off. No strategy row is written."
+  ]
+}

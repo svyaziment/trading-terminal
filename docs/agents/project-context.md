@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-08-30 (Issue #128 levels_sr_support Lab chip). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-08-30 (Issue #129 isolated levels_sr_support Lab universe). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -89,6 +89,7 @@ trading-terminal/
 │       ├── test_issue100_analysis.py # Issue #100 Lab universe/veto/baseline helpers
 │       ├── test_issue119_analysis.py # Issue #119 AFKS smoke config/source/verdict helpers
 │       ├── test_issue124_analysis.py # Issue #124 Lab-universe A/B / AFKS / ALRS / verdict helpers
+│       ├── test_issue129_analysis.py # Issue #129 isolated support universe vs #124 B-support
 │       └── test_portfolio_simulator.py # Portfolio simulator unit + integration tests
 ├── frontend/
 │ ├── src/
@@ -119,7 +120,8 @@ trading-terminal/
 │ ├── issue-100-test-20260820-resistance-veto/ # Lab full-sample + walk-forward of test_20260820 after #97 veto
 │ ├── issue-103-test-20260821-portfolio/ # Portfolio replay of Lab test_20260821 after #97 veto (swing+impulse)
 │ ├── issue-119-afks-sr-breakout-smoke/ # Isolated AFKS A/B smoke for levels_sr_breakout (#119)
-│ └── issue-124-sr-breakout-universe/ # Isolated Lab-universe A/B for levels_sr_breakout (#124)
+│ ├── issue-124-sr-breakout-universe/ # Isolated Lab-universe A/B for levels_sr_breakout (#124)
+│ └── issue-129-sr-support-universe/ # Isolated Lab-universe C vs #124 B-support (#129)
 ├── docs/
 │ ├── agents/ # project-context.md, handover.md (+ .ru versions), documentation-policy.md
 │ ├── strategy/ # levels-reversal-strategy.md, paper-trading.md, testing-rules.md, backtest-report.md (+ .ru)
@@ -254,6 +256,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 - **Issue #124 (Epic #115, 2026-08-30)**: Isolated Lab-universe A/B for `levels_sr_breakout` vs #103/#119. Package: `analytics/issue-124-sr-breakout-universe/`. Same SHA pair as #119, `get_big_tickers` (28 names), `2024-08-01` … `timestamp < 2026-08-21`. Isolated A: n=2559, PF 1.46, median PF 1.48, 26/28 PF>1. Isolated B: n=4799, PF 1.39, median PF 1.39, 28/28 PF>1; support n=3811 PF 1.51; resistance n=988 PF 1.17. Extra support vs A: +1252 (tracker in the veto). AFKS matched #119 (39/1.50 and 116/1.46). ALRS `2026-08-20 11:50:24` @ 19.80 absent in A and B. Optional #44/#103 slot replay of B: n=2837, PF 1.32, equity 98,432.94 RUB, no GAME OVER. Locked `test_20260731` / `test_20260820` / `test_20260821` untouched. Verdict: portfolio replay done; not paper.
 - **Issue #127 (Epic #126, 2026-08-30)**: Lab pattern `levels_sr_support` is the isolated B-support engine from #124 (tracker veto, no retest). `run_strategy_backtest` accepts it without `levels_reversal` in `config.patterns`. Tracker + `htf_bars` as in #107/#116. Locked `test_20260731` unchanged. Tests: `tests/test_levels_sr_support.py` plus existing veto / composite / plugin. Lab chip is #128; isolated vs #124 B-support is #129.
 - **Issue #128 (Epic #126, 2026-08-30)**: Strategy Lab chip + schema-driven `PatternSettingsModal` for `levels_sr_support`. Names, hints, icon (`support_tracker`), and params come from `GET /api/patterns` (group **Уровни**). Validation uses schema `min`/`max` (blocks Apply and Save+Run). No retest fields. `resolveConfirmWindows` follows backend order: `levels_sr_breakout` > `levels_sr_support` > `levels_reversal`. Locked `test_20260731` stays read-only. Isolated vs #124 B-support is #129.
+- **Issue #129 (Epic #126, 2026-08-30)**: Isolated Lab-universe backtest of `levels_sr_support` + `signal_4h_buy` vs exclusive #124 B-support. Package: `analytics/issue-129-sr-support-universe/`. Same 28 names / period as #124. Isolated C: n=4380 PF 1.45, median PF 1.48, 26/28 PF>1, `source=levels_sr_support` only (resistance n=0). Exclusive B-support 3811 / 1.51 is a composite label (path B occupies the slot), not the runnable book. Extra 611: occupancy 610 + leftover 1 (PHOR 2026-08-14 14:48); missing 42 cascade. AFKS C 89 / 1.49 with exclusive 78 ⊆ C (not mix 116 / 1.46). ALRS `2026-08-20 11:50:24` @ 19.80 blocked. Locked `test_20260731` / `test_20260820` / `test_20260821` untouched. Verdict: совпало; #130 must use C, not exclusive. Not paper.
 - **Legacy pattern-matrix backtest**: rule-based strategies NOT profitable after commission on MOEX top-3 over 2 years (all PF < 1). Superseded by the levels approach.
 - **Universe**: top-15 by PF (`trading_universe`) remains the paper/data-refresh universe via `get_trading_universe()`. Sandbox live execution uses Issue #66 top-5 `LIVE_UNIVERSE` = SBER, LKOH, RUAL, NVTK, GAZP via `get_live_trading_universe()`. Paper `paper_positions` was empty at the #66 snapshot (equity flat at 100,000 RUB), so the live list is backtest + liquidity + ATR, not forward PnL.
 - **Sandbox canary (Issue #74, 2026-08-19)**: `LiveExecutor` initialized the top-5 on locked strategy `test_20260731` and submitted a sandbox market BUY on RUAL (37 lots at 26.73, take 28.02, stop 26.19). The next signal for the same ticker was skipped with `reason=duplicate_ticker`. Paper equity kept updating during the session. The runbook lives in handover §19.
@@ -285,7 +288,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | R | Pattern chart preview in Lab + Signals (Epic #87) | #88 preview API + levels overlays done; #89–#92 pending |
 | S | Level Breakout & Role Reversal (Epic #105) | #106 LevelsTracker + #107 `level_breakout_retest` AND-filter + #109 Lab chip done; analytics validation and optional preview pending |
 | T | Composite S/R pattern (Epic #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 Lab chip + #119 AFKS smoke + #124 Lab-universe A/B done |
-| U | Support with tracker (Epic #126) | #127 `levels_sr_support` backend + #128 Lab chip done; #129 isolated vs #124 B-support / #130 portfolio #44 pending |
+| U | Support with tracker (Epic #126) | #127 `levels_sr_support` backend + #128 Lab chip + #129 isolated Lab universe done; #130 portfolio #44 pending |
 
 ## 9. Important Notes
 

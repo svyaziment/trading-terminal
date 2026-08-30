@@ -337,4 +337,8 @@ Unit: `backend/tests/test_levels_state_machine.py`. Locked `test_20260731` не 
 
 `GET /api/patterns`: `category=levels`, `label` «Поддержка с трекером», `label_en` «Support Reversal (tracker veto)», иконка `support_tracker` (не `breakout_up` и не `support_breakout`). Параметры — только поля `levels_reversal`, без ключей ретеста. Чип Lab — задача #128. Файл: `backend/app/analytics/patterns/levels_sr_support.py`. Тесты: `backend/tests/test_levels_sr_support.py`.
 
+### Isolated Lab-вселенная (задача #129)
+
+Изолированный прогон 28 тикеров `get_big_tickers`, тот же период, что #124. Пакет: `analytics/issue-129-sr-support-universe/`. Isolated C (`levels_sr_support` + `signal_4h_buy`): n=4380, PF 1.45, median PF 1.48. Exclusive B-support из #124 (3811 / 1.51) — подпись композита (путь B занимает слот), не runnable-книга. Extra 611: occupancy 610 + leftover 1; missing 42 cascade. AFKS C 89 / 1.49 (exclusive 78 ⊆ C). Бар ALRS `2026-08-20 11:50:24` @ 19.80 заблокирован. Resistance n=0. Задача #130 должна брать C, не exclusive. Не вердикт для paper.
+
 

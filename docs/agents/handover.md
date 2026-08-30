@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-30 (Issue #128 levels_sr_support Lab chip). Companion to project-context.md.
+Last refreshed: 2026-08-30 (Issue #129 isolated levels_sr_support Lab universe). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -68,7 +68,8 @@ See project-context.md section 9.
 - **Composite S/R (Issue #117)**: `levels_sr_breakout` is an **entry engine** (OR of path A support and path B resistance retest), not an AND-filter. Isolated Lab run: `config.patterns` has `levels_sr_breakout` (and optionally `signal_4h_buy`) **without** `levels_reversal`. If both chips are on, the composite wins (one support path). Do not AND with `level_breakout_retest` as a replacement. Trades carry `source` (`levels_sr_breakout_support` / `levels_sr_breakout_resistance`). Locked `test_20260731` must stay off this id. Units: `cd backend && python -m pytest -q tests/test_levels_sr_breakout.py tests/test_resistance_zone_veto.py tests/test_level_breakout_retest.py tests/test_strategy_plugin.py`.
 - **AFKS smoke (Issue #119)**: isolated ticker backtest, not a 50k portfolio. Package `analytics/issue-119-afks-sr-breakout-smoke/`. A vs B on AFKS `2024-08-01`…`< 2026-08-21`. B-support n can exceed A because the composite passes `LevelsTracker` into the veto. `run_strategy_backtest` is the source of `source`; `run_portfolio_backtest` currently drops it. Do not lock/overwrite `test_20260731` / `test_20260820` / `test_20260821`. Replay: `python analytics/issue-119-afks-sr-breakout-smoke/analysis.py` (needs `results.json`). Units: `cd backend && python -m pytest -q tests/test_issue119_analysis.py`.
 - **Lab-universe A/B (Issue #124)**: isolated 28-ticker `get_big_tickers` run, same SHA as #119. Package `analytics/issue-124-sr-breakout-universe/`. A n=2559 PF 1.46; B n=4799 PF 1.39 (support 3811 / resistance 988). AFKS matched #119; ALRS 19.80 bar absent. Optional 50k slot replay of B is a separate block, not isolated PF. Do not lock/overwrite the three reference strategies. Replay: `python analytics/issue-124-sr-breakout-universe/analysis.py`. Units: `cd backend && python -m pytest -q tests/test_issue124_analysis.py`.
-- **Support with tracker (Issue #127 / Epic #126)**: `levels_sr_support` is the **B-support-only** entry engine from #124 (PF 1.51, n=3811). Same support geometry as `levels_reversal` plus the #97 veto **with** `LevelsTracker`. No `check_breakout_retest`. Isolated run: `config.patterns` has `levels_sr_support` (optionally `signal_4h_buy`) **without** `levels_reversal` / `levels_sr_breakout` / `level_breakout_retest`. Composite still wins if both engines are on. Do not silently turn the tracker on for locked `test_20260731`. Units: `cd backend && python -m pytest -q tests/test_levels_sr_support.py tests/test_levels_sr_breakout.py tests/test_resistance_zone_veto.py tests/test_strategy_plugin.py`.
+- **Support with tracker (Issue #127 / Epic #126)**: `levels_sr_support` is the **B-support-only** entry engine from #124. Same support geometry as `levels_reversal` plus the #97 veto **with** `LevelsTracker`. No `check_breakout_retest`. Isolated run: `config.patterns` has `levels_sr_support` (optionally `signal_4h_buy`) **without** `levels_reversal` / `levels_sr_breakout` / `level_breakout_retest`. Composite still wins if both engines are on. Do not silently turn the tracker on for locked `test_20260731`. Isolated Lab universe: handover §31 (C n=4380 PF 1.45; exclusive 3811/1.51 is not bit-for-bit). Units: `cd backend && python -m pytest -q tests/test_levels_sr_support.py tests/test_levels_sr_breakout.py tests/test_resistance_zone_veto.py tests/test_strategy_plugin.py`.
+- **Isolated support universe (Issue #129)**: package `analytics/issue-129-sr-support-universe/`. Isolated C (`levels_sr_support` + `signal_4h_buy`) on the same 28-ticker Lab universe as #124. Exclusive B-support 3811 / 1.51 is a composite label (path B occupies the slot). Runnable C is 4380 / 1.45. Extra 611: occupancy 610 + leftover 1; missing 42 cascade. AFKS 89 / 1.49 (exclusive 78 ⊆ C). Resistance n=0. ALRS 19.80 blocked. #130 must use C, not exclusive. Do not lock/overwrite the three reference strategies. Replay: `python analytics/issue-129-sr-support-universe/analysis.py`. Units: `cd backend && python -m pytest -q tests/test_issue129_analysis.py`.
 
 ## 11. Collaboration Protocol (agents)
 
@@ -271,7 +272,7 @@ Do not modify the locked strategy, RR, imbalance threshold, or `trading.trading_
 - Top-level `config.confirm_windows` is taken from the enabled schema that owns that param; the composite wins over `levels_reversal` (same as backend `_LEVELS_CONFIRM_PATTERN_IDS`). Save goes through existing `POST /api/strategies` then `POST /api/strategies/{id}/run` with `config.patterns` as `{ id: params }` — not `POST /api/backtest`.
 - When to enable: you want one Lab engine that enters on native support **or** on a confirmed resistance retest. Keep it off on locked `test_20260731` (the Lab row stays read-only).
 - There is no `frontend` service in `docker-compose.yml`. Check locally: `cd frontend && npm test && npm run build`. Backend schema: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
-- Isolated AFKS smoke (Issue #119): handover §27. Lab-universe A/B (Issue #124): handover §28. Support-only engine (Issue #127): handover §29. Lab chip (Issue #128): handover §30. Do not treat either package as a paper verdict.
+- Isolated AFKS smoke (Issue #119): handover §27. Lab-universe A/B (Issue #124): handover §28. Support-only engine (Issue #127): handover §29. Lab chip (Issue #128): handover §30. Isolated support universe (Issue #129): handover §31. Do not treat either package as a paper verdict.
 
 ## 27. Operating the AFKS composite smoke
 
@@ -315,5 +316,17 @@ Do not modify the locked strategy, RR, imbalance threshold, or `trading.trading_
 - Top-level `config.confirm_windows` is taken from the enabled schema that owns that param; priority is composite > support-with-tracker > `levels_reversal` (same as backend `_LEVELS_CONFIRM_PATTERN_IDS`). Save goes through existing `POST /api/strategies` then `POST /api/strategies/{id}/run` with `config.patterns` as `{ id: params }` — not `POST /api/backtest`.
 - When to enable: you want the #124 B-support path (tracker-aware veto, no resistance retest). Keep it off on locked `test_20260731` (the Lab row stays read-only).
 - There is no `frontend` service in `docker-compose.yml`. Check locally: `cd frontend && npm test && npm run build`. Backend schema: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
-- Isolated vs #124 B-support is Issue #129. Do not treat this chip as a paper verdict.
+- Isolated vs #124 B-support is Issue #129 (handover §31). Do not treat this chip as a paper verdict.
+
+## 31. Operating the isolated support-with-tracker universe
+
+- Package: `analytics/issue-129-sr-support-universe/`. Isolated 28-ticker Lab universe (`get_big_tickers`), same period as #124. Not live top-5 and not `run_params.tickers`.
+- C = only `levels_sr_support` + `signal_4h_buy` (SHA `3b7864c4de2cb2c7d271be8c21c7d99c29bfd8a7dd05980b3c5497b6b2aedb1b`). Engine is `run_strategy_backtest` so trades keep `source=levels_sr_support`.
+- Exclusive B-support in #124 is a **composite label** (path B steals dual bars and occupies the single slot). Isolated C is the **runnable** support-only book: n=4380 PF 1.45. Do not treat exclusive 3811 / 1.51 as bit-for-bit C.
+- Extra 611 vs exclusive: 610 occupancy (C enters while the composite is in a path-B or other trade), leftover 1 (PHOR `2026-08-14 14:48`). Missing 42: cascade (a C extra occupies the slot so a later B-support trade cannot fire). Extra PF 0.95 — isolated extras are worse than exclusive 1.51.
+- AFKS: C 89 / 1.49; exclusive 78 ⊆ C; not mix 116 / 1.46. ALRS `2026-08-20 11:50:24` @ 19.80 blocked. Resistance-source n=0.
+- Issue #130 must use C (4380 / 1.45), not exclusive 3811 / 1.51. Do not mix isolated PF with a 50k portfolio.
+- Do not lock/paper-flag or overwrite `test_20260731`, `test_20260820`, `test_20260821`.
+- Replay without a new backtest: `python analytics/issue-129-sr-support-universe/analysis.py`. Full re-run: `python analytics/issue-129-sr-support-universe/extract_inputs.py` (resumable).
+- Units: `cd backend && python -m pytest -q tests/test_issue129_analysis.py`.
 
