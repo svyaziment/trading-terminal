@@ -26,7 +26,7 @@ from app.core.config_manager import load_settings
 from app.analytics.orderbook_imbalance import calculate_volume_imbalance
 from app.analytics.trading_config import (
     get_orderbook_imbalance_config,
-    get_trading_universe,
+    get_streaming_universe,
 )
 
 logger = logging.getLogger(__name__)
@@ -130,7 +130,7 @@ def run_online_data(tickers: List[str] = None, duration_minutes: int = 60):
     if not IS_SDK_AVAILABLE:
         raise RuntimeError("T-Bank API SDK not available")
     if tickers is None:
-        tickers = get_trading_universe(DBManager())
+        tickers = get_streaming_universe(DBManager())
     settings = load_settings()
     token = settings.api.token
     if not token:

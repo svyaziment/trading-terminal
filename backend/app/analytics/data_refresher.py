@@ -1,7 +1,7 @@
 """
 Data refresher: periodically updates candles_1min_raw (MOEX ISS API), candles_aggregated,
 trading.indicators and trading.signals (so 4h BUY signals stay fresh for the base_4hbuy arm).
-Universe: trading_config.get_trading_universe() (top-15 by PF, single source of truth).
+Universe: trading_config.get_streaming_universe() (top-15 plus LIVE_UNIVERSE).
 Sequential in one process:
   1) MOEX 1min incremental load -> candles_1min_raw
   2) update figi from trading.instruments (candles_1min_raw)
@@ -18,7 +18,7 @@ import time
 import logging
 from typing import List, Optional
 
-from app.analytics.trading_config import get_trading_universe
+from app.analytics.trading_config import get_streaming_universe
 from app.db.db_manager import DBManager
 
 logger = logging.getLogger(__name__)
@@ -118,7 +118,7 @@ def run_data_refresher(tickers: Optional[List[str]] = None, duration_minutes: in
     from app.analytics.signal_generator import SignalGenerator
 
     if tickers is None:
-        tickers = get_trading_universe(DBManager())
+        tickers = get_streaming_universe(DBManager())
     logger.info(f"Data refresher started: {len(tickers)} tickers, every {refresh_interval_min} min, duration {duration_minutes} min (with indicators+signals)")
 
     # Create once (process-wide DBManager pool); reused across cycles
