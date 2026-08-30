@@ -293,6 +293,17 @@ export interface LevelsSrBreakoutConfig {
   risk_reward: number;
 }
 
+/** Lab params for `levels_sr_support` (GET /api/patterns schema). No retest keys. */
+export interface LevelsSrSupportConfig {
+  level_timeframe: string;
+  level_method: string[];
+  swing_window: number;
+  impulse_body_ratio: number;
+  impulse_atr_mult: number;
+  zone_atr_mult: number;
+  confirm_windows: number[];
+}
+
 // ---- Pattern chart preview (Epic #87, Issue #89) ----
 export interface OverlayRay {
   type: "ray";
