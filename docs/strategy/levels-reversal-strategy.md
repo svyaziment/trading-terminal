@@ -1,7 +1,7 @@
 # Levels Reversal Strategy
 
 > Status: validated on SBER/GAZP/VTBR (2-year history). Production brain: `StrategyEvaluator.check_entry`. Prototype: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-30 (Issue #127 levels_sr_support support-only engine).
+> Last refreshed: 2026-08-30 (Issue #130 50k levels_sr_support portfolio).
 
 ## 1. Overview
 
@@ -340,5 +340,9 @@ If `levels_sr_support` and `levels_sr_breakout` are both on, the composite wins.
 ### Isolated Lab universe (Issue #129)
 
 Isolated 28-ticker `get_big_tickers` run, same period as #124. Package: `analytics/issue-129-sr-support-universe/`. Isolated C (`levels_sr_support` + `signal_4h_buy`): n=4380, PF 1.45, median PF 1.48. Exclusive #124 B-support 3811 / 1.51 is a composite label (path B occupies the slot), not the runnable book. Extra 611: occupancy 610 + leftover 1; missing 42 cascade. AFKS C 89 / 1.49 (exclusive 78 ⊆ C). ALRS `2026-08-20 11:50:24` @ 19.80 blocked. Resistance n=0. Issue #130 must use C, not exclusive. Not a paper verdict.
+
+### Portfolio 50k (Issue #130)
+
+Slot replay of published C by Issue #44 rules (50k / 10k / max 5, volume-order #103). Package: `analytics/issue-130-sr-support-portfolio/`. Candidates = isolated C 4380, not exclusive 3811 / 1.51 and not a `source=` filter of #124 B-mix. Portfolio: n=3237, PF 1.33, equity 96,204.63 RUB, daily Max DD 6.08%, no GAME OVER. ALRS 19.80 absent. Comparison: #44 96,343.49 / 3500 / 1.31; #103 89,055.31 / 2070 / 1.34; #124 B-mix 98,432.94 / 2837 / 1.32. Verdict: not paper.
 
 

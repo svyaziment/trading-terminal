@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-30 (задача #129 isolated levels_sr_support на Lab-вселенной; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-08-30 (задача #130 портфель 50k levels_sr_support; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -70,6 +70,7 @@
 - **Lab-вселенная A/B (задача #124)**: изолированный прогон 28 тикеров `get_big_tickers`, те же SHA, что #119. Пакет `analytics/issue-124-sr-breakout-universe/`. A n=2559 PF 1.46; B n=4799 PF 1.39 (support 3811 / resistance 988). AFKS совпал с #119; бар ALRS 19.80 отсутствует. Опциональный портфель 50k по B — отдельный блок, не isolated PF. Не lock/overwrite три эталонные стратегии. Повтор: `python analytics/issue-124-sr-breakout-universe/analysis.py`. Unit: `cd backend && python -m pytest -q tests/test_issue124_analysis.py`.
 - **Поддержка с трекером (задача #127 / эпик #126)**: `levels_sr_support` — **только B-support** из #124. Та же геометрия поддержки, что у `levels_reversal`, плюс вето #97 **с** `LevelsTracker`. Без `check_breakout_retest`. Изолированный прогон: в `config.patterns` есть `levels_sr_support` (опционально `signal_4h_buy`) **без** `levels_reversal` / `levels_sr_breakout` / `level_breakout_retest`. Композит по-прежнему побеждает, если оба движка включены. Не включать трекер «молча» на locked `test_20260731`. Isolated Lab-вселенная: handover §31 (C n=4380 PF 1.45; exclusive 3811/1.51 не bit-for-bit). Unit: `cd backend && python -m pytest -q tests/test_levels_sr_support.py tests/test_levels_sr_breakout.py tests/test_resistance_zone_veto.py tests/test_strategy_plugin.py`.
 - **Isolated support-вселенная (задача #129)**: пакет `analytics/issue-129-sr-support-universe/`. Isolated C (`levels_sr_support` + `signal_4h_buy`) на той же 28-тикерной Lab-вселенной, что #124. Exclusive B-support 3811 / 1.51 — подпись композита (путь B занимает слот). Runnable C — 4380 / 1.45. Extra 611: occupancy 610 + leftover 1; missing 42 cascade. AFKS 89 / 1.49 (exclusive 78 ⊆ C). Resistance n=0. Бар ALRS 19.80 заблокирован. #130 должен брать C, не exclusive. Не lock/overwrite три эталонные стратегии. Повтор: `python analytics/issue-129-sr-support-universe/analysis.py`. Unit: `cd backend && python -m pytest -q tests/test_issue129_analysis.py`.
+- **Портфель поддержки 50k (задача #130)**: пакет `analytics/issue-130-sr-support-portfolio/`. Replay слотов published C (4380 кандидатов, SHA `3b7864c4…aedb1b`), не exclusive 3811/1.51 и не фильтр `source=` из #124 B-mix. n=3237 PF 1.33 equity 96 204.63 daily Max DD 6.08% без GAME OVER. Бар ALRS 19.80 отсутствует. Вердикт: не paper. Повтор: `python analytics/issue-130-sr-support-portfolio/analysis.py`. Unit: `cd backend && python -m pytest -q tests/test_issue130_analysis.py`.
 
 ## 11. Протокол сотрудничества (агенты)
 
@@ -272,7 +273,7 @@ ORDER BY id DESC LIMIT 20;
 - Верхнеуровневый `config.confirm_windows` берётся из включённой схемы, у которой есть этот param; композит побеждает `levels_reversal` (как backend `_LEVELS_CONFIRM_PATTERN_IDS`). Сохранение идёт через существующие `POST /api/strategies` и `POST /api/strategies/{id}/run` с `config.patterns` как `{ id: params }` — не `POST /api/backtest`.
 - Когда включать: нужен один Lab-движок, который входит и от нативной поддержки, и на подтверждённом ретесте сопротивления. На locked `test_20260731` оставлять выключенным (строка Lab только для чтения).
 - Сервиса `frontend` в `docker-compose.yml` нет. Проверка локально: `cd frontend && npm test && npm run build`. Схема backend: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
-- Изолированный AFKS smoke (задача #119): handover §27. Lab-вселенная A/B (задача #124): handover §28. Движок только поддержки (задача #127): handover §29. Чип Lab (задача #128): handover §30. Isolated support-вселенная (задача #129): handover §31. Не считать ни один пакет вердиктом для paper.
+- Изолированный AFKS smoke (задача #119): handover §27. Lab-вселенная A/B (задача #124): handover §28. Движок только поддержки (задача #127): handover §29. Чип Lab (задача #128): handover §30. Isolated support-вселенная (задача #129): handover §31. Портфель 50k (задача #130): handover §32. Не считать ни один пакет вердиктом для paper.
 
 ## 27. Эксплуатация AFKS smoke композита
 
@@ -316,7 +317,7 @@ ORDER BY id DESC LIMIT 20;
 - Верхнеуровневый `config.confirm_windows` берётся из включённой схемы, у которой есть этот param; приоритет композит > поддержка-с-трекером > `levels_reversal` (как backend `_LEVELS_CONFIRM_PATTERN_IDS`). Сохранение идёт через существующие `POST /api/strategies` и `POST /api/strategies/{id}/run` с `config.patterns` как `{ id: params }` — не `POST /api/backtest`.
 - Когда включать: нужен путь B-support из #124 (вето с трекером, без ретеста сопротивления). На locked `test_20260731` оставлять выключенным (строка Lab только для чтения).
 - Сервиса `frontend` в `docker-compose.yml` нет. Проверка локально: `cd frontend && npm test && npm run build`. Схема backend: `cd backend && python -m pytest -q tests/test_pattern_registry.py`.
-- Isolated vs #124 B-support — задача #129 (handover §31). Не считать этот чип вердиктом для paper.
+- Isolated vs #124 B-support — задача #129 (handover §31). Портфель 50k — задача #130 (handover §32). Не считать этот чип вердиктом для paper.
 
 ## 31. Эксплуатация isolated-вселенной поддержки с трекером
 
@@ -325,8 +326,20 @@ ORDER BY id DESC LIMIT 20;
 - Exclusive B-support в #124 — **подпись композита** (путь B забирает dual-бар и занимает единственный слот). Isolated C — **runnable** книга только поддержки: n=4380 PF 1.45. Не считать exclusive 3811 / 1.51 bit-for-bit совпадением с C.
 - Extra 611 vs exclusive: 610 occupancy (C входит, пока композит в сделке пути B), leftover 1 (PHOR `2026-08-14 14:48`). Missing 42: cascade (extra C занимает слот, поздняя B-support не стреляет). Extra PF 0.95 — isolated extras хуже exclusive 1.51.
 - AFKS: C 89 / 1.49; exclusive 78 ⊆ C; не mix 116 / 1.46. Бар ALRS `2026-08-20 11:50:24` @ 19.80 заблокирован. Resistance-source n=0.
-- Задача #130 должна брать C (4380 / 1.45), не exclusive 3811 / 1.51. Не смешивать isolated PF с портфелем 50k.
+- Задача #130 должна брать C (4380 / 1.45), не exclusive 3811 / 1.51. Не смешивать isolated PF с портфелем 50k. Портфельный пакет: handover §32.
 - Не lock/paper-flag и не overwrite `test_20260731`, `test_20260820`, `test_20260821`.
 - Повтор без нового бэктеста: `python analytics/issue-129-sr-support-universe/analysis.py`. Полный прогон: `python analytics/issue-129-sr-support-universe/extract_inputs.py` (резюмируется).
 - Unit: `cd backend && python -m pytest -q tests/test_issue129_analysis.py`.
+
+## 32. Эксплуатация портфеля поддержки с трекером
+
+- Пакет: `analytics/issue-130-sr-support-portfolio/`. Replay слотов isolated C из #129, те же 28 имён / volume-order, что #103/#44. Не live top-5.
+- C = только `levels_sr_support` + `signal_4h_buy` (SHA `3b7864c4de2cb2c7d271be8c21c7d99c29bfd8a7dd05980b3c5497b6b2aedb1b`). Кандидаты из published #129 `results.json` через `run_strategy_backtest` (`source=levels_sr_support`). Не фильтровать #124 B-mix по `source`.
+- Слоты: 50 000 RUB / 10 000 / max 5. Период `2024-08-01` … `timestamp < 2026-08-21`. Дневная equity — по закрытиям, без mark-to-market.
+- Опубликованная книга C: n=3237 PF 1.33 equity 96 204.63 daily Max DD 6.08% event Max DD 6.98% skipped 1143, без GAME OVER. Isolated C остаётся 4380 / 1.45 — эти PF не смешивать.
+- Сравнение (другие книги, не замены): #44 equity 96 343.49 n=3500 PF 1.31; #103 equity 89 055.31 n=2070 PF 1.34; #124 B-mix equity 98 432.94 n=2837 PF 1.32 (кандидаты support+resistance).
+- Бар ALRS `2026-08-20 11:50:24` @ 19.80 отсутствует среди candidates и портфельных входов. Resistance-source n=0.
+- Вердикт: не paper (по умолчанию без явного решения PO). Не lock/paper-flag и не overwrite `test_20260731`, `test_20260820`, `test_20260821`. Черновик Lab при необходимости: `test_YYYYMMDD_sr_support`.
+- Повтор без нового бэктеста: `python analytics/issue-130-sr-support-portfolio/analysis.py`. JSON слотов: `python analytics/issue-130-sr-support-portfolio/generate_inputs.py --source 129`. Notebook: `python analytics/issue-130-sr-support-portfolio/build_notebook.py --execute`.
+- Unit: `cd backend && python -m pytest -q tests/test_issue130_analysis.py`.
 
