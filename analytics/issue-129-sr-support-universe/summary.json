@@ -1,0 +1,1823 @@
+{
+  "issue": 129,
+  "date_from": "2024-08-01",
+  "date_to": "2026-08-21",
+  "period_last_day": "2026-08-20",
+  "extracted_at": "2026-08-30 17:42:59",
+  "updated_at": "2026-08-30 18:50:49",
+  "protected_untouched": true,
+  "reference": {
+    "id": 118,
+    "name": "test_20260821",
+    "in_paper_test": false,
+    "locked": false
+  },
+  "lab_universe": [
+    "AFKS",
+    "ALRS",
+    "CBOM",
+    "CHMF",
+    "FEES",
+    "FLOT",
+    "GAZP",
+    "GMKN",
+    "IRAO",
+    "LKOH",
+    "MGNT",
+    "MOEX",
+    "MTLR",
+    "MTSS",
+    "NLMK",
+    "NVTK",
+    "PHOR",
+    "PIKK",
+    "PLZL",
+    "ROSN",
+    "RTKM",
+    "RUAL",
+    "SBER",
+    "SIBN",
+    "SNGS",
+    "TATN",
+    "TRNFP",
+    "VTBR"
+  ],
+  "config_sha": {
+    "C": "3b7864c4de2cb2c7d271be8c21c7d99c29bfd8a7dd05980b3c5497b6b2aedb1b"
+  },
+  "runs": {
+    "C": {
+      "engine": "run_strategy_backtest",
+      "metrics": {
+        "n": 4380,
+        "pf": 1.45,
+        "pf_infinite": false,
+        "exp_pct": 0.197,
+        "wr": 30.5,
+        "maxdd_pct": 28.8
+      },
+      "aggregates": {
+        "tickers_total": 28,
+        "tickers_success": 28,
+        "tickers_failed": 0,
+        "trades_total": 4380,
+        "mean_pf": 1.47,
+        "median_pf": 1.48,
+        "pf_gt1_count": 26,
+        "pf_gt1_share": 0.929,
+        "mean_exp_pct": 0.207,
+        "median_wr": 30.8,
+        "median_maxdd_pct": 11.0
+      },
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 4380,
+            "pf": 1.45,
+            "pf_infinite": false,
+            "exp_pct": 0.197,
+            "wr": 30.5,
+            "maxdd_pct": 28.8
+          },
+          "n": 4380
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    }
+  },
+  "by_ticker": [
+    {
+      "ticker": "AFKS",
+      "status_c": "success",
+      "c": {
+        "n": 89,
+        "pf": 1.49,
+        "pf_infinite": false,
+        "exp_pct": 0.292,
+        "wr": 31.5,
+        "maxdd_pct": 10.7
+      },
+      "expected_support_n": 78,
+      "n_delta": 11,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 89,
+            "pf": 1.49,
+            "pf_infinite": false,
+            "exp_pct": 0.292,
+            "wr": 31.5,
+            "maxdd_pct": 10.7
+          },
+          "n": 89
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "ALRS",
+      "status_c": "success",
+      "c": {
+        "n": 140,
+        "pf": 1.34,
+        "pf_infinite": false,
+        "exp_pct": 0.187,
+        "wr": 27.9,
+        "maxdd_pct": 16.1
+      },
+      "expected_support_n": 131,
+      "n_delta": 9,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 140,
+            "pf": 1.34,
+            "pf_infinite": false,
+            "exp_pct": 0.187,
+            "wr": 27.9,
+            "maxdd_pct": 16.1
+          },
+          "n": 140
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "CBOM",
+      "status_c": "success",
+      "c": {
+        "n": 266,
+        "pf": 1.63,
+        "pf_infinite": false,
+        "exp_pct": 0.196,
+        "wr": 30.8,
+        "maxdd_pct": 13.1
+      },
+      "expected_support_n": 179,
+      "n_delta": 87,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 266,
+            "pf": 1.63,
+            "pf_infinite": false,
+            "exp_pct": 0.196,
+            "wr": 30.8,
+            "maxdd_pct": 13.1
+          },
+          "n": 266
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "CHMF",
+      "status_c": "success",
+      "c": {
+        "n": 116,
+        "pf": 1.01,
+        "pf_infinite": false,
+        "exp_pct": 0.008,
+        "wr": 19.0,
+        "maxdd_pct": 28.0
+      },
+      "expected_support_n": 105,
+      "n_delta": 11,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 116,
+            "pf": 1.01,
+            "pf_infinite": false,
+            "exp_pct": 0.008,
+            "wr": 19.0,
+            "maxdd_pct": 28.0
+          },
+          "n": 116
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "FEES",
+      "status_c": "success",
+      "c": {
+        "n": 159,
+        "pf": 1.48,
+        "pf_infinite": false,
+        "exp_pct": 0.216,
+        "wr": 28.9,
+        "maxdd_pct": 9.3
+      },
+      "expected_support_n": 148,
+      "n_delta": 11,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 159,
+            "pf": 1.48,
+            "pf_infinite": false,
+            "exp_pct": 0.216,
+            "wr": 28.9,
+            "maxdd_pct": 9.3
+          },
+          "n": 159
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "FLOT",
+      "status_c": "success",
+      "c": {
+        "n": 254,
+        "pf": 1.32,
+        "pf_infinite": false,
+        "exp_pct": 0.122,
+        "wr": 28.7,
+        "maxdd_pct": 15.2
+      },
+      "expected_support_n": 230,
+      "n_delta": 24,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 254,
+            "pf": 1.32,
+            "pf_infinite": false,
+            "exp_pct": 0.122,
+            "wr": 28.7,
+            "maxdd_pct": 15.2
+          },
+          "n": 254
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "GAZP",
+      "status_c": "success",
+      "c": {
+        "n": 108,
+        "pf": 1.55,
+        "pf_infinite": false,
+        "exp_pct": 0.223,
+        "wr": 38.0,
+        "maxdd_pct": 7.7
+      },
+      "expected_support_n": 99,
+      "n_delta": 9,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 108,
+            "pf": 1.55,
+            "pf_infinite": false,
+            "exp_pct": 0.223,
+            "wr": 38.0,
+            "maxdd_pct": 7.7
+          },
+          "n": 108
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "GMKN",
+      "status_c": "success",
+      "c": {
+        "n": 124,
+        "pf": 1.91,
+        "pf_infinite": false,
+        "exp_pct": 0.329,
+        "wr": 33.1,
+        "maxdd_pct": 4.3
+      },
+      "expected_support_n": 117,
+      "n_delta": 7,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 124,
+            "pf": 1.91,
+            "pf_infinite": false,
+            "exp_pct": 0.329,
+            "wr": 33.1,
+            "maxdd_pct": 4.3
+          },
+          "n": 124
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "IRAO",
+      "status_c": "success",
+      "c": {
+        "n": 179,
+        "pf": 1.4,
+        "pf_infinite": false,
+        "exp_pct": 0.14,
+        "wr": 30.7,
+        "maxdd_pct": 13.4
+      },
+      "expected_support_n": 155,
+      "n_delta": 24,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 179,
+            "pf": 1.4,
+            "pf_infinite": false,
+            "exp_pct": 0.14,
+            "wr": 30.7,
+            "maxdd_pct": 13.4
+          },
+          "n": 179
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "LKOH",
+      "status_c": "success",
+      "c": {
+        "n": 133,
+        "pf": 1.8,
+        "pf_infinite": false,
+        "exp_pct": 0.282,
+        "wr": 33.1,
+        "maxdd_pct": 8.7
+      },
+      "expected_support_n": 114,
+      "n_delta": 19,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 133,
+            "pf": 1.8,
+            "pf_infinite": false,
+            "exp_pct": 0.282,
+            "wr": 33.1,
+            "maxdd_pct": 8.7
+          },
+          "n": 133
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "MGNT",
+      "status_c": "success",
+      "c": {
+        "n": 139,
+        "pf": 0.99,
+        "pf_infinite": false,
+        "exp_pct": -0.007,
+        "wr": 23.7,
+        "maxdd_pct": 28.8
+      },
+      "expected_support_n": 125,
+      "n_delta": 14,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 139,
+            "pf": 0.99,
+            "pf_infinite": false,
+            "exp_pct": -0.007,
+            "wr": 23.7,
+            "maxdd_pct": 28.8
+          },
+          "n": 139
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "MOEX",
+      "status_c": "success",
+      "c": {
+        "n": 183,
+        "pf": 1.28,
+        "pf_infinite": false,
+        "exp_pct": 0.112,
+        "wr": 24.0,
+        "maxdd_pct": 9.3
+      },
+      "expected_support_n": 160,
+      "n_delta": 23,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 183,
+            "pf": 1.28,
+            "pf_infinite": false,
+            "exp_pct": 0.112,
+            "wr": 24.0,
+            "maxdd_pct": 9.3
+          },
+          "n": 183
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "MTLR",
+      "status_c": "success",
+      "c": {
+        "n": 109,
+        "pf": 1.8,
+        "pf_infinite": false,
+        "exp_pct": 0.597,
+        "wr": 34.9,
+        "maxdd_pct": 16.0
+      },
+      "expected_support_n": 95,
+      "n_delta": 14,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 109,
+            "pf": 1.8,
+            "pf_infinite": false,
+            "exp_pct": 0.597,
+            "wr": 34.9,
+            "maxdd_pct": 16.0
+          },
+          "n": 109
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "MTSS",
+      "status_c": "success",
+      "c": {
+        "n": 131,
+        "pf": 1.52,
+        "pf_infinite": false,
+        "exp_pct": 0.219,
+        "wr": 33.6,
+        "maxdd_pct": 6.7
+      },
+      "expected_support_n": 117,
+      "n_delta": 14,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 131,
+            "pf": 1.52,
+            "pf_infinite": false,
+            "exp_pct": 0.219,
+            "wr": 33.6,
+            "maxdd_pct": 6.7
+          },
+          "n": 131
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "NLMK",
+      "status_c": "success",
+      "c": {
+        "n": 137,
+        "pf": 0.99,
+        "pf_infinite": false,
+        "exp_pct": -0.004,
+        "wr": 27.7,
+        "maxdd_pct": 24.5
+      },
+      "expected_support_n": 122,
+      "n_delta": 15,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 137,
+            "pf": 0.99,
+            "pf_infinite": false,
+            "exp_pct": -0.004,
+            "wr": 27.7,
+            "maxdd_pct": 24.5
+          },
+          "n": 137
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "NVTK",
+      "status_c": "success",
+      "c": {
+        "n": 153,
+        "pf": 1.76,
+        "pf_infinite": false,
+        "exp_pct": 0.349,
+        "wr": 34.0,
+        "maxdd_pct": 11.0
+      },
+      "expected_support_n": 139,
+      "n_delta": 14,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 153,
+            "pf": 1.76,
+            "pf_infinite": false,
+            "exp_pct": 0.349,
+            "wr": 34.0,
+            "maxdd_pct": 11.0
+          },
+          "n": 153
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "PHOR",
+      "status_c": "success",
+      "c": {
+        "n": 242,
+        "pf": 1.31,
+        "pf_infinite": false,
+        "exp_pct": 0.102,
+        "wr": 30.6,
+        "maxdd_pct": 9.9
+      },
+      "expected_support_n": 200,
+      "n_delta": 42,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 242,
+            "pf": 1.31,
+            "pf_infinite": false,
+            "exp_pct": 0.102,
+            "wr": 30.6,
+            "maxdd_pct": 9.9
+          },
+          "n": 242
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "PIKK",
+      "status_c": "success",
+      "c": {
+        "n": 138,
+        "pf": 1.75,
+        "pf_infinite": false,
+        "exp_pct": 0.443,
+        "wr": 31.9,
+        "maxdd_pct": 10.6
+      },
+      "expected_support_n": 126,
+      "n_delta": 12,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 138,
+            "pf": 1.75,
+            "pf_infinite": false,
+            "exp_pct": 0.443,
+            "wr": 31.9,
+            "maxdd_pct": 10.6
+          },
+          "n": 138
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "PLZL",
+      "status_c": "success",
+      "c": {
+        "n": 171,
+        "pf": 1.47,
+        "pf_infinite": false,
+        "exp_pct": 0.201,
+        "wr": 30.4,
+        "maxdd_pct": 8.5
+      },
+      "expected_support_n": 150,
+      "n_delta": 21,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 171,
+            "pf": 1.47,
+            "pf_infinite": false,
+            "exp_pct": 0.201,
+            "wr": 30.4,
+            "maxdd_pct": 8.5
+          },
+          "n": 171
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "ROSN",
+      "status_c": "success",
+      "c": {
+        "n": 179,
+        "pf": 1.52,
+        "pf_infinite": false,
+        "exp_pct": 0.236,
+        "wr": 31.3,
+        "maxdd_pct": 17.9
+      },
+      "expected_support_n": 151,
+      "n_delta": 28,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 179,
+            "pf": 1.52,
+            "pf_infinite": false,
+            "exp_pct": 0.236,
+            "wr": 31.3,
+            "maxdd_pct": 17.9
+          },
+          "n": 179
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "RTKM",
+      "status_c": "success",
+      "c": {
+        "n": 128,
+        "pf": 1.26,
+        "pf_infinite": false,
+        "exp_pct": 0.138,
+        "wr": 32.0,
+        "maxdd_pct": 17.9
+      },
+      "expected_support_n": 118,
+      "n_delta": 10,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 128,
+            "pf": 1.26,
+            "pf_infinite": false,
+            "exp_pct": 0.138,
+            "wr": 32.0,
+            "maxdd_pct": 17.9
+          },
+          "n": 128
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "RUAL",
+      "status_c": "success",
+      "c": {
+        "n": 142,
+        "pf": 1.9,
+        "pf_infinite": false,
+        "exp_pct": 0.437,
+        "wr": 39.4,
+        "maxdd_pct": 7.2
+      },
+      "expected_support_n": 136,
+      "n_delta": 6,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 142,
+            "pf": 1.9,
+            "pf_infinite": false,
+            "exp_pct": 0.437,
+            "wr": 39.4,
+            "maxdd_pct": 7.2
+          },
+          "n": 142
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "SBER",
+      "status_c": "success",
+      "c": {
+        "n": 159,
+        "pf": 1.69,
+        "pf_infinite": false,
+        "exp_pct": 0.174,
+        "wr": 30.2,
+        "maxdd_pct": 5.8
+      },
+      "expected_support_n": 149,
+      "n_delta": 10,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 159,
+            "pf": 1.69,
+            "pf_infinite": false,
+            "exp_pct": 0.174,
+            "wr": 30.2,
+            "maxdd_pct": 5.8
+          },
+          "n": 159
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "SIBN",
+      "status_c": "success",
+      "c": {
+        "n": 143,
+        "pf": 1.64,
+        "pf_infinite": false,
+        "exp_pct": 0.266,
+        "wr": 30.1,
+        "maxdd_pct": 11.0
+      },
+      "expected_support_n": 130,
+      "n_delta": 13,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 143,
+            "pf": 1.64,
+            "pf_infinite": false,
+            "exp_pct": 0.266,
+            "wr": 30.1,
+            "maxdd_pct": 11.0
+          },
+          "n": 143
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "SNGS",
+      "status_c": "success",
+      "c": {
+        "n": 166,
+        "pf": 1.34,
+        "pf_infinite": false,
+        "exp_pct": 0.121,
+        "wr": 30.1,
+        "maxdd_pct": 10.7
+      },
+      "expected_support_n": 128,
+      "n_delta": 38,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 166,
+            "pf": 1.34,
+            "pf_infinite": false,
+            "exp_pct": 0.121,
+            "wr": 30.1,
+            "maxdd_pct": 10.7
+          },
+          "n": 166
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "TATN",
+      "status_c": "success",
+      "c": {
+        "n": 183,
+        "pf": 1.43,
+        "pf_infinite": false,
+        "exp_pct": 0.171,
+        "wr": 32.8,
+        "maxdd_pct": 18.1
+      },
+      "expected_support_n": 149,
+      "n_delta": 34,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 183,
+            "pf": 1.43,
+            "pf_infinite": false,
+            "exp_pct": 0.171,
+            "wr": 32.8,
+            "maxdd_pct": 18.1
+          },
+          "n": 183
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "TRNFP",
+      "status_c": "success",
+      "c": {
+        "n": 163,
+        "pf": 1.28,
+        "pf_infinite": false,
+        "exp_pct": 0.127,
+        "wr": 27.6,
+        "maxdd_pct": 13.0
+      },
+      "expected_support_n": 138,
+      "n_delta": 25,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 163,
+            "pf": 1.28,
+            "pf_infinite": false,
+            "exp_pct": 0.127,
+            "wr": 27.6,
+            "maxdd_pct": 13.0
+          },
+          "n": 163
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    },
+    {
+      "ticker": "VTBR",
+      "status_c": "success",
+      "c": {
+        "n": 146,
+        "pf": 1.28,
+        "pf_infinite": false,
+        "exp_pct": 0.129,
+        "wr": 30.8,
+        "maxdd_pct": 12.2
+      },
+      "expected_support_n": 122,
+      "n_delta": 24,
+      "n_match": false,
+      "source": {
+        "support": {
+          "source": "levels_sr_support",
+          "metrics": {
+            "n": 146,
+            "pf": 1.28,
+            "pf_infinite": false,
+            "exp_pct": 0.129,
+            "wr": 30.8,
+            "maxdd_pct": 12.2
+          },
+          "n": 146
+        },
+        "resistance": {
+          "source": "levels_sr_breakout_resistance",
+          "metrics": {
+            "n": 0,
+            "pf": null,
+            "pf_infinite": false,
+            "exp_pct": null,
+            "wr": null,
+            "maxdd_pct": null
+          },
+          "n": 0
+        },
+        "other_sources": [],
+        "other_n": 0,
+        "unlabeled_n": 0
+      }
+    }
+  ],
+  "ticker_n_regression": {
+    "tickers_compared": 28,
+    "tickers_match": 0,
+    "match": false,
+    "mismatches": [
+      {
+        "ticker": "AFKS",
+        "n_c": 89,
+        "n_124_support": 78,
+        "delta": 11
+      },
+      {
+        "ticker": "ALRS",
+        "n_c": 140,
+        "n_124_support": 131,
+        "delta": 9
+      },
+      {
+        "ticker": "CBOM",
+        "n_c": 266,
+        "n_124_support": 179,
+        "delta": 87
+      },
+      {
+        "ticker": "CHMF",
+        "n_c": 116,
+        "n_124_support": 105,
+        "delta": 11
+      },
+      {
+        "ticker": "FEES",
+        "n_c": 159,
+        "n_124_support": 148,
+        "delta": 11
+      },
+      {
+        "ticker": "FLOT",
+        "n_c": 254,
+        "n_124_support": 230,
+        "delta": 24
+      },
+      {
+        "ticker": "GAZP",
+        "n_c": 108,
+        "n_124_support": 99,
+        "delta": 9
+      },
+      {
+        "ticker": "GMKN",
+        "n_c": 124,
+        "n_124_support": 117,
+        "delta": 7
+      },
+      {
+        "ticker": "IRAO",
+        "n_c": 179,
+        "n_124_support": 155,
+        "delta": 24
+      },
+      {
+        "ticker": "LKOH",
+        "n_c": 133,
+        "n_124_support": 114,
+        "delta": 19
+      },
+      {
+        "ticker": "MGNT",
+        "n_c": 139,
+        "n_124_support": 125,
+        "delta": 14
+      },
+      {
+        "ticker": "MOEX",
+        "n_c": 183,
+        "n_124_support": 160,
+        "delta": 23
+      },
+      {
+        "ticker": "MTLR",
+        "n_c": 109,
+        "n_124_support": 95,
+        "delta": 14
+      },
+      {
+        "ticker": "MTSS",
+        "n_c": 131,
+        "n_124_support": 117,
+        "delta": 14
+      },
+      {
+        "ticker": "NLMK",
+        "n_c": 137,
+        "n_124_support": 122,
+        "delta": 15
+      },
+      {
+        "ticker": "NVTK",
+        "n_c": 153,
+        "n_124_support": 139,
+        "delta": 14
+      },
+      {
+        "ticker": "PHOR",
+        "n_c": 242,
+        "n_124_support": 200,
+        "delta": 42
+      },
+      {
+        "ticker": "PIKK",
+        "n_c": 138,
+        "n_124_support": 126,
+        "delta": 12
+      },
+      {
+        "ticker": "PLZL",
+        "n_c": 171,
+        "n_124_support": 150,
+        "delta": 21
+      },
+      {
+        "ticker": "ROSN",
+        "n_c": 179,
+        "n_124_support": 151,
+        "delta": 28
+      },
+      {
+        "ticker": "RTKM",
+        "n_c": 128,
+        "n_124_support": 118,
+        "delta": 10
+      },
+      {
+        "ticker": "RUAL",
+        "n_c": 142,
+        "n_124_support": 136,
+        "delta": 6
+      },
+      {
+        "ticker": "SBER",
+        "n_c": 159,
+        "n_124_support": 149,
+        "delta": 10
+      },
+      {
+        "ticker": "SIBN",
+        "n_c": 143,
+        "n_124_support": 130,
+        "delta": 13
+      },
+      {
+        "ticker": "SNGS",
+        "n_c": 166,
+        "n_124_support": 128,
+        "delta": 38
+      },
+      {
+        "ticker": "TATN",
+        "n_c": 183,
+        "n_124_support": 149,
+        "delta": 34
+      },
+      {
+        "ticker": "TRNFP",
+        "n_c": 163,
+        "n_124_support": 138,
+        "delta": 25
+      },
+      {
+        "ticker": "VTBR",
+        "n_c": 146,
+        "n_124_support": 122,
+        "delta": 24
+      }
+    ]
+  },
+  "trade_key_regression": {
+    "compared": true,
+    "n_c": 4380,
+    "n_124_support": 3811,
+    "missing_from_c": 42,
+    "extra_in_c": 611,
+    "subset": false,
+    "match": false,
+    "missing_examples": [
+      {
+        "ticker": "FEES",
+        "entry_ts": "2025-04-29 18:02:00",
+        "entry_price": "0.070460"
+      },
+      {
+        "ticker": "GAZP",
+        "entry_ts": "2024-10-17 12:00:00",
+        "entry_price": "136.510000"
+      },
+      {
+        "ticker": "GMKN",
+        "entry_ts": "2025-01-17 14:00:00",
+        "entry_price": "123.400000"
+      },
+      {
+        "ticker": "GMKN",
+        "entry_ts": "2025-01-21 14:55:00",
+        "entry_price": "121.700000"
+      },
+      {
+        "ticker": "IRAO",
+        "entry_ts": "2026-01-21 16:15:00",
+        "entry_price": "3.437000"
+      },
+      {
+        "ticker": "IRAO",
+        "entry_ts": "2026-01-21 16:38:00",
+        "entry_price": "3.424000"
+      },
+      {
+        "ticker": "IRAO",
+        "entry_ts": "2026-01-22 07:10:00",
+        "entry_price": "3.436000"
+      },
+      {
+        "ticker": "LKOH",
+        "entry_ts": "2025-02-18 15:08:00",
+        "entry_price": "7773.000000"
+      }
+    ],
+    "extra_examples": [
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2025-01-22 18:20:00",
+        "entry_price": "14.978000"
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2025-10-21 13:40:00",
+        "entry_price": "13.398000"
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2025-10-21 18:15:00",
+        "entry_price": "13.246000"
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2025-10-21 18:18:00",
+        "entry_price": "13.256000"
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2025-11-25 18:00:00",
+        "entry_price": "13.381000"
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2026-02-18 12:54:00",
+        "entry_price": "13.843000"
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2026-02-23 10:12:00",
+        "entry_price": "14.202000"
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2026-05-15 10:09:00",
+        "entry_price": "11.520000"
+      }
+    ]
+  },
+  "occupancy": {
+    "extra_n": 611,
+    "explained_n": 610,
+    "unexplained_n": 1,
+    "match": true,
+    "metrics": {
+      "n": 611,
+      "pf": 0.95,
+      "pf_infinite": false,
+      "exp_pct": -0.021,
+      "wr": 27.2,
+      "maxdd_pct": 38.5
+    },
+    "explained_examples": [
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2025-01-22 18:20:00",
+        "entry_price": 14.978,
+        "exit_reason": "stop",
+        "net_return_pct": -0.80776,
+        "blockers_n": 1,
+        "blocker": {
+          "entry_ts": "2025-01-22 18:10:00",
+          "exit_ts": "2025-01-22 19:10:00",
+          "entry_price": 14.931,
+          "source": "levels_sr_breakout_resistance"
+        }
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2025-10-21 13:40:00",
+        "entry_price": 13.398,
+        "exit_reason": "stop",
+        "net_return_pct": -1.43334,
+        "blockers_n": 1,
+        "blocker": {
+          "entry_ts": "2025-10-21 07:55:00",
+          "exit_ts": "2025-10-22 09:03:00",
+          "entry_price": 13.239,
+          "source": "levels_sr_breakout_resistance"
+        }
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2025-10-21 18:15:00",
+        "entry_price": 13.246,
+        "exit_reason": "stop",
+        "net_return_pct": -0.30158,
+        "blockers_n": 1,
+        "blocker": {
+          "entry_ts": "2025-10-21 07:55:00",
+          "exit_ts": "2025-10-22 09:03:00",
+          "entry_price": 13.239,
+          "source": "levels_sr_breakout_resistance"
+        }
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2025-10-21 18:18:00",
+        "entry_price": 13.256,
+        "exit_reason": "stop",
+        "net_return_pct": -0.37684,
+        "blockers_n": 1,
+        "blocker": {
+          "entry_ts": "2025-10-21 07:55:00",
+          "exit_ts": "2025-10-22 09:03:00",
+          "entry_price": 13.239,
+          "source": "levels_sr_breakout_resistance"
+        }
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2025-11-25 18:00:00",
+        "entry_price": 13.381,
+        "exit_reason": "stop",
+        "net_return_pct": -1.30804,
+        "blockers_n": 1,
+        "blocker": {
+          "entry_ts": "2025-11-25 11:58:00",
+          "exit_ts": "2025-12-03 10:11:00",
+          "entry_price": 13.145,
+          "source": "levels_sr_breakout_resistance"
+        }
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2026-02-18 12:54:00",
+        "entry_price": 13.843,
+        "exit_reason": "stop",
+        "net_return_pct": -0.0889,
+        "blockers_n": 1,
+        "blocker": {
+          "entry_ts": "2026-02-18 08:25:00",
+          "exit_ts": "2026-02-28 11:47:00",
+          "entry_price": 13.91,
+          "source": "levels_sr_breakout_resistance"
+        }
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2026-02-23 10:12:00",
+        "entry_price": 14.202,
+        "exit_reason": "stop",
+        "net_return_pct": -0.63034,
+        "blockers_n": 1,
+        "blocker": {
+          "entry_ts": "2026-02-18 08:25:00",
+          "exit_ts": "2026-02-28 11:47:00",
+          "entry_price": 13.91,
+          "source": "levels_sr_breakout_resistance"
+        }
+      },
+      {
+        "ticker": "AFKS",
+        "entry_ts": "2026-05-15 10:09:00",
+        "entry_price": 11.52,
+        "exit_reason": "stop",
+        "net_return_pct": -1.45757,
+        "blockers_n": 1,
+        "blocker": {
+          "entry_ts": "2026-05-15 10:02:00",
+          "exit_ts": "2026-05-20 09:44:00",
+          "entry_price": 11.549,
+          "source": "levels_sr_breakout_resistance"
+        }
+      }
+    ],
+    "unexplained": [
+      {
+        "ticker": "PHOR",
+        "entry_ts": "2026-08-14 14:48:00",
+        "entry_price": 5316.0,
+        "exit_reason": "stop",
+        "net_return_pct": -0.11643,
+        "blockers_n": 0,
+        "blocker": null
+      }
+    ],
+    "near_miss_n": 0,
+    "unexplained_after_near_miss": 1
+  },
+  "missing_slot": {
+    "missing_n": 42,
+    "occupied_n": 42,
+    "near_miss_n": 0,
+    "unexplained_n": 0,
+    "match": true,
+    "unexplained": []
+  },
+  "afks_regression": {
+    "C": {
+      "n": 89,
+      "pf": 1.49,
+      "pf_infinite": false,
+      "exp_pct": 0.292,
+      "wr": 31.5,
+      "maxdd_pct": 10.7
+    },
+    "expected_support": {
+      "n": 78,
+      "pf": 1.7
+    },
+    "not_mix": {
+      "n": 116,
+      "pf": 1.46
+    },
+    "match_support": false,
+    "matched_mix_by_mistake": false,
+    "support_subset": true,
+    "missing_support_n": 0,
+    "match": true
+  },
+  "alrs_veto": {
+    "veto_ts": "2026-08-20 11:50:24",
+    "price": 19.8,
+    "blocked": true,
+    "hits": []
+  },
+  "books": {
+    "issue_124_support": {
+      "n": 3811,
+      "pf": 1.51,
+      "exp_pct": 0.23,
+      "wr": 30.9
+    },
+    "issue_124_a": {
+      "n": 2559,
+      "pf": 1.46
+    },
+    "issue_119_afks_support": {
+      "n": 78,
+      "pf": 1.7
+    }
+  },
+  "verdict": {
+    "match": true,
+    "exclusive_n_pf": false,
+    "portfolio_ready": true,
+    "paper": false,
+    "label": "совпало",
+    "reasons": [
+      "Isolated C n=4380 PF 1.45 ≠ exclusive #124 B-support 3811 / 1.51. Колонка B-support — exclusive-подпись композита (путь B занимает слот). Isolated C — runnable support-only; extra появляются, когда слот свободен.",
+      "Ключи: C n=4380, #124 support n=3811, missing=42, extra=611.",
+      "Все 42 missing B-support объясняются слотом C (occupancy extra 42, near-miss ≤120s 0).",
+      "610/611 extra-сделок C объясняются occupancy композита (путь B / слот) и near-miss; остаток 1 (допуск ≤1). Extra PF 0.95.",
+      "AFKS: книга B-support входит в C (n C=89 PF 1.49; exclusive 78 / 1.70, не mix 116 / 1.46).",
+      "Бар ALRS 2026-08-20 11:50 @ 19.80 отсутствует.",
+      "Нет сделок пути resistance / ретеста (`source=levels_sr_support`).",
+      "По тикерам C: median PF 1.48, mean PF 1.47, доля PF>1 26/28.",
+      "Это isolated Lab-вселенная, не вердикт катить в paper.",
+      "Движок совпал с путём поддержки #124; isolated-книга C (occupancy extra) идёт в портфель #130, а не exclusive-колонка 3811 / 1.51."
+    ]
+  },
+  "plot_files": [
+    "metrics_comparison.png",
+    "ticker_n.png",
+    "ticker_pf.png"
+  ]
+}

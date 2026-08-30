@@ -337,4 +337,8 @@ If `levels_sr_support` and `levels_sr_breakout` are both on, the composite wins.
 
 `GET /api/patterns`: `category=levels`, `label` «Поддержка с трекером», `label_en` «Support Reversal (tracker veto)», icon `support_tracker` (distinct from `breakout_up` and `support_breakout`). Params = `levels_reversal` fields only — no retest keys. Lab chip is Issue #128. File: `backend/app/analytics/patterns/levels_sr_support.py`. Tests: `backend/tests/test_levels_sr_support.py`.
 
+### Isolated Lab universe (Issue #129)
+
+Isolated 28-ticker `get_big_tickers` run, same period as #124. Package: `analytics/issue-129-sr-support-universe/`. Isolated C (`levels_sr_support` + `signal_4h_buy`): n=4380, PF 1.45, median PF 1.48. Exclusive #124 B-support 3811 / 1.51 is a composite label (path B occupies the slot), not the runnable book. Extra 611: occupancy 610 + leftover 1; missing 42 cascade. AFKS C 89 / 1.49 (exclusive 78 ⊆ C). ALRS `2026-08-20 11:50:24` @ 19.80 blocked. Resistance n=0. Issue #130 must use C, not exclusive. Not a paper verdict.
+
 
