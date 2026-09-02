@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-08-30 (задача #137 автономный overnight LiveExecutor; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-02 (LIVE_UNIVERSE +FEES/GAZP/PLZL; синхронизировано с английской версией). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -11,7 +11,7 @@
 
 Полное дерево см. в разделе 2 `project-context.ru.md`. Ключевые операционные точки входа:
 - `backend/app/main.py` - приложение FastAPI + регистрация маршрутов.
-- `backend/app/analytics/trading_config.py` - торговая вселенная, LIVE_UNIVERSE (PO-список задачи #135) и реестр стратегий (единый источник истины).
+- `backend/app/analytics/trading_config.py` - торговая вселенная, LIVE_UNIVERSE (12 имён PO) и реестр стратегий (единый источник истины).
 - `start_processes.sh` / `stop_processes.sh` - процессы paper trading и опционального sandbox-исполнения.
 - `docs/refresh/context_collector.py` - сборщик контекста для задач агента.
 
@@ -153,7 +153,7 @@ python docs/refresh/context_collector.py
 
 - Рейтинг paper остаётся `get_trading_universe()` (top-15 из `trading.trading_universe`). Таблицу не сужать.
 - Streaming и data refresh используют `get_streaming_universe()` = top-15 ∪ `LIVE_UNIVERSE`.
-- Sandbox-исполнение использует `LIVE_UNIVERSE` / `get_live_trading_universe()`: ROSN, IRAO, AFKS, NVTK, SBER, MTSS, PHOR, MOEX, FLOT (PO-список задачи #135). Геттер **не** обрезает имена вне paper top-15. `LiveExecutor.initialize()` пересекает тикеры paper-стратегии с этим списком.
+- Sandbox-исполнение использует `LIVE_UNIVERSE` / `get_live_trading_universe()`: ROSN, IRAO, AFKS, NVTK, SBER, MTSS, PHOR, MOEX, FLOT, FEES, GAZP, PLZL (PO-список задачи #135 плюс 2026-09-02). Геттер **не** обрезает имена вне paper top-15. `LiveExecutor.initialize()` пересекает тикеры paper-стратегии с этим списком.
 - Исторический рейтинг задачи #66 (SBER, LKOH, RUAL, NVTK, GAZP) живёт в `analytics/issue-66-live-universe/`. Не переписывать тот пакет под текущий PO-список.
 - Имя locked paper для preflight: `EXPECTED_LOCKED_STRATEGY` = `test_20260830_new_level`.
 - Тесты: `cd backend && python -m pytest -q tests/test_trading_config.py tests/test_live_universe_analysis.py tests/test_live_executor.py`.
@@ -353,10 +353,10 @@ ORDER BY id DESC LIMIT 20;
 
 1. Ровно одна locked paper-стратегия: `test_20260830_new_level`. `test_20260731` оставить разблокированной; её конфиг не перезаписывать. Открытая paper-позиция FEES на старом имени остаётся под монитор.
 2. Пересобрать: `docker compose up -d --build backend`. `/health` должен быть `ok`.
-3. Paper-стек должен покрывать понедельничную сессию с запасом. Не останавливать paper ради live. Streaming/refresh покрывает top-15 ∪ LIVE_UNIVERSE (21 имя). `trading.trading_universe` не сужать.
+3. Paper-стек должен покрывать понедельничную сессию с запасом. Не останавливать paper ради live. Streaming/refresh покрывает top-15 ∪ LIVE_UNIVERSE. `trading.trading_universe` не сужать.
 4. Preflight в сессию MOEX (в воскресенье стаканы будут stale):
    `docker compose exec -T backend python -m app.analytics.live_executor_preflight`.
-   Проверка падает, если backend нездоров, `LIVE_UNIVERSE` не равен девяти PO-именам, locked-стратегия не одна и не `test_20260830_new_level`, нет свободных sandbox RUB, хотя бы один из девяти стаканов старше пяти минут, paper-процессы запущены не в единственном экземпляре, во вселенной БД не 15 строк или `allow_real_trading` не равен false.
+   Проверка падает, если backend нездоров, `LIVE_UNIVERSE` не равен 12 PO-именам, locked-стратегия не одна и не `test_20260830_new_level`, нет свободных sandbox RUB, хотя бы один из 12 стаканов старше пяти минут, paper-процессы запущены не в единственном экземпляре, во вселенной БД не 15 строк или `allow_real_trading` не равен false.
 5. Overnight sandbox-день (задача #137), после пересборки backend:
    `START_LIVE_EXECUTOR=1 ./start_processes.sh`
    Не задавать `DURATION_MINUTES`. Запуск в воскресенье вечером; LiveExecutor ждёт понедельника 10:00 МСК. Если paper уже жив и покрывает понедельник 19:00: `START_LIVE_EXECUTOR=1 PRESERVE_PAPER_PROCESSES=1 ./start_processes.sh`.

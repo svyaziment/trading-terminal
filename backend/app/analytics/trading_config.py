@@ -148,11 +148,12 @@ DEFAULT_UNIVERSE = [
     'TATN', 'CHMF', 'ALRS', 'PLZL', 'MOEX',
 ]
 
-# Issue #135: PO sandbox list for locked paper strategy test_20260830_new_level.
+# Issue #135 PO sandbox list, extended 2026-09-02 with FEES, GAZP, PLZL.
 # Issue #66 ranking (SBER/LKOH/RUAL/NVTK/GAZP) remains historical in
 # analytics/issue-66-live-universe/. Do not shrink trading.trading_universe.
 LIVE_UNIVERSE = [
     'ROSN', 'IRAO', 'AFKS', 'NVTK', 'SBER', 'MTSS', 'PHOR', 'MOEX', 'FLOT',
+    'FEES', 'GAZP', 'PLZL',
 ]
 EXPECTED_LOCKED_STRATEGY = 'test_20260830_new_level'
 
@@ -184,7 +185,7 @@ def get_trading_universe(db=None, limit: Optional[int] = None) -> List[str]:
 
 
 def get_live_trading_universe(db=None) -> List[str]:
-    """Tickers allowed for sandbox live execution (PO list, Issue #135).
+    """Tickers allowed for sandbox live execution (PO list).
 
     Returns LIVE_UNIVERSE as configured. Names may sit outside the paper
     top-15; do not clip them against trading.trading_universe.

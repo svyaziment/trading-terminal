@@ -48,9 +48,12 @@ def test_live_universe_is_po_sandbox_list():
         "PHOR",
         "MOEX",
         "FLOT",
+        "FEES",
+        "GAZP",
+        "PLZL",
     ]
-    assert len(LIVE_UNIVERSE) == 9
-    assert len(set(LIVE_UNIVERSE)) == 9
+    assert len(LIVE_UNIVERSE) == 12
+    assert len(set(LIVE_UNIVERSE)) == 12
     assert EXPECTED_LOCKED_STRATEGY == "test_20260830_new_level"
 
 
@@ -87,6 +90,9 @@ def test_streaming_universe_unions_paper_and_live():
         "PHOR",
         "MOEX",
         "FLOT",
+        "FEES",
+        "GAZP",
+        "PLZL",
     ]
 
 

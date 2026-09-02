@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-08-30 (Issue #137 overnight LiveExecutor session). Companion to project-context.md.
+Last refreshed: 2026-09-02 (LIVE_UNIVERSE +FEES/GAZP/PLZL). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -11,7 +11,7 @@ Operational knowledge to work on this project safely: structure, DB schema, pipe
 
 See project-context.md section 2 for the full tree. Key operational entry points:
 - `backend/app/main.py` - FastAPI app + route registration.
-- `backend/app/analytics/trading_config.py` - trading universe, LIVE_UNIVERSE (Issue #135 PO list), and strategy registry (single source of truth).
+- `backend/app/analytics/trading_config.py` - trading universe, LIVE_UNIVERSE (12-name PO list), and strategy registry (single source of truth).
 - `start_processes.sh` / `stop_processes.sh` - paper trading and opt-in sandbox execution processes.
 - `docs/refresh/context_collector.py` - context collector for agent tasks.
 
@@ -153,7 +153,7 @@ python docs/refresh/context_collector.py
 
 - Paper ranking stays `get_trading_universe()` (top-15 from `trading.trading_universe`). Do not shrink that table.
 - Streaming and data refresh use `get_streaming_universe()` = top-15 ∪ `LIVE_UNIVERSE`.
-- Sandbox execution uses `LIVE_UNIVERSE` / `get_live_trading_universe()`: ROSN, IRAO, AFKS, NVTK, SBER, MTSS, PHOR, MOEX, FLOT (Issue #135 PO list). The getter does **not** clip names that sit outside the paper top-15. `LiveExecutor.initialize()` intersects paper-strategy tickers with this list.
+- Sandbox execution uses `LIVE_UNIVERSE` / `get_live_trading_universe()`: ROSN, IRAO, AFKS, NVTK, SBER, MTSS, PHOR, MOEX, FLOT, FEES, GAZP, PLZL (Issue #135 PO list plus 2026-09-02). The getter does **not** clip names that sit outside the paper top-15. `LiveExecutor.initialize()` intersects paper-strategy tickers with this list.
 - Historical Issue #66 ranking (SBER, LKOH, RUAL, NVTK, GAZP) lives in `analytics/issue-66-live-universe/`. Do not rewrite that package to match the current PO list.
 - Locked paper name for preflight is `EXPECTED_LOCKED_STRATEGY` = `test_20260830_new_level`.
 - Tests: `cd backend && python -m pytest -q tests/test_trading_config.py tests/test_live_universe_analysis.py tests/test_live_executor.py`.
@@ -353,10 +353,10 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
 
 1. Confirm exactly one locked paper strategy: `test_20260830_new_level`. Keep `test_20260731` unlocked; do not rewrite its config. An open FEES paper position on the old name stays under monitor.
 2. Rebuild: `docker compose up -d --build backend`. `/health` must be `ok`.
-3. Paper stack must cover the Monday session with margin. Do not stop paper for live. Streaming/refresh covers top-15 ∪ LIVE_UNIVERSE (21 names). Do not shrink `trading.trading_universe`.
+3. Paper stack must cover the Monday session with margin. Do not stop paper for live. Streaming/refresh covers top-15 ∪ LIVE_UNIVERSE. Do not shrink `trading.trading_universe`.
 4. Preflight in the MOEX session (books will be stale on Sunday):
    `docker compose exec -T backend python -m app.analytics.live_executor_preflight`.
-   It fails unless backend is healthy, `LIVE_UNIVERSE` is the nine PO names, the only locked strategy is `test_20260830_new_level`, free sandbox RUB > 0, all nine books are ≤5 minutes old, each paper process has exactly one instance, the DB universe still has 15 rows, and `allow_real_trading=false`.
+   It fails unless backend is healthy, `LIVE_UNIVERSE` is the 12 PO names, the only locked strategy is `test_20260830_new_level`, free sandbox RUB > 0, all 12 books are ≤5 minutes old, each paper process has exactly one instance, the DB universe still has 15 rows, and `allow_real_trading=false`.
 5. Overnight sandbox day (Issue #137), after backend rebuild:
    `START_LIVE_EXECUTOR=1 ./start_processes.sh`
    Do not set `DURATION_MINUTES`. Launch Sunday evening; LiveExecutor waits until Monday 10:00 MSK. If paper is already running and covers Monday 19:00: `START_LIVE_EXECUTOR=1 PRESERVE_PAPER_PROCESSES=1 ./start_processes.sh`.
