@@ -8,7 +8,9 @@ import pandas as pd
 from app.analytics.trading_config import (
     EXPECTED_LOCKED_STRATEGY,
     LIVE_UNIVERSE,
+    MOEX_SESSION,
     get_live_trading_universe,
+    get_moex_session_config,
     get_streaming_universe,
     get_trading_universe,
 )
@@ -46,9 +48,12 @@ def test_live_universe_is_po_sandbox_list():
         "PHOR",
         "MOEX",
         "FLOT",
+        "FEES",
+        "GAZP",
+        "PLZL",
     ]
-    assert len(LIVE_UNIVERSE) == 9
-    assert len(set(LIVE_UNIVERSE)) == 9
+    assert len(LIVE_UNIVERSE) == 12
+    assert len(set(LIVE_UNIVERSE)) == 12
     assert EXPECTED_LOCKED_STRATEGY == "test_20260830_new_level"
 
 
@@ -85,6 +90,9 @@ def test_streaming_universe_unions_paper_and_live():
         "PHOR",
         "MOEX",
         "FLOT",
+        "FEES",
+        "GAZP",
+        "PLZL",
     ]
 
 
@@ -100,3 +108,10 @@ def test_issue66_published_selection_stays_historical():
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     assert summary["selected"] == ["SBER", "LKOH", "RUAL", "NVTK", "GAZP"]
     assert summary["selected"] != LIVE_UNIVERSE
+
+
+def test_moex_session_is_the_single_source_for_live_hours():
+    cfg = get_moex_session_config()
+    assert cfg["entry_start_hour"] == 10
+    assert cfg["entry_end_hour"] == 19
+    assert MOEX_SESSION["weekdays"] == (0, 1, 2, 3, 4)
