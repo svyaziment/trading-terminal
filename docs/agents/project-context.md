@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-06 (Issue #139 stepped trailing-stop analytics package). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-09-06 (Epic #142 — stepped trailing stop planned for the production exit path; roadmap Block W). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -298,6 +298,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | T | Composite S/R pattern (Epic #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 Lab chip + #119 AFKS smoke + #124 Lab-universe A/B done |
 | U | Support with tracker (Epic #126) | #127 `levels_sr_support` backend + #128 Lab chip + #129 isolated Lab universe + #130 portfolio #44 done |
 | V | Stepped trailing-stop analytics (Issue #139) | Done — analytics-only A/B (fixed 1:3 vs stepped trailing) on locked `test_20260830_new_level` id=126, RR 1:3; trailing lives in `analytics/.../trailing.py`, not wired into the production exit path |
+| W | Stepped trailing stop in production (Epic #142) | Planned — #144 `config.trailing_stop` contract, #145 engine/plugin/portfolio simulator, #146 Lab editor, #147 parity gate vs #139, #143 robustness (grids, walk-forward, slippage), #148 paper trader, #149 API + filters, #150 Paper/Live panels, #151 sandbox `LiveExecutor`, #152 live-period acceptance verdict. Ships **default OFF**; basis is the #139 result (A 95 180.01 -> B 103 176.00 RUB, PF 1.41 -> 1.54, daily MaxDD 6.49% -> 2.74%) |
 
 
 ## 9. Important Notes
