@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-09-06 (задача #137 overnight LiveExecutor + LIVE_UNIVERSE 12 имён). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-06 (задача #139 аналитический пакет ступенчатого трейлинг-стопа). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -72,6 +72,8 @@
 - **Поддержка с трекером (задача #127 / эпик #126)**: `levels_sr_support` — **только B-support** из #124. Та же геометрия поддержки, что у `levels_reversal`, плюс вето #97 **с** `LevelsTracker`. Без `check_breakout_retest`. Изолированный прогон: в `config.patterns` есть `levels_sr_support` (опционально `signal_4h_buy`) **без** `levels_reversal` / `levels_sr_breakout` / `level_breakout_retest`. Композит по-прежнему побеждает, если оба движка включены. Не включать трекер «молча» на locked `test_20260731`. Isolated Lab-вселенная: handover §31 (C n=4380 PF 1.45; exclusive 3811/1.51 не bit-for-bit). Unit: `cd backend && python -m pytest -q tests/test_levels_sr_support.py tests/test_levels_sr_breakout.py tests/test_resistance_zone_veto.py tests/test_strategy_plugin.py`.
 - **Isolated support-вселенная (задача #129)**: пакет `analytics/issue-129-sr-support-universe/`. Isolated C (`levels_sr_support` + `signal_4h_buy`) на той же 28-тикерной Lab-вселенной, что #124. Exclusive B-support 3811 / 1.51 — подпись композита (путь B занимает слот). Runnable C — 4380 / 1.45. Extra 611: occupancy 610 + leftover 1; missing 42 cascade. AFKS 89 / 1.49 (exclusive 78 ⊆ C). Resistance n=0. Бар ALRS 19.80 заблокирован. #130 должен брать C, не exclusive. Не lock/overwrite три эталонные стратегии. Повтор: `python analytics/issue-129-sr-support-universe/analysis.py`. Unit: `cd backend && python -m pytest -q tests/test_issue129_analysis.py`.
 - **Портфель поддержки 50k (задача #130)**: пакет `analytics/issue-130-sr-support-portfolio/`. Replay слотов published C (4380 кандидатов, SHA `3b7864c4…aedb1b`), не exclusive 3811/1.51 и не фильтр `source=` из #124 B-mix. n=3237 PF 1.33 equity 96 204.63 daily Max DD 6.08% без GAME OVER. Бар ALRS 19.80 отсутствует. Вердикт: не paper. Повтор: `python analytics/issue-130-sr-support-portfolio/analysis.py`. Unit: `cd backend && python -m pytest -q tests/test_issue130_analysis.py`.
+- **Ступенчатый трейлинг-стоп A/B (задача #139)**: пакет `analytics/issue-139-trailing-stop-new-level/`. Аналитический режим выхода только в `trailing.py` (ступени в R, по умолчанию +2R→+1.5R, +2.5R→+2R; в боевой путь не входит). A/B на locked `test_20260830_new_level` (id=126, RR 1:3), 28 тикеров, полный период. `extract_inputs.py` считает оба исхода на одном пути единого «мозга» (только чтение БД, возобновляемый кэш, `baseline_replay_mismatches` обязано быть 0); `analysis.py` делает слот-реплей и сравнение без БД. Точные цифры и вердикт — в `summary.json` / `report.md`. См. handover §34. Unit: `cd backend && python -m pytest -q tests/test_issue139_analysis.py`.
+
 
 ## 11. Протокол сотрудничества (агенты)
 
@@ -363,4 +365,39 @@ ORDER BY id DESC LIMIT 20;
 6. Leftover canary RUAL уже `closed_stop`. На старте #135 открытых sandbox-позиций нет.
 7. После окна записать в задачи #135 / #137: init-тикеры, числа `reason=`, число BUY, последние `live_positions` и подтверждение, что `paper_equity` писалась. Никогда не включать `allow_real_trading`.
    Исторический canary с фиксированным окном по-прежнему `DURATION_MINUTES=60` (handover §19).
+
+
+## 34. Аналитика ступенчатого трейлинг-стопа на `test_20260830_new_level` (задача #139)
+
+- Аналитический A/B только для расчёта: фиксированный стоп/тейк 1:3 (**A**) против того же
+  входа со ступенчатым трейлинг-стопом (**B**) в портфельном симуляторе (50k / 10k / max 5 /
+  приоритет по объёму / GAME OVER). Единственное различие — выход; вход, начальный риск 1R,
+  комиссия и вселенная 28 имён из `run_params.tickers` идентичны. Полный период
+  `2024-08-01` … `timestamp < 2026-08-21` (не экспресс-окно).
+- Пакет: `analytics/issue-139-trailing-stop-new-level/`. Трейлинг живёт ТОЛЬКО в
+  `trailing.py` как конфигурируемый режим выхода (список `{"trigger": <R>, "stop": <R>}`,
+  по умолчанию `+2R→+1.5R`, `+2.5R→+2R`). Не подключать к `StrategyEvaluator`,
+  `portfolio_simulator.py`, бумаге или песочнице. Ступени в R от входа, не % хардкод.
+- Модель заполнения совпадает с `StrategyEvaluator.on_bar`: в баре сначала стоп
+  (`low<=stop`), затем тейк (`high>=take`); ступень, взведённая high текущего бара,
+  поднимает стоп только для СЛЕДУЮЩИХ баров (без заглядывания в будущем внутри бара).
+  Выход по трейлингу никогда не позже базового (тейк не меняется, поджимается лишь стоп).
+- `extract_inputs.py` гонит единый «мозг» по 1-мин свечам (входы идентичны боевому
+  бэктесту) и на одном intra-trade пути считает оба исхода; БД только читается, сделки не
+  пишутся, четыре защищённые строки (126 / 36 / 102 / 118) проверяются до и после.
+  `baseline_replay_mismatches` обязано быть 0. Пути цен в `results.json` не складываются —
+  наружу уходят компактные исходы A/B, поэтому `analysis.py` работает без БД.
+- Замечание: #129/#130 считали RR 1:2 (SHA `3b7864c4…aedb1b`); #139 берёт locked
+  `test_20260830_new_level` id=126 (RR 1:3, SHA `dfc855195ade…`), книга кандидатов #129 не
+  переиспользуется — снятие заново из БД.
+- Запуск: `python analytics/issue-139-trailing-stop-new-level/extract_inputs.py --workers 4`,
+  затем `python analytics/issue-139-trailing-stop-new-level/analysis.py`. Снятие
+  возобновляемое (кэш по тикерам в `reports/Vulpec/139_trailing-stop-new-level/cache/`).
+- Вердикт и точные цифры A/B — в `summary.json` / `report.md` (RU+EN). Итог:
+  B трейлинг 103 176.00 RUB против A baseline 95 180.01 RUB (Δ +7 995.99 RUB, +8.40%); PF
+  1.41→1.54, daily Max DD 6.49%→2.74%, win rate 24.2%→42.3%, GAME OVER нет ни в одной книге;
+  закрытий по трейлингу 36.9% от B (тейк 6.6%, начальный стоп 56.5%), кандидатов 3305, из них
+  1578 дошли до +2R, `baseline_replay_mismatches=0`. Вывод: трейлинг увеличивает капитал →
+  рассматривать к внедрению (только аналитика; боевой путь выхода не затронут, не lock в paper).
+- Юнит-тесты (без БД): `cd backend && python -m pytest -q tests/test_issue139_analysis.py`.
 

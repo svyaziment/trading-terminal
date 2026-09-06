@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-06 (Issue #137 overnight LiveExecutor + LIVE_UNIVERSE 12 names). Companion to project-context.md.
+Last refreshed: 2026-09-06 (Issue #139 stepped trailing-stop analytics package). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -72,6 +72,8 @@ See project-context.md section 9.
 - **Support with tracker (Issue #127 / Epic #126)**: `levels_sr_support` is the **B-support-only** entry engine from #124. Same support geometry as `levels_reversal` plus the #97 veto **with** `LevelsTracker`. No `check_breakout_retest`. Isolated run: `config.patterns` has `levels_sr_support` (optionally `signal_4h_buy`) **without** `levels_reversal` / `levels_sr_breakout` / `level_breakout_retest`. Composite still wins if both engines are on. Do not silently turn the tracker on for locked `test_20260731`. Isolated Lab universe: handover §31 (C n=4380 PF 1.45; exclusive 3811/1.51 is not bit-for-bit). Units: `cd backend && python -m pytest -q tests/test_levels_sr_support.py tests/test_levels_sr_breakout.py tests/test_resistance_zone_veto.py tests/test_strategy_plugin.py`.
 - **Isolated support universe (Issue #129)**: package `analytics/issue-129-sr-support-universe/`. Isolated C (`levels_sr_support` + `signal_4h_buy`) on the same 28-ticker Lab universe as #124. Exclusive B-support 3811 / 1.51 is a composite label (path B occupies the slot). Runnable C is 4380 / 1.45. Extra 611: occupancy 610 + leftover 1; missing 42 cascade. AFKS 89 / 1.49 (exclusive 78 ⊆ C). Resistance n=0. ALRS 19.80 blocked. #130 must use C, not exclusive. Do not lock/overwrite the three reference strategies. Replay: `python analytics/issue-129-sr-support-universe/analysis.py`. Units: `cd backend && python -m pytest -q tests/test_issue129_analysis.py`.
 - **Support portfolio 50k (Issue #130)**: package `analytics/issue-130-sr-support-portfolio/`. Slot replay of published C (4380 candidates, SHA `3b7864c4…aedb1b`), not exclusive 3811/1.51 and not a `source=` filter of #124 B-mix. n=3237 PF 1.33 equity 96,204.63 daily Max DD 6.08% no GAME OVER. ALRS 19.80 absent. Verdict: not paper. Replay: `python analytics/issue-130-sr-support-portfolio/analysis.py`. Units: `cd backend && python -m pytest -q tests/test_issue130_analysis.py`.
+- **Stepped trailing-stop A/B (Issue #139)**: package `analytics/issue-139-trailing-stop-new-level/`. Analytics-only exit mode in `trailing.py` (configurable steps in R, default +2R→+1.5R, +2.5R→+2R; never touches the production exit path). A/B on locked `test_20260830_new_level` (id=126, RR 1:3), 28 names, full period. `extract_inputs.py` evaluates both exits on the same brain path (DB read-only, resumable, `baseline_replay_mismatches` must be 0); `analysis.py` runs the slot replay + comparison without a DB. Exact figures/verdict: `summary.json` / `report.md`. Units: `cd backend && python -m pytest -q tests/test_issue139_analysis.py`. See handover §34.
+
 
 ## 11. Collaboration Protocol (agents)
 
@@ -364,4 +366,40 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
 6. Leftover canary RUAL is already `closed_stop`. No open sandbox holdings at the #135 start.
 7. After the window, record in Issue #135 / #137: init tickers, `reason=` counts, BUY count, latest `live_positions`, and evidence that `paper_equity` advanced. Never set `allow_real_trading=true`.
    Historical canary with a fixed window remains `DURATION_MINUTES=60` (handover §19).
+
+
+## 34. Stepped trailing-stop analytics on `test_20260830_new_level` (Issue #139)
+
+- Analytics-only A/B: baseline fixed stop/take 1:3 (**A**) vs the same entry with a
+  stepped trailing stop (**B**) in the portfolio simulator (50k / 10k / max 5 / volume
+  priority / GAME OVER). Single difference = the exit rule; entry, initial 1R risk,
+  commission and the 28-name `run_params.tickers` universe are identical. Full period
+  `2024-08-01` … `timestamp < 2026-08-21` (not the express window).
+- Package: `analytics/issue-139-trailing-stop-new-level/`. The trailing lives ONLY in
+  `trailing.py` as a configurable stepped exit (list of `{"trigger": <R>, "stop": <R>}`,
+  default `+2R→+1.5R`, `+2.5R→+2R`). Never wire it into `StrategyEvaluator`,
+  `portfolio_simulator.py`, paper or sandbox. Steps are in R from the entry, not % hardcode.
+- Fill model mirrors `StrategyEvaluator.on_bar`: within a bar check stop (`low<=stop`)
+  before take (`high>=take`); a step armed by the current bar's high raises the stop for
+  the NEXT bar only (no intra-bar look-ahead). A trailing exit is never later than the
+  baseline exit (the take is unchanged and the ratchet only tightens the stop).
+- `extract_inputs.py` drives the unified brain over 1min candles (identical entries to the
+  production backtest) and evaluates BOTH exits on the same intra-trade path; it never
+  writes trades to the DB and checks the four protected rows (126 / 36 / 102 / 118) before
+  and after. `baseline_replay_mismatches` must be 0 (proves the replayed A equals the engine).
+  Paths stay in memory; `results.json` stores only the compact per-trade A and B outcomes, so
+  `analysis.py` runs without a DB.
+- Note #129 / #130 used RR 1:2 (SHA `3b7864c4…aedb1b`); #139 targets the locked
+  `test_20260830_new_level` id=126 (RR 1:3, SHA `dfc855195ade…`). Do not reuse the #129
+  candidate book; #139 re-extracts from the DB.
+- Run: `python analytics/issue-139-trailing-stop-new-level/extract_inputs.py --workers 4`
+  then `python analytics/issue-139-trailing-stop-new-level/analysis.py`. Extract is
+  resumable (per-ticker cache under `reports/Vulpec/139_trailing-stop-new-level/cache/`).
+- Verdict and exact A/B numbers live in `summary.json` / `report.md` (RU+EN). Headline:
+  B trailing 103,176.00 RUB vs A baseline 95,180.01 RUB (Δ +7,995.99 RUB, +8.40%); PF
+  1.41→1.54, daily Max DD 6.49%→2.74%, win rate 24.2%→42.3%, no GAME OVER in either book;
+  trailing closes 36.9% of B (take 6.6%, initial stop 56.5%), candidate trades 3305 of which
+  1578 reached +2R, `baseline_replay_mismatches=0`. Verdict: trailing improves capital →
+  consider adopting (analytics only; the production exit path is untouched, not a paper lock).
+- Units (no DB): `cd backend && python -m pytest -q tests/test_issue139_analysis.py`.
 

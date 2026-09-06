@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-06 (Issue #137 overnight LiveExecutor + LIVE_UNIVERSE 12 names). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-09-06 (Issue #139 stepped trailing-stop analytics package). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -297,6 +297,8 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | S | Level Breakout & Role Reversal (Epic #105) | #106 LevelsTracker + #107 `level_breakout_retest` AND-filter + #109 Lab chip done; analytics validation and optional preview pending |
 | T | Composite S/R pattern (Epic #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 Lab chip + #119 AFKS smoke + #124 Lab-universe A/B done |
 | U | Support with tracker (Epic #126) | #127 `levels_sr_support` backend + #128 Lab chip + #129 isolated Lab universe + #130 portfolio #44 done |
+| V | Stepped trailing-stop analytics (Issue #139) | Done — analytics-only A/B (fixed 1:3 vs stepped trailing) on locked `test_20260830_new_level` id=126, RR 1:3; trailing lives in `analytics/.../trailing.py`, not wired into the production exit path |
+
 
 ## 9. Important Notes
 
@@ -372,3 +374,33 @@ Issue #79 connects the ten Signals-tab `BasePattern` classes to `StrategyEvaluat
 `timeframe` is a select like `level_timeframe`. Supported values match SignalEngine thresholds: 30min, 1h, 2h, 4h, 1d, 1w (default 4h). Full Lab schemas live in `SIGNAL_ENGINE_PATTERN_SCHEMAS` / `PATTERN_REGISTRY` (`pattern_registry.py`); numeric defaults are the 4h `get_thresholds` (or `evaluate` literals for PA). `normalize_patterns` stores those params, while `StrategyEvaluator` currently keys inline evaluate by `timeframe` only. The filter uses the last *closed* HTF bar (bar open + TF delta <= current 1min ts) so backtests do not look ahead into a still-forming bucket. Missing HTF indicator rows reject the entry. `2h` is in the contract because patterns define thresholds for it, but the current candle/indicator pipeline does not persist 2h, so that selection currently yields no trades.
 
 `build_strategy_context` precomputes BUY timestamps per enabled filter and passes `signal_filter_series` into `StrategyEvaluator.load_context` (backtest, paper, live). Default `levels_reversal` + `signal_4h_buy` (including locked `test_20260731`) does not enable any SignalEngine id, so trade lists stay unchanged. E2E coverage: `tests/test_signal_pattern_e2e.py` (`levels_reversal` + one registry id such as `PA_Engulfing` on 4h).
+
+## 17. Stepped trailing-stop analytics (Issue #139)
+
+`analytics/issue-139-trailing-stop-new-level/` is an analytics-only A/B in the 50k /
+10k / max-5 / volume-priority / GAME OVER portfolio simulator: baseline fixed stop/take
+1:3 (**A**) vs the same entry with a stepped trailing stop (**B**) on locked
+`test_20260830_new_level` (id=126, RR 1:3, SHA `dfc855195ade…`). The single difference is
+the exit rule; entries, initial 1R risk, commission 0.06%, slippage 0 and the 28-name
+`run_params.tickers` universe are identical. Full period `2024-08-01` … `timestamp <
+2026-08-21` (not the express window).
+
+The trailing is a separate exit mode in `trailing.py` (`DEFAULT_STEPS`, a configurable list
+of `{"trigger": <R>, "stop": <R>}`; default +2R→+1.5R, +2.5R→+2R). Steps are in R measured
+from the entry, never % hardcoded. The take is unchanged; trailing only tightens the stop on
+the late phase, so a trailing exit is never later than the baseline exit. The fill model
+mirrors `StrategyEvaluator.on_bar` (stop before take within a bar; a step armed by the
+current bar's high only affects the next bar — no intra-bar look-ahead). This module is NOT
+wired into `StrategyEvaluator`, `portfolio_simulator.py`, paper or the sandbox path.
+
+`extract_inputs.py` re-runs the unified brain over 1min candles (identical entries to the
+production backtest), evaluates BOTH exits per trade on the same intra-trade path, and
+reports `baseline_replay_mismatches` (must be 0). It only READS the DB (candles, 4h levels,
+signals), writes no trades, verifies the four protected rows (126/36/102/118) before and
+after, and is resumable via a per-ticker cache under
+`reports/Vulpec/139_trailing-stop-new-level/cache/`. Price paths stay in memory;
+`results.json` keeps only compact per-trade A and B outcomes, so `analysis.py` performs the
+slot replay + comparison + `summary.json` + `report.md` (RU+EN) with NO database. Exact A/B
+figures and the recommendation live in `summary.json` / `report.md`. Note: #129/#130 used RR
+1:2 (`3b7864c4…`); #139 re-extracts for RR 1:3 — the #129 candidate book is not reused.
+

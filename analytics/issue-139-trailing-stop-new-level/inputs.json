@@ -1,0 +1,185 @@
+{
+  "issue": 139,
+  "date_from": "2024-08-01",
+  "date_to": "2026-08-21",
+  "period_last_day": "2026-08-20",
+  "n_runs": 1,
+  "initial_capital_rub": 50000.0,
+  "slot_size_rub": 10000.0,
+  "max_positions": 5,
+  "strategy_id": 126,
+  "strategy_name": "test_20260830_new_level",
+  "strategy_locked": true,
+  "strategy_in_paper_test": true,
+  "config": {
+    "n_runs": 1,
+    "patterns": {
+      "signal_4h_buy": {},
+      "levels_sr_support": {
+        "level_method": [
+          "swing",
+          "impulse"
+        ],
+        "swing_window": 10,
+        "zone_atr_mult": 0.5,
+        "confirm_windows": [
+          10
+        ],
+        "level_timeframe": "4h",
+        "impulse_atr_mult": 1.5,
+        "impulse_body_ratio": 0.7
+      }
+    },
+    "run_params": {
+      "depth": "express",
+      "date_to": "2026-08-29",
+      "tickers": [
+        "AFKS",
+        "ALRS",
+        "CBOM",
+        "CHMF",
+        "FEES",
+        "FLOT",
+        "GAZP",
+        "GMKN",
+        "IRAO",
+        "LKOH",
+        "MGNT",
+        "MOEX",
+        "MTLR",
+        "MTSS",
+        "NLMK",
+        "NVTK",
+        "PHOR",
+        "PIKK",
+        "PLZL",
+        "ROSN",
+        "RTKM",
+        "RUAL",
+        "SBER",
+        "SIBN",
+        "SNGS",
+        "TATN",
+        "TRNFP",
+        "VTBR"
+      ],
+      "date_from": "2026-07-01",
+      "test_types": [
+        "full_sample"
+      ]
+    },
+    "risk_reward": {
+      "risk": 1,
+      "reward": 3
+    },
+    "slippage_pct": 0,
+    "strategy_name": "levels_reversal",
+    "commission_pct": 0.06,
+    "confirm_windows": [
+      10
+    ]
+  },
+  "config_sha256": "dfc855195adef75ddaee2971535bef5c6aa53ed80ff91dac72fd0df15f1971ff",
+  "universe": [
+    "AFKS",
+    "ALRS",
+    "CBOM",
+    "CHMF",
+    "FEES",
+    "FLOT",
+    "GAZP",
+    "GMKN",
+    "IRAO",
+    "LKOH",
+    "MGNT",
+    "MOEX",
+    "MTLR",
+    "MTSS",
+    "NLMK",
+    "NVTK",
+    "PHOR",
+    "PIKK",
+    "PLZL",
+    "ROSN",
+    "RTKM",
+    "RUAL",
+    "SBER",
+    "SIBN",
+    "SNGS",
+    "TATN",
+    "TRNFP",
+    "VTBR"
+  ],
+  "volume_order": [
+    "FEES",
+    "IRAO",
+    "AFKS",
+    "VTBR",
+    "GAZP",
+    "SNGS",
+    "SBER",
+    "RUAL",
+    "ALRS",
+    "GMKN",
+    "MTLR",
+    "CBOM",
+    "NLMK",
+    "ROSN",
+    "RTKM",
+    "MOEX",
+    "FLOT",
+    "MTSS",
+    "NVTK",
+    "PIKK",
+    "TATN",
+    "CHMF",
+    "SIBN",
+    "PLZL",
+    "LKOH",
+    "TRNFP",
+    "MGNT",
+    "PHOR"
+  ],
+  "trailing_steps": [
+    {
+      "trigger": 2.0,
+      "stop": 1.5
+    },
+    {
+      "trigger": 2.5,
+      "stop": 2.0
+    }
+  ],
+  "flags_at_start": [
+    {
+      "id": 36,
+      "name": "test_20260731",
+      "in_paper_test": false,
+      "locked": false
+    },
+    {
+      "id": 102,
+      "name": "test_20260820",
+      "in_paper_test": false,
+      "locked": false
+    },
+    {
+      "id": 118,
+      "name": "test_20260821",
+      "in_paper_test": false,
+      "locked": false
+    },
+    {
+      "id": 126,
+      "name": "test_20260830_new_level",
+      "in_paper_test": true,
+      "locked": true
+    }
+  ],
+  "protected": {
+    "126": "test_20260830_new_level",
+    "36": "test_20260731",
+    "102": "test_20260820",
+    "118": "test_20260821"
+  }
+}
