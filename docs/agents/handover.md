@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-02 (LIVE_UNIVERSE +FEES/GAZP/PLZL). Companion to project-context.md.
+Last refreshed: 2026-09-06 (Issue #137 overnight LiveExecutor + LIVE_UNIVERSE 12 names). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -121,6 +121,7 @@ python docs/refresh/context_collector.py
 
 - Prerequisites: backend rebuilt, streaming online data running, one active locked strategy, a funded sandbox account, and `LIVE_TRADING.enabled=true`.
 - Apply the migration explicitly when provisioning a database: `psql ... -f backend/migrations/20260817_01_live_positions.sql`. `LiveExecutor.initialize()` also applies the same idempotent schema automatically.
+- Safe overnight start (Issue #137): rebuild backend, then `START_LIVE_EXECUTOR=1 ./start_processes.sh` with **no**`DURATION_MINUTES`. Paper processes run until the next weekday **10:00** after this session's 19:00 (so leftover protection still has streaming). LiveExecutor sleeps until 10:00 MSK, **enters only 10:00-19:00**, then keeps stop/take until the position closes by price. Clock is the computer clock converted to MSK (UTC+3). `START_LIVE_EXECUTOR=1` remains opt-in so a normal paper launch does not place sandbox orders. Logs: `reports/live-executor/executor.log`.
 - Safe overnight start (Issue #137): rebuild backend, then `START_LIVE_EXECUTOR=1 ./start_processes.sh` with **no** `DURATION_MINUTES`. Paper processes run until the next weekday **10:00** after this session's 19:00 (so leftover protection still has streaming). LiveExecutor sleeps until 10:00 MSK, **enters only 10:00–19:00**, then keeps stop/take until the position closes by price. Clock is the computer clock converted to MSK (UTC+3). `START_LIVE_EXECUTOR=1` remains opt-in so a normal paper launch does not place sandbox orders. Logs: `reports/live-executor/executor.log`.
 - Canary / fixed window: `DURATION_MINUTES=N` still starts immediately and stops N minutes after launch. Do not use that for an overnight Sunday→Monday session.
 - LiveExecutor entries are gated to [10:00, 19:00) MSK (`reason=outside_entry_window`) even if `StrategyEvaluator.entry_window` is 7–19. Stop/take fire when price hits, after 19:00 as well; the process stops only when the book is flat (or SIGTERM). Shutdown policy is unchanged (`close_positions_on_shutdown=false`).

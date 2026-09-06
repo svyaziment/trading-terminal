@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-02 (LIVE_UNIVERSE +FEES/GAZP/PLZL). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-09-06 (Issue #137 overnight LiveExecutor + LIVE_UNIVERSE 12 names). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -49,6 +49,7 @@ trading-terminal/
 │ │ │ ├── trading_config.py # SINGLE SOURCE OF TRUTH: universe, LIVE_UNIVERSE (12-name PO list; #66 top-5 is historical), strategies, live risk policy, LEVEL_STATE_MACHINE (#106), LEVEL_BREAKOUT_RETEST (#107); tracker also for levels_sr_breakout (#117) and levels_sr_support (#127)
 │ │ │ ├── position_sizer.py # Hybrid risk/concentration sizing + lot rounding
 │ │ │ ├── live_executor.py # Sandbox execution, protection, reconciliation, shutdown
+│ │ │ ├── moex_session.py # MOEX 10:00-19:00 MSK calendar for overnight LiveExecutor (Issue #137)
 │ │ │ ├── moex_session.py # MOEX 10:00–19:00 MSK calendar for overnight LiveExecutor (#137)
 │ │ │ ├── live_executor_preflight.py # Read-only checks before a sandbox canary
 │ │ │ ├── online_data.py # Streaming: 1min candles + order book -> online_* tables

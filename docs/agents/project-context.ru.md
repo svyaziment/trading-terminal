@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-09-02 (LIVE_UNIVERSE +FEES/GAZP/PLZL). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-09-06 (задача #137 overnight LiveExecutor + LIVE_UNIVERSE 12 имён). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -49,6 +49,7 @@ trading-terminal/
 │ │ │ ├── trading_config.py # ЕДИНЫЙ ИСТОЧНИК ИСТИНЫ: вселенная, LIVE_UNIVERSE (12 имён PO; top-5 из #66 — история), стратегии, live risk policy, LEVEL_STATE_MACHINE (#106), LEVEL_BREAKOUT_RETEST (#107); трекер также для levels_sr_breakout (#117) и levels_sr_support (#127)
 │ │ │ ├── position_sizer.py # Гибридный sizing по риску/концентрации + округление лотов
 │ │ │ ├── live_executor.py # Sandbox-исполнение, защита, сверка позиций, shutdown
+│ │ │ ├── moex_session.py # Календарь MOEX 10:00-19:00 МСК для overnight LiveExecutor (#137)
 │ │ │ ├── moex_session.py # Календарь MOEX 10:00–19:00 МСК для overnight LiveExecutor (#137)
 │ │ │ ├── live_executor_preflight.py # Read-only проверки перед sandbox canary
 │ │ │ ├── online_data.py # Стриминг: 1min свечи + стакан -> online_* таблицы
