@@ -64,7 +64,7 @@ OUT_DIR = HERE
 CACHE_DIR = HERE / "cache"
 
 ISSUE = 143
-GRIDS_SCHEMA = "143-trailing-v2"
+GRIDS_SCHEMA = "143-trailing-v3"
 # Имена публикуемых артефактов задаёт единственный источник — write_outputs() ниже
 # (report.json.gz, summary.json, report.md, run.md, grids.csv, walkforward.csv,
 # exits.jsonl.gz, contract.json, extract_summary.json). Отдельные константы-имена
@@ -103,10 +103,13 @@ LIMITATIONS = [
     "Паритет по доходности одной сделки проверяется с допуском 0,1 п.п.: #139 считает "
     "net_return_pct от цены исполнения движка, #143 — от entry_price артефакта. Вклад в "
     "капитал по книге — единицы-десятки ₽; цена, время и причина выхода совпадают точно.",
-    "Решётка неполная относительно постановки #143 (ожидалось 8–12 комбинаций): проверено 5 "
-    "многоступенчатых сеток (ref139, tight_after_take, late_conservative, three_step_steady, "
-    "two_step_aggressive). Одношаговые варианты (+2R→+1R, +2R→+2R) и «безубыточный» шаг "
-    "(stop = 0) в решётку не входили: вывод переносится только на перечисленные конфигурации.",
+    "Решётка v3 (#155) закрывает долг #143 по форме: 8 сеток — шесть многоступенчатых "
+    "(2–4 ступени) и две одношаговые (+2R→+1.5R и безубыточная +2R→0R). Верх плотности задан "
+    "зазором ступени 0,1R от триггера (ultra_late_tight — проба PO); плотнее на этом контуре не "
+    "тестировали, поэтому вывод о «трейле каждые несколько тиков» ограничен этой границей. "
+    "Прямая пара «первый шаг ↔ лестница» на решётке одна (single_step_2_15 ↔ ref139): ни у "
+    "одной другой одношаговой сетки первый шаг не совпадает с лестницей, поэтому сравнение "
+    "групп по числу ступеней остаётся косвенным.",
     "Стресс издержками мягче заказанного: комиссия 0,06 / 0,10 / 0,15 % от оборота (в #143 "
     "ожидались 0,3 / 0,6 / 1,5 %), проскальзывание 0 / 5 / 10 / 20 б.п. от цены вместо "
     "0 / 1 / 3 шага цены тикера; чувствительность к минимальному лоту MOEX не моделировалась.",
@@ -136,10 +139,11 @@ NEXT_ISSUES = [
     "перепроверяется на живом коде, а не на оверлей-симуляторе.",
     "#151 — трейлинг-стоп в песочнице LiveExecutor: ratchet, рестарт, kill-switch.",
     "#152 — приёмка на живом периоде: факт против модели и итоговый вердикт.",
-    "Долг #143 — добить решётку до 8–12 сеток (одношаговые и «безубыточный» шаг), перейти на "
-    "шаг цены вместо б.п., добавить чувствительность к risk_reward 1:2 / 1:3 и графики "
-    "equity-кривых по примеру #139, а также прогнать книгу A (fixed 1:3) по той же стресс-"
-    "решётке: только так появляется порог, при котором трейлинг перестаёт бить фиксированный стоп.",
+    "Долг #143 — форма решётки закрыта в #155 (8 сеток: многоступенчатые, одношаговые и "
+    "безубыточная ступень); остаются прочие оси: сдвиг базовой сетки целиком (±0.5R), шаг цены "
+    "вместо б.п. в стрессе издержками, чувствительность к risk_reward 1:2 / 1:3 и графики "
+    "equity-кривых по примеру #139, а также прогон книги A (fixed 1:3) по той же стресс-решётке: "
+    "только так появляется порог, при котором трейлинг перестаёт бить фиксированный стоп.",
 ]
 
 LOG = logging.getLogger("issue143")
@@ -288,8 +292,10 @@ def validate_grids(grids: dict[str, Any]) -> dict[str, Any]:
         if any(b["stop"] <= a["stop"] or b["trigger"] <= a["trigger"]
                for a, b in zip(steps, steps[1:])):
             errors.append(f"сетка {grid_id}: ступени не монотонны")
-        if any(s["stop"] <= 0 for s in steps):
-            errors.append(f"сетка {grid_id}: stop должен быть > 0R")
+        # 0R — безубыточная ступень (breakeven_2_0, #155): валидный конфигурационный кейс,
+        # ниже безубытка ступень опускаться не должна.
+        if any(s["stop"] < 0 for s in steps):
+            errors.append(f"сетка {grid_id}: stop ниже безубытка (< 0R)")
         if steps[0]["trigger"] <= 1.0:
             warnings.append(f"сетка {grid_id}: первая ступень не позже +1R")
         sig = signature(steps)
@@ -297,6 +303,21 @@ def validate_grids(grids: dict[str, Any]) -> dict[str, Any]:
             errors.append(f"сетки {sigs[sig]} и {grid_id} совпадают ({sig})")
         else:
             sigs[sig] = grid_id
+    # Покрытие решётки (#155): без этих сеток отчёт не отвечает на долг #143 —
+    # «нужны ли многоступенчатые сетки и где граница пользы трейла».
+    counts = [len(grid_steps(row.get("steps") or [])) for row in rows]
+    if counts and 1 not in counts:
+        warnings.append("в решётке нет одношаговых сеток: долг #143 (одношаговые против "
+                        "многоступенчатых) не закрыт")
+    if counts and not any(_float(s["stop"]) == 0.0 for row in rows
+                          for s in grid_steps(row.get("steps") or [])):
+        warnings.append("в решётке нет ступени в безубыток (stop = 0R): нижняя граница "
+                        "пользы трейла не проверена")
+    if counts and max(counts) - min(counts) < 2:
+        warnings.append("разброс по числу ступеней меньше двух: группы одношаговых и "
+                        "многоступенчатых неразличимы")
+    if len(rows) < 8:
+        warnings.append(f"решётка уже заказанного диапазона 8–12 сеток (#143): сейчас {len(rows)}")
     if base_id not in ids:
         errors.append(f"baseline_grid_id={base_id!r} нет в grids")
     control = str(((grids.get("control") or {}).get("grid_id")) or "")
@@ -1257,6 +1278,211 @@ def robustness_scores(ctx: dict[str, Any]) -> dict[str, dict[str, float]]:
                     "flips": round(s_flip, 1),
                     "total": round(s_equity + s_dd + s_stab + s_walk + s_flip, 1)}
     return out
+def _median(values: Iterable[Any]) -> float:
+    """Медиана плотного списка чисел (пустой список — 0.0)."""
+    vals = sorted(_float(v) for v in values)
+    if not vals:
+        return 0.0
+    mid = len(vals) // 2
+    return vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2.0
+
+
+def _fmt_steps(steps: Iterable[dict[str, Any]]) -> str:
+    """Ступени трейла в читаемом виде: 2→1.5, 2.5→2 (R к R)."""
+    return ", ".join(f"{_float(s.get('trigger')):g}→{_float(s.get('stop')):g}"
+                     for s in steps) or "—"
+
+
+def lattice_analysis(payload: dict[str, Any]) -> dict[str, Any]:
+    """Итоги по форме решётки: долг #143 закрыт расширением в #155.
+
+    Срезы выводятся из конфигурации, а не из конкретных id:
+    1) группы по числу ступеней (лучший капитал и медианы группы);
+    2) прямые пары «первый шаг ↔ сетка целиком» — цена добавления следующей ступени;
+    3) границы решётки — одношаговые, самые плотные по зазору ступени от триггера
+       (PO-проба, её решает Product Owner в #144) и безубыточная ступень (stop = 0R),
+       где польза трейла кончается.
+    """
+    rows = payload.get("grid_rows") or []
+    scores = payload.get("robustness") or {}
+    by_id = {str(r["grid_id"]): r for r in rows}
+    base_id = str(payload.get("baseline_grid_id") or "")
+    control_id = str(payload.get("control_grid_id") or "")
+    base, control = by_id.get(base_id) or {}, by_id.get(control_id) or {}
+    material = _float((payload.get("thresholds") or {}).get("material_rub_per_trade"), 20.0)
+
+    def steps_of(row: dict[str, Any]) -> list[dict[str, Any]]:
+        return list(row.get("steps") or ())
+
+    def gaps_of(row: dict[str, Any]) -> list[float]:
+        return [_float(s["trigger"]) - _float(s["stop"]) for s in steps_of(row)]
+
+    def score_of(row: dict[str, Any]) -> float:
+        return _float((scores.get(str(row["grid_id"])) or {}).get("total"))
+
+    # 1. Группы по числу ступеней.
+    groups: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        groups.setdefault(len(steps_of(row)), []).append(row)
+    group_rows: list[dict[str, Any]] = []
+    for n_steps in sorted(groups):
+        grp = groups[n_steps]
+        best_g = max(grp, key=lambda r: _float(r["final_equity_rub"]))
+        group_rows.append({
+            "n_steps": n_steps,
+            "grids": sorted(str(r["grid_id"]) for r in grp),
+            "best_grid_id": str(best_g["grid_id"]),
+            "equity_best_rub": _round(best_g["final_equity_rub"], 0),
+            "equity_median_rub": _round(_median(r["final_equity_rub"] for r in grp), 0),
+            "pf_median": _round(_median(r["profit_factor"] for r in grp)),
+            "dd_median_pp": _round(_median(r["max_drawdown_pct"] for r in grp)),
+            "score_median": _round(_median(score_of(r) for r in grp), 1),
+        })
+
+    # 2. Пары «первый шаг ↔ сетка целиком»: цена добавления ступени.
+    pairs: list[dict[str, Any]] = []
+    for single in groups.get(1) or ():
+        first = steps_of(single)[0]
+        for multi in rows:
+            m_steps = steps_of(multi)
+            if len(m_steps) < 2 or str(multi["grid_id"]) == str(single["grid_id"]):
+                continue
+            if (_float(m_steps[0]["trigger"]) == _float(first["trigger"])
+                    and _float(m_steps[0]["stop"]) == _float(first["stop"])):
+                pairs.append({
+                    "single_grid_id": str(single["grid_id"]),
+                    "multi_grid_id": str(multi["grid_id"]),
+                    "added_steps": _fmt_steps(m_steps[1:]),
+                    "equity_delta_rub": _round(_float(multi["final_equity_rub"])
+                                               - _float(single["final_equity_rub"]), 0),
+                    "dd_delta_pp": _round(_float(multi["max_drawdown_pct"])
+                                          - _float(single["max_drawdown_pct"])),
+                    "score_delta": _round(score_of(multi) - score_of(single), 1),
+                })
+
+    # 3. Границы решётки: одношаговые, безубыточная ступень и PO-проба (из grids.json).
+    po_id = str(((payload.get("stakeholder") or {}).get("grid_id")) or "")
+    tagged: dict[str, list[str]] = {}
+    for row in rows:
+        gid = str(row["grid_id"])
+        if gid in (base_id, control_id):
+            continue
+        row_steps, kinds = steps_of(row), []
+        if len(row_steps) == 1:
+            kinds.append("одношаговая")
+        if gid == po_id:
+            kinds.append("PO-проба")
+        if any(_float(s["stop"]) == 0.0 for s in row_steps):
+            kinds.append("безубыток")
+        if kinds:
+            tagged[gid] = kinds
+    po_steps = steps_of(by_id.get(po_id) or {})
+    po_gaps = gaps_of(by_id.get(po_id) or {})
+    po_gap = max(po_gaps) if po_gaps else 0.0
+    po_trigger = max((_float(s["trigger"]) for s in po_steps), default=0.0)
+    po_material = _float((payload.get("stakeholder") or {}).get(
+        "material_rub_per_trade"), material)
+    best = max((r for r in rows if str(r["grid_id"]) not in tagged),
+               key=lambda r: _float(r["final_equity_rub"]), default={})
+    boundaries: list[dict[str, Any]] = []
+    for gid, kinds in tagged.items():
+        row = by_id[gid]
+        eq = _float(row["final_equity_rub"])
+        dpptr = _round(_float(row["avg_trade_pnl_rub"])
+                       - _float(base.get("avg_trade_pnl_rub")), 1)
+        boundaries.append({
+            "grid_id": gid, "tags": " · ".join(kinds), "steps": _fmt_steps(steps_of(row)),
+            "final_equity_rub": _round(eq, 0),
+            "profit_factor": _round(row["profit_factor"]),
+            "max_drawdown_pct": _round(row["max_drawdown_pct"]),
+            "dd_vs_base_pp": _round(_float(row["max_drawdown_pct"])
+                                    - _float(base.get("max_drawdown_pct"))),
+            "win_rate_pct": _round(row["win_rate_pct"], 1),
+            "score": _round(score_of(row), 1),
+            "avg_trade_pnl_rub": _round(row["avg_trade_pnl_rub"], 1),
+            "vs_base_rub": _round(eq - _float(base.get("final_equity_rub")), 0),
+            "vs_best_rub": _round(eq - _float(best.get("final_equity_rub")), 0),
+            "vs_control_rub": _round(eq - _float(control.get("final_equity_rub")), 0),
+            "dpptr_vs_base": dpptr,
+            "material": abs(dpptr) >= (po_material if "PO-проба" in kinds else material),
+        })
+    boundaries.sort(key=lambda b: -_float(b["final_equity_rub"]))
+    verdicts: list[dict[str, str]] = []
+    singles_g = [g for g in group_rows if _int(g["n_steps"]) == 1]
+    multis_g = [g for g in group_rows if _int(g["n_steps"]) > 1]
+    if singles_g and multis_g:
+        s_best = max(singles_g, key=lambda g: _float(g["equity_best_rub"]))
+        m_best = max(multis_g, key=lambda g: _float(g["equity_best_rub"]))
+        verdicts.append({
+            "kind": "design", "severity": "info",
+            "text": "Долг #143 по группам ступеней: лучший одношаговый "
+                    f"`{s_best['best_grid_id']}` — {_float(s_best['equity_best_rub']):,.0f} ₽ "
+                    f"(медиана группы {_float(s_best['equity_median_rub']):,.0f} ₽), лучший "
+                    f"многоступенчатый `{m_best['best_grid_id']}` — "
+                    f"{_float(m_best['equity_best_rub']):,.0f} ₽ (медиана "
+                    f"{_float(m_best['equity_median_rub']):,.0f} ₽), Δ "
+                    f"{_float(s_best['equity_best_rub']) - _float(m_best['equity_best_rub']):+,.0f} ₽. "
+                    "Группы различаются и плотностью, и триггерами — это косвенный срез, "
+                    "прямой контроль — пары «первый шаг ↔ сетка целиком» ниже.",
+        })
+    for pair in pairs:
+        verdicts.append({
+            "kind": "design", "severity": "info",
+            "text": f"Цена следующей ступени: у `{pair['multi_grid_id']}` первый шаг совпадает с "
+                    f"одношаговой `{pair['single_grid_id']}`, добавленные ступени "
+                    f"({pair['added_steps']}) стоят {pair['equity_delta_rub']:+,.0f} ₽ капитала, "
+                    f"{pair['dd_delta_pp']:+.2f} п.п. просадки и {pair['score_delta']:+g} балла "
+                    "устойчивости.",
+        })
+    for row in boundaries:
+        if "PO-проба" in row["tags"]:
+            verdicts.append({
+                "kind": "stakeholder", "severity": "info",
+                "text": f"PO-проба `{row['grid_id']}` (ступень в {po_gap:g}R от триггера, самый "
+                        f"поздний триггер решётки {po_trigger:g}R): {row['final_equity_rub']:,.0f} ₽ — "
+                        f"базовой `{base_id}` {_float(row['vs_base_rub']):+,.0f} ₽, лучшей из "
+                        f"остальных `{best.get('grid_id', '—')}` {_float(row['vs_best_rub']):+,.0f} ₽, "
+                        f"контрольной `{control_id}` {_float(row['vs_control_rub']):+,.0f} ₽. "
+                        f"ΔPnL на сделку {row['dpptr_vs_base']:+,.1f} ₽ — "
+                        + ("материальна" if row["material"] else "не материальна")
+                        + f" (порог {po_material:g} ₽, issue #155). Решает Product Owner (#144), не аналитика.",
+            })
+        if "безубыток" in row["tags"]:
+            verdicts.append({
+                "kind": "sensitivity", "severity": "info",
+                "text": f"Нижняя граница пользы трейла — `{row['grid_id']}` со стопом в 0R: "
+                        f"{row['final_equity_rub']:,.0f} ₽ ({_float(row['vs_base_rub']):+,.0f} ₽ "
+                        f"к базовой), просадка {row['max_drawdown_pct']:g} п.п. "
+                        f"({row['dd_vs_base_pp']:+.2f} п.п.), винрейт {row['win_rate_pct']:g} %, "
+                        f"средняя сделка {row['avg_trade_pnl_rub']:+,.1f} ₽ — "
+                        + ("перенос стопов в безубыток добавляет капиталу на этом скоупе."
+                           if _float(row["vs_base_rub"]) > 0 else
+                           "перенос стопов в безубыток убирает капиталу на этом скоупе: хвост "
+                           "прибыли дороже защиты от нулевых выходов.")
+                        + " Опорная точка для `exit.breakeven_at_r`.",
+            })
+        if "одношаговая" in row["tags"]:
+            verdicts.append({
+                "kind": "design", "severity": "info",
+                "text": f"Одношаговая `{row['grid_id']}` (одна фиксация вместо лестницы): "
+                        f"{row['final_equity_rub']:,.0f} ₽ ({_float(row['vs_base_rub']):+,.0f} ₽ "
+                        f"к базовой, просадка {row['max_drawdown_pct']:g} п.п., винрейт "
+                        f"{row['win_rate_pct']:g} %, балл {row['score']:g}) — "
+                        + ("на этом скоупе одна фиксация длиннее лестницы."
+                           if _float(row["vs_base_rub"]) > 0 else
+                           "на этом скоупе одна фиксация короче лестницы: ступени работают."),
+            })
+    return {
+        "baseline_grid_id": base_id, "control_grid_id": control_id,
+        "best_other_grid_id": str(best.get("grid_id") or ""),
+        "best_other_equity_rub": _round(_float(best.get("final_equity_rub")), 0),
+        "po_grid_id": po_id, "po_gap_r": _round(po_gap, 2),
+        "po_trigger_r": _round(po_trigger, 2),
+        "material_rub_per_trade": material,
+        "po_material_rub_per_trade": po_material,
+        "groups": group_rows, "pairs": pairs, "boundaries": boundaries,
+        "verdicts": verdicts,
+    }
 
 
 def build_findings(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1279,6 +1505,11 @@ def build_findings(payload: dict[str, Any]) -> list[dict[str, Any]]:
         f"{'подтверждён' if parity.get('ok') else 'НЕ подтверждён'} — сверено {_int(parity.get('n_checked'))} сделок: по механике выхода "
         f"расхождений {_int(parity.get('n_mismatch_exit'))}, сверх допуска по доходности — "
         f"{_int(parity.get('n_mismatch_return_drift'))} (цена выхода ±{TOL_EXIT_BP} б.п.).", ["Якорный паритет", "Контракт"])
+    # Итоги по форме решётки (#155, долг #143) — тексты считает lattice_analysis.
+    for verdict in (payload.get("lattice") or {}).get("verdicts") or ():
+        add(str(verdict.get("kind") or "design"),
+            str(verdict.get("severity") or "info"),
+            str(verdict.get("text") or ""), ("Матрица результатов",))
     spreads = [abs(_float(r["equity_delta_rub"])) for r in rows]
     base_row = next((r for r in rows if r["grid_id"] == base_id), {})
     base_eq = _float(base_row.get("final_equity_rub"), 1.0)
@@ -1349,6 +1580,36 @@ def build_recommendations(payload: dict[str, Any]) -> tuple[list[str], list[str]
         recs.append("Приоритетная проверка: сетки "
                     + ", ".join(gid for gid, _ in ranked[:3])
                     + " — они лидеры по composite-баллу, но выбор по нему не автоматичен.")
+    lattice = payload.get("lattice") or {}
+    pairs = lattice.get("pairs") or []
+    if pairs:
+        top = max(pairs, key=lambda p: _float(p["equity_delta_rub"]))
+        gains = sum(1 for p in pairs if _float(p["equity_delta_rub"]) > 0)
+        recs.append(
+            f"Ступени трейла работают не всегда: из {len(pairs)} прямых пар «первый шаг ↔ сетка "
+            f"целиком» добавление ступеней повысило капитал в {gains}; максимум — "
+            f"`{top['multi_grid_id']}` ({_float(top['equity_delta_rub']):+,.0f} ₽ к её же первому "
+            "шагу). Новый шаг в production без такой проверки не попадает.")
+    for row in lattice.get("boundaries") or ():
+        tags = str(row.get("tags") or "")
+        if "безубыток" in tags:
+            recs.append(
+                f"Граница пользы трейла: `{row['grid_id']}` (стоп в 0R) даёт "
+                f"{_float(row['vs_base_rub']):+,.0f} ₽ к базовой сетке при просадке "
+                f"{row['max_drawdown_pct']:g} п.п. и винрейте {row['win_rate_pct']:g} % — "
+                "перенос стопов в безубыток (`exit.breakeven_at_r`) — отдельный механизм и "
+                "отдельное решение, в одной проверке с `trail_steps` его не сравнивают.")
+        if "PO-проба" in tags:
+            recs.append(
+                f"Проба PO: `{row['grid_id']}` (ступень в {lattice.get('po_gap_r')}R от "
+                f"триггера {lattice.get('po_trigger_r')}R) — "
+                f"{_float(row['vs_base_rub']):+,.0f} ₽ к базовой, "
+                f"{_float(row['vs_best_rub']):+,.0f} ₽ к лучшей "
+                f"`{lattice.get('best_other_grid_id')}`, ΔPnL на сделку "
+                f"{row['dpptr_vs_base']:+,.1f} ₽ "
+                + ("материально" if row["material"] else "в пределах порога материальности")
+                + f" ({_float(lattice.get('po_material_rub_per_trade')):g} ₽/сделку). Решает "
+                "Product Owner (#144), не аналитика.")
     next_issues = list(NEXT_ISSUES)
     return recs, next_issues
 # --------------------------------------------------------------------- оркестрация
@@ -1522,7 +1783,7 @@ def run_analyze(ref: dict[str, Any], grids: dict[str, Any], ctx: dict[str, Any],
     write_json(ctx["out_dir"] / "contract.json",
                {**contract, "live_config": live, "protected_flags": flags[:80]})
     payload: dict[str, Any] = {
-        "schema": "143-trailing-v2", "issue": 143, "ref_issue": 139,
+        "schema": GRIDS_SCHEMA, "issue": 143, "ref_issue": 139,
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "baseline_grid_id": ctx["base_id"], "control_grid_id": ctx["control_id"],
         "environment": env_block(ref, ctx), "contract": contract,
@@ -1537,6 +1798,8 @@ def run_analyze(ref: dict[str, Any], grids: dict[str, Any], ctx: dict[str, Any],
         "walk_forward": walk, "walk_rows": walk_rows, "walk_share": walk_share,
         "flip_matrix": flip, "concordance": conc, "control_deltas": ctrl,
         "regime_concentration": regime, "robustness": scores,
+        "thresholds": grids.get("thresholds") or {},
+        "stakeholder": grids.get("stakeholder") or {},
         "flows_count": len(flows),
         "scope": {"tickers": ctx["tickers"], "period": ctx["period"],
                   "n_tickers_cached": len([c for c in (caches or {}).values() if c]),
@@ -1546,6 +1809,7 @@ def run_analyze(ref: dict[str, Any], grids: dict[str, Any], ctx: dict[str, Any],
                   "extract": extract_stats or {}},
         "metrics": rows, "limitations": LIMITATIONS,
     }
+    payload["lattice"] = lattice_analysis(payload)
     payload["findings"] = build_findings(payload)
     recs, next_issues = build_recommendations(payload)
     payload["recommendations"], payload["next_issues"] = recs, next_issues
@@ -1610,6 +1874,7 @@ def render_md(payload: dict[str, Any], out_dir: Path,
              f"· elapsed {payload.get('elapsed_sec')} сек", "",
              f"Проверено {len(rows)} сеток ступеней на {payload.get('flows_count')} сделках "
              f"({len(scope.get('tickers') or ())} тикеров, {scope.get('period')}).", "",
+             f"- Схема решётки: `{GRIDS_SCHEMA}` · машиночитаемый срез — `summary.json.lattice` (срез формы решётки, задача #155).", "",
              f"- Финальный капитал: лучшие `{best.get('grid_id')}` "
              f"({_float(best.get('final_equity_rub')):,.0f} ₽), худшие `{worst.get('grid_id')}` "
              f"({_float(worst.get('final_equity_rub')):,.0f} ₽), разброс **{spread:,.0f} ₽**",
@@ -1736,6 +2001,62 @@ def render_md(payload: dict[str, Any], out_dir: Path,
                   f"итогового балла ({min(totals):g}…{max(totals):g}) описывает различие "
                   f"{len(scores)} сеток на одной книге и одном периоде и не является оценкой "
                   "надёжности правила на боевом контуре."]
+        lines.append("")
+
+    lattice = payload.get("lattice") or {}
+    if lattice.get("groups"):
+        lines += ["### Одна ступень против многих (долг #143, закрыт в #155)", "",
+                  "Группы сеток по числу ступеней трейла: лучший капитал группы — «что может "
+                  "максимум», медиана — «что типично для формы». Медиана не даёт обещаний — "
+                  "это описание решётки, а не прогноз.", "",
+                  "| ступеней | сетки | лучший капитал, ₽ | лучшая сетка | медианный капитал, ₽ | "
+                  "медианный PF | медианная просадка, п.п. | медианный балл |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for grp in lattice["groups"]:
+            lines.append(f"| {_int(grp['n_steps'])} | "
+                         + ", ".join(f"`{g}`" for g in grp["grids"]) + " | "
+                         + f"{_float(grp['equity_best_rub']):,.0f} | `{grp['best_grid_id']}` | "
+                         + f"{_float(grp['equity_median_rub']):,.0f} | {grp['pf_median']:g} | "
+                         + f"{grp['dd_median_pp']:g} | {grp['score_median']:g} |")
+        lines.append("")
+        if lattice.get("pairs"):
+            lines += ["Цена следующей ступени — прямое сравнение: у многоступенчатой сетки "
+                      "первый шаг совпадает с одношаговой, вся разница объясняется добавленными "
+                      "ступенями.", "",
+                      "| одношаговая | многоступенчатая | добавленные ступени | Δ капитал, ₽ | "
+                      "Δ просадка, п.п. | Δ балл |",
+                      "| --- | --- | --- | --- | --- | --- |"]
+            for pair in lattice["pairs"]:
+                lines.append(f"| `{pair['single_grid_id']}` | `{pair['multi_grid_id']}` | "
+                             f"{pair['added_steps']} | "
+                             f"{_float(pair['equity_delta_rub']):+,.0f} | "
+                             f"{pair['dd_delta_pp']:+g} | {pair['score_delta']:+g} |")
+            lines.append("")
+    if lattice.get("boundaries"):
+        lines += ["### Границы решётки: где польза трейла кончается", "",
+                  "Срезы заданы формой конфигурации, а не конкретными id: `одношаговая` — одна "
+                  "фиксация вместо лестницы; `безубыток` — стоп в 0R, нижняя граница пользы "
+                  "трейла; `PO-проба` — сетка, объявленная в `grids.json` вопросом Product Owner "
+                  f"(`{lattice.get('po_grid_id')}`: ступень в {lattice.get('po_gap_r')}R от "
+                  f"триггера, самый поздний триггер решётки {lattice.get('po_trigger_r')}R). "
+                  "Последняя колонка — разница среднего PnL сделки против базовой сетки, ⚑ — "
+                  "материальнее порога "
+                  f"{_float(lattice.get('material_rub_per_trade')):g} ₽/сделку (#143), для "
+                  f"PO-пробы — {_float(lattice.get('po_material_rub_per_trade')):g} ₽ (#155). "
+                  "Такую сетку принимает Product Owner (#144).", "",
+                  "| сетка | вид | ступени | капитал, ₽ | PF | просадка, п.п. | винрейт, % | "
+                  "балл | Δ к базовой, ₽ | Δ к лучшей (`"
+                  + str(lattice.get("best_other_grid_id") or "—") + "`) ₽ | Δ к контрольной (`"
+                  + str(lattice.get("control_grid_id") or "—") + "`) ₽ | Δ PnL/сделку, ₽ |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for row in lattice["boundaries"]:
+            lines.append(f"| `{row['grid_id']}` | {row['tags']} | {row['steps']} | "
+                         f"{_float(row['final_equity_rub']):,.0f} | {row['profit_factor']:g} | "
+                         f"{row['max_drawdown_pct']:g} | {row['win_rate_pct']:g} | "
+                         f"{row['score']:g} | {_float(row['vs_base_rub']):+,.0f} | "
+                         f"{_float(row['vs_best_rub']):+,.0f} | "
+                         f"{_float(row['vs_control_rub']):+,.0f} | "
+                         f"{row['dpptr_vs_base']:+,.1f}{' ⚑' if row['material'] else ''} |")
         lines.append("")
 
     order_ids = [str(g["id"]) for g in payload.get("grids") or ()]
@@ -1973,6 +2294,9 @@ def summary_block(payload: dict[str, Any]) -> dict[str, Any]:
         "grid_rows": payload["grid_rows"], "stress_sensitivity": payload["stress_sensitivity"],
         "walk_forward": {k: v for k, v in payload["walk_forward"].items() if k != "windows"},
         "robustness": payload["robustness"], "concordance": payload["concordance"],
+        # Срез по форме решётки (#155): группы ступеней, пары «шаг ↔ лестница», границы
+        # и PO-проба в машинном виде — чтобы CI и Product Owner читали их без report.md.
+        "lattice": payload.get("lattice") or {},
         "control_deltas": payload["control_deltas"], "flip_matrix": payload["flip_matrix"],
         "regime_concentration": payload["regime_concentration"],
         "environment": payload["environment"],

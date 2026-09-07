@@ -1,9 +1,9 @@
 # #143 · Протокол прогона robustness-решётки трейлинга
-Сгенерирован: 2026-09-07T08:12:16+00:00 (референс — #139)
+Сгенерирован: 2026-09-07T22:32:42+00:00 (референс — #139)
 
 ## Окружение
 
-- stage: `all` · exit code: `0`
+- stage: `report` · exit code: `0`
 - python `3.11.7` · platform `win32` · BIOSIM_ENV `-`
 - PostgreSQL (хост/база, без пароля): `(не задан)` · доступ только read-only (SELECT)
 - каталог #139: `analytics/issue-139-trailing-stop-new-level` · выходной каталог: `analytics/issue-143-trailing-robustness`
@@ -18,7 +18,7 @@
 | `results.json` | `acd6bc5fd8756811` |
 | `summary.json` | `4e3321f36f9d4f77` |
 | `trailing.py` | `b77e659a83189675` |
-| `grids.json` | `f33bfdaccfd3198a` |
+| `grids.json` | `070a8770b69fa32a` |
 
 ## Скоуп
 
@@ -31,32 +31,14 @@
 - `limit` = 0
 - кандидатов из книги #139: `3305`
 - тикеров с кэшем путей: `28`
-- elapsed: `160.62` сек
+- elapsed: `1.81` сек
 
 ## Итог
 
 - статус прогона: `success`
 - паритет с #139: `OK` (проверено сделок: 3305; по механике выхода: 0; сверх допуска по доходности 0.1 п.п.: 0; макс. |Δ доходности| = 0.0969 п.п.)
 - контракт конфигурации: `OK` (проверок 26, пройдено 26)
-- сеток в решётке: 5 · стресс-прогонов: 60 · окон walk-forward: 9
-
-### Извлечение путей
-
-```json
-{
- "tickers": 28,
- "from_cache": 28,
- "extracted": 0,
- "paths_cached": 28,
- "paths_extracted": 0,
- "paths_missing": 0,
- "failed": [],
- "paths_failed": 0,
- "candidates": 3305,
- "engine_replay_mismatches": 0,
- "seconds": 2.1
-}
-```
+- сеток в решётке: 8 · стресс-прогонов: 96 · окон walk-forward: 9
 
 ## Артефакты
 
