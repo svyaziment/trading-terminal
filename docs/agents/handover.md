@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-06 (Issue #139 stepped trailing-stop analytics package). Companion to project-context.md.
+Last refreshed: 2026-09-07 (Issue #143 trailing-grid robustness analytics package). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -402,4 +402,48 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
   1578 reached +2R, `baseline_replay_mismatches=0`. Verdict: trailing improves capital →
   consider adopting (analytics only; the production exit path is untouched, not a paper lock).
 - Units (no DB): `cd backend && python -m pytest -q tests/test_issue139_analysis.py`.
+
+## 35. Trailing-grid robustness analytics on `test_20260830_new_level` (Issue #143)
+
+- Robustness lattice over the #139 book: same 28 tickers, config id=126, `StrategyEvaluator`,
+  slot simulator and `apply_trailing`; only the stepped-trailing grids and the stress factors
+  (commission, slippage) change. Simulation (paper mode) — no parity with the engine trailing
+  path and no `trailing_grid_id` column yet.
+- Package: `analytics/issue-143-trailing-robustness/` — `run.py`, `grids.json`, `README.md` plus
+  the published run artifacts (`report.md`, `run.md`, `summary.json`, `report.json.gz`,
+  `grids.csv`, `walkforward.csv`, `contract.json`, `exits.jsonl.gz`, `extract_summary.json`).
+  Artifacts live next to the code (the `analytics/` convention); `.gitignore` excludes
+  `analytics/*/cache/` (28 gzipped 1m paths, fully re-extractable) and `analytics/*/out_*/`
+  (debug runs). Run logs go to `reports/Vulpec/143_trailing-robustness/` (ignored), as the
+  issue text requires.
+- Run from the repo root: `python analytics/issue-143-trailing-robustness/run.py --stage all`
+  (extract → analyze → report, ≈2 min on a warm cache). Text-only report refresh without DB:
+  `--stage report`. Debug slice: `--tickers SBER --limit 20 --out-dir out_debug` — keep
+  `--out-dir` at the repo root; pointing it inside the package leaves untracked duplicates
+  (`analytics/issue-143-*/reports/run.md`) that must not be committed.
+- Headline of the published run: 5 multi-step grids over the same 3 305 candidate trades; parity with
+  #139 confirmed (0 exit-mechanic mismatches; equity 103 216 ₽ vs 103 176 ₽ in #139, PF 1.55, DD 2.72 pp).
+  Equity spread across the grids — 12 742 ₽ (`two_step_aggressive` 108 569 ₽ best, `three_step_steady`
+  95 827 ₽ worst); `ref139` tops the composite stability score (47.3/100) and all five grids stay
+  profitable in 9/9 walk-forward windows. Max stress (0.15 % commission + 20 b.p. slippage) drops the
+  base grid to 16 708 ₽ with no game-over; worst grid against the control (stakeholder test) is
+  `three_step_steady` (Δequity −525 ₽). Exit concordance: identical outcome for 80.5 % of trades
+  (median pairwise Spearman ρ 0.86, min 0.7497), exit reason flips vs the base grid in 1 112 of
+  3 305 trades (1 057 material at the 20 ₽ threshold). No PO decision; see report §4–§8.
+- Reproducibility: `--stage report` rebuilds `report.md`, `summary.json` and `run.md` from the committed
+  `report.json.gz` alone — verified in a clean worktree (no `cache/`, no DB): `report.md` and
+  `summary.json` come out byte-identical, `report.json.gz` matches on every value (only the gzip header
+  timestamp differs), and `run.md` differs only as a protocol log (timestamp, stage, elapsed). Full
+  `--stage all`: exit 0 — 156.73 s of analysis (`summary.json.elapsed_sec`) inside 160.62 s of process
+  (`run.md`).
+- Documented limits (report §13, keep them honest): 5 multi-step grids instead of the 8–12 the issue
+  asked for (no single-step, no break-even step), milder stress than specified (0.06/0.10/0.15 %
+  commission and b.p. slippage instead of 0.3/0.6/1.5 % and MOEX price steps), no `risk_reward`
+  sensitivity, no charts. These are #143 debt listed in the report's continuation block — do not
+  silently expand the lattice inside this package.
+- Verdict: analytics only. Do not read the composite robustness score as an objective: in this run its
+  stress-capital, DD-degradation and walk-forward components tie every grid (0.0 / 0.0 / 15.0 for all
+  five), so only absolute drawdown and exit-reason stability discriminate (report §4). The default grid
+  stays a Product Owner decision (#144); engine work is #145, live-path parity is #147, sandbox #151,
+  acceptance #152. Mirrored in `project-context.md` §18 and roadmap block W (§8).
 

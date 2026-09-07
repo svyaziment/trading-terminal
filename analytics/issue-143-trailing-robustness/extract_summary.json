@@ -1,0 +1,235 @@
+{
+  "caches": {
+    "AFKS": {
+      "bars": 521145,
+      "candidates": 72,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_AFKS.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "ALRS": {
+      "bars": 539577,
+      "candidates": 122,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_ALRS.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "CBOM": {
+      "bars": 348361,
+      "candidates": 191,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_CBOM.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "CHMF": {
+      "bars": 535828,
+      "candidates": 99,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_CHMF.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "FEES": {
+      "bars": 438000,
+      "candidates": 130,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_FEES.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "FLOT": {
+      "bars": 488587,
+      "candidates": 175,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_FLOT.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "GAZP": {
+      "bars": 559681,
+      "candidates": 79,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_GAZP.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "GMKN": {
+      "bars": 549341,
+      "candidates": 88,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_GMKN.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "IRAO": {
+      "bars": 552549,
+      "candidates": 154,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_IRAO.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "LKOH": {
+      "bars": 557114,
+      "candidates": 94,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_LKOH.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "MGNT": {
+      "bars": 513613,
+      "candidates": 108,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_MGNT.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "MOEX": {
+      "bars": 540442,
+      "candidates": 132,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_MOEX.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "MTLR": {
+      "bars": 541183,
+      "candidates": 86,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_MTLR.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "MTSS": {
+      "bars": 524238,
+      "candidates": 96,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_MTSS.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "NLMK": {
+      "bars": 529094,
+      "candidates": 101,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_NLMK.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "NVTK": {
+      "bars": 553004,
+      "candidates": 103,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_NVTK.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "PHOR": {
+      "bars": 483395,
+      "candidates": 178,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_PHOR.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "PIKK": {
+      "bars": 506489,
+      "candidates": 95,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_PIKK.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "PLZL": {
+      "bars": 543091,
+      "candidates": 143,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_PLZL.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "ROSN": {
+      "bars": 559289,
+      "candidates": 134,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_ROSN.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "RTKM": {
+      "bars": 498752,
+      "candidates": 96,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_RTKM.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "RUAL": {
+      "bars": 533382,
+      "candidates": 107,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_RUAL.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "SBER": {
+      "bars": 559953,
+      "candidates": 130,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_SBER.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "SIBN": {
+      "bars": 514945,
+      "candidates": 116,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_SIBN.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "SNGS": {
+      "bars": 479748,
+      "candidates": 134,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_SNGS.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "TATN": {
+      "bars": 549722,
+      "candidates": 113,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_TATN.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "TRNFP": {
+      "bars": 539831,
+      "candidates": 114,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_TRNFP.json.gz",
+      "from_cache": true,
+      "status": "success"
+    },
+    "VTBR": {
+      "bars": 555483,
+      "candidates": 115,
+      "file": "analytics/issue-143-trailing-robustness/cache/paths_VTBR.json.gz",
+      "from_cache": true,
+      "status": "success"
+    }
+  },
+  "elapsed_sec": 2.12,
+  "max_path_bars": 43200,
+  "n_tickers": 28,
+  "per_ticker": {
+    "candidates": 3305,
+    "engine_replay_mismatches": 0,
+    "extracted": 0,
+    "failed": [],
+    "from_cache": 28,
+    "paths_cached": 28,
+    "paths_extracted": 0,
+    "paths_failed": 0,
+    "paths_missing": 0,
+    "seconds": 2.1,
+    "tickers": 28
+  },
+  "period": [
+    "2024-08-01",
+    "2026-08-21"
+  ],
+  "stage": "extract",
+  "status": "success",
+  "totals": {
+    "candidates": 3305,
+    "engine_replay_mismatches": 0,
+    "extracted": 0,
+    "failed": [],
+    "from_cache": 28,
+    "paths_cached": 28,
+    "paths_extracted": 0,
+    "paths_failed": 0,
+    "paths_missing": 0,
+    "seconds": 2.1,
+    "tickers": 28
+  }
+}

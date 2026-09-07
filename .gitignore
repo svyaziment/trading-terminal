@@ -18,6 +18,10 @@ build/
 logs/
 reports/
 # Published, reviewable analysis artifacts live in analytics/ and stay tracked.
+# Рабочие кэши и отладочные выходы аналитических пакетов — не индексируются:
+# они целиком перепроизводятся из БД (см. analytics/issue-143-*/README.md).
+analytics/*/cache/
+analytics/*/out_*/
 
 # OS
 .DS_Store
