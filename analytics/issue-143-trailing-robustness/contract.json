@@ -1,0 +1,321 @@
+{
+  "checks": [
+    {
+      "actual": "success",
+      "blocking": true,
+      "expected": "success",
+      "name": "results.status",
+      "ok": true
+    },
+    {
+      "actual": 139,
+      "blocking": true,
+      "expected": 139,
+      "name": "results.issue",
+      "ok": true
+    },
+    {
+      "actual": "dfc855195adef75ddaee2971535bef5c6aa53ed80ff91dac72fd0df15f1971ff",
+      "blocking": true,
+      "expected": "dfc855195adef75ddaee2971535bef5c6aa53ed80ff91dac72fd0df15f1971ff",
+      "name": "config_sha256",
+      "ok": true
+    },
+    {
+      "actual": 126,
+      "blocking": true,
+      "expected": 126,
+      "name": "strategy_id",
+      "ok": true
+    },
+    {
+      "actual": 28,
+      "blocking": true,
+      "expected": 28,
+      "name": "universe",
+      "ok": true
+    },
+    {
+      "actual": 28,
+      "blocking": true,
+      "expected": 28,
+      "name": "volume_order",
+      "ok": true
+    },
+    {
+      "actual": 50000.0,
+      "blocking": true,
+      "expected": 50000.0,
+      "name": "capital",
+      "ok": true
+    },
+    {
+      "actual": 10000.0,
+      "blocking": true,
+      "expected": 10000.0,
+      "name": "slot",
+      "ok": true
+    },
+    {
+      "actual": 5,
+      "blocking": true,
+      "expected": 5,
+      "name": "max_positions",
+      "ok": true
+    },
+    {
+      "actual": 3305,
+      "blocking": true,
+      "expected": "> 0",
+      "name": "candidate_trades",
+      "ok": true
+    },
+    {
+      "actual": [],
+      "blocking": true,
+      "expected": [],
+      "name": "failed_tickers",
+      "ok": true
+    },
+    {
+      "actual": 0,
+      "blocking": true,
+      "expected": 0,
+      "name": "replay_mismatches",
+      "ok": true
+    },
+    {
+      "actual": "2-1.5|2.5-2",
+      "blocking": true,
+      "expected": "2-1.5|2.5-2",
+      "name": "steps",
+      "ok": true
+    },
+    {
+      "actual": "2-1.5|2.5-2",
+      "blocking": true,
+      "expected": "2-1.5|2.5-2",
+      "name": "trailing.DEFAULT_STEPS",
+      "ok": true
+    },
+    {
+      "actual": "2-1.5|2.5-2",
+      "blocking": true,
+      "expected": "2-1.5|2.5-2",
+      "name": "baseline==ref139",
+      "ok": true
+    },
+    {
+      "actual": [
+        "A",
+        "B",
+        "bars_held",
+        "entry_price",
+        "entry_ts",
+        "reached_2r",
+        "risk_rub",
+        "source",
+        "stop",
+        "take",
+        "ticker"
+      ],
+      "blocking": true,
+      "expected": [
+        "A",
+        "B",
+        "entry_*",
+        "stop",
+        "take",
+        "ticker"
+      ],
+      "name": "trade_fields",
+      "ok": true
+    },
+    {
+      "actual": 3118,
+      "blocking": true,
+      "expected": "> 0",
+      "name": "book_B.count",
+      "ok": true
+    },
+    {
+      "actual": true,
+      "blocking": true,
+      "expected": true,
+      "name": "ref139.protected_untouched",
+      "ok": true
+    },
+    {
+      "actual": [
+        36,
+        102,
+        118,
+        126
+      ],
+      "blocking": true,
+      "expected": [
+        36,
+        102,
+        118,
+        126
+      ],
+      "name": "protected.flags",
+      "ok": true
+    },
+    {
+      "actual": {
+        "id": 126,
+        "in_paper_test": true,
+        "locked": true,
+        "name": "test_20260830_new_level"
+      },
+      "blocking": true,
+      "expected": {
+        "in_paper_test": true,
+        "locked": true
+      },
+      "name": "protected.id126",
+      "ok": true
+    },
+    {
+      "actual": "dfc855195adef75ddaee2971535bef5c6aa53ed80ff91dac72fd0df15f1971ff",
+      "blocking": false,
+      "expected": "dfc855195adef75ddaee2971535bef5c6aa53ed80ff91dac72fd0df15f1971ff",
+      "name": "db.config_sha256",
+      "ok": true
+    },
+    {
+      "actual": {
+        "reward": 3,
+        "risk": 1
+      },
+      "blocking": false,
+      "expected": 3.0,
+      "name": "db.risk_reward",
+      "ok": true
+    },
+    {
+      "actual": 0.06,
+      "blocking": false,
+      "expected": 0.06,
+      "name": "db.commission_pct",
+      "ok": true
+    },
+    {
+      "actual": [
+        "levels_sr_support",
+        "signal_4h_buy"
+      ],
+      "blocking": false,
+      "expected": [
+        "levels_sr_support",
+        "signal_4h_buy"
+      ],
+      "name": "db.patterns",
+      "ok": true
+    },
+    {
+      "actual": [],
+      "blocking": false,
+      "expected": [],
+      "name": "db.contract_errors",
+      "ok": true
+    },
+    {
+      "actual": [
+        "2024-08-01",
+        "2026-08-21"
+      ],
+      "blocking": false,
+      "expected": [
+        "2024-08-01",
+        "2026-08-21"
+      ],
+      "name": "period==ref139",
+      "ok": true
+    }
+  ],
+  "failed": [],
+  "live_config": {
+    "commission_pct": 0.06,
+    "config_sha256": "dfc855195adef75ddaee2971535bef5c6aa53ed80ff91dac72fd0df15f1971ff",
+    "confirm_windows": [
+      10
+    ],
+    "contract_errors": [],
+    "found": true,
+    "id": 126,
+    "in_paper_test": true,
+    "locked": true,
+    "name": "test_20260830_new_level",
+    "patterns": [
+      "levels_sr_support",
+      "signal_4h_buy"
+    ],
+    "risk_reward": {
+      "reward": 3,
+      "risk": 1
+    },
+    "slippage_pct": 0,
+    "tickers": [
+      "AFKS",
+      "ALRS",
+      "CBOM",
+      "CHMF",
+      "FEES",
+      "FLOT",
+      "GAZP",
+      "GMKN",
+      "IRAO",
+      "LKOH",
+      "MGNT",
+      "MOEX",
+      "MTLR",
+      "MTSS",
+      "NLMK",
+      "NVTK",
+      "PHOR",
+      "PIKK",
+      "PLZL",
+      "ROSN",
+      "RTKM",
+      "RUAL",
+      "SBER",
+      "SIBN",
+      "SNGS",
+      "TATN",
+      "TRNFP",
+      "VTBR"
+    ]
+  },
+  "n_blocking": 20,
+  "n_checks": 26,
+  "ok": true,
+  "passed": 26,
+  "protected_flags": [
+    {
+      "id": 36,
+      "in_paper_test": false,
+      "locked": false,
+      "name": "test_20260731"
+    },
+    {
+      "id": 102,
+      "in_paper_test": false,
+      "locked": false,
+      "name": "test_20260820"
+    },
+    {
+      "id": 118,
+      "in_paper_test": false,
+      "locked": false,
+      "name": "test_20260821"
+    },
+    {
+      "id": 126,
+      "in_paper_test": true,
+      "locked": true,
+      "name": "test_20260830_new_level"
+    }
+  ]
+}
