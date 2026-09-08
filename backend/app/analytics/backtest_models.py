@@ -32,8 +32,16 @@ EXIT_HOLDING: str = "holding"
 EXIT_SIGNAL: str = "signal"
 EXIT_SESSION: str = "session"
 EXIT_UNTRADEABLE: str = "untradeable"   # signal on last bar (no T+1) -> skipped, not an error
+# Issue #144 (Epic #142 / Block W): stepped trailing stop. Part of the contract, NOT
+# yet emitted - StrategyEvaluator starts producing it in #145, the paper path in #148
+# and sandbox live in #151. The ladder's shape is checked by
+# trading_config.validate_trailing_steps() (contract only - no production caller yet);
+# its numbers live nowhere else.
+EXIT_TRAILING: str = "trailing"
 
-VALID_EXIT_REASONS = {EXIT_STOP, EXIT_TAKE, EXIT_HOLDING, EXIT_SIGNAL, EXIT_SESSION}
+VALID_EXIT_REASONS = {
+    EXIT_STOP, EXIT_TAKE, EXIT_HOLDING, EXIT_SIGNAL, EXIT_SESSION, EXIT_TRAILING,
+}
 
 # default exit-rule matrix (BT-3 sweeps over these)
 DEFAULT_HOLDINGS: List[int] = [3, 6, 12]

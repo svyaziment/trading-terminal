@@ -1,7 +1,7 @@
 # Levels Reversal Strategy
 
 > Status: validated on SBER/GAZP/VTBR (2-year history). Production brain: `StrategyEvaluator.check_entry`. Prototype: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-08-30 (Issue #130 50k levels_sr_support portfolio).
+> Last refreshed: 2026-09-08 (Issue #144 adds §15 — the `config.trailing_stop` contract: validated, default OFF, engine wiring is #145). Previously 2026-08-30 (Issue #130 50k levels_sr_support portfolio).
 
 ## 1. Overview
 
@@ -29,6 +29,9 @@ This is the first strategy in the project that is **profitable after commission 
 - **Stop:** nearest support level below entry; triggered by 1min **low** (conservative fill at stop).
 - **Take:** nearest resistance level above entry; triggered by 1min **high** (fill at take).
 - **Overnight/weekend:** position is held (no session-only exit). Blue chips, minimal gaps/slippage.
+- **Stepped trailing stop (`config.trailing_stop`):** contract and validation only (Issue #144, §15) — not
+  evaluated by the engine yet, so the three rules above are still the complete exit set in every backtest,
+  paper and live result.
 
 ### 2.4 Costs
 - **Commission:** 0.03% per side (0.06% round-trip).
@@ -344,5 +347,43 @@ Isolated 28-ticker `get_big_tickers` run, same period as #124. Package: `analyti
 ### Portfolio 50k (Issue #130)
 
 Slot replay of published C by Issue #44 rules (50k / 10k / max 5, volume-order #103). Package: `analytics/issue-130-sr-support-portfolio/`. Candidates = isolated C 4380, not exclusive 3811 / 1.51 and not a `source=` filter of #124 B-mix. Portfolio: n=3237, PF 1.33, equity 96,204.63 RUB, daily Max DD 6.08%, no GAME OVER. ALRS 19.80 absent. Comparison: #44 96,343.49 / 3500 / 1.31; #103 89,055.31 / 2070 / 1.34; #124 B-mix 98,432.94 / 2837 / 1.32. Verdict: not paper.
+
+## 15. Stepped trailing stop (Issue #144)
+
+**Rule (target semantics; the engine work is #145).** `R = entry − stop` from §2.3 is fixed at entry. When
+floating profit reaches a step's `trigger × R`, the stop moves to `entry + stop × R` (the step's second
+number). Steps are evaluated in ascending order, the highest reached step wins, and the stop never moves down;
+an exit through that raised stop is reported with the `trailing` exit reason (`EXIT_TRAILING` in
+`backtest_models.py` — declared by #144, emitted from #145). Trailing only tightens the stop: the take-profit
+of §2.3 stays in force, exactly as in the #139 analytics, and **there is no partial take in this contract** —
+`take_partial` was never part of the approved grid, and the step keys are `trigger` / `stop`, not
+`trigger_r` / `lock_r`.
+
+**Configuration.** `config.trailing_stop` = `{"enabled": bool, "steps": [{"trigger": 2.0, "stop": 1.9}, …]}`,
+a JSONB key of `strategies.config` (no schema migration). The schema, defaults and validators live in
+`backend/app/analytics/trading_config.py`: `TRAILING_STOP`, `normalize_trailing_stop()`,
+`validate_trailing_steps()` (returns the stable reason codes `trailing_disabled` / `trailing_step_invalid` /
+`trailing_not_monotonic` / `trailing_too_many_steps`, never raises), `resolve_trailing_stop()` and
+`require_valid_trailing_stop()`. Bounds are read from `TRAILING_STOP` and are the single source of truth:
+`0 < trigger <= 3.5`, `0 <= stop <= 3.0`, always `stop < trigger`, at most `max_steps` = 6 steps, and a step
+must be a dict with finite numbers (a list of pairs is not accepted). A stop may not fall as its trigger
+rises, and there is deliberately no minimum trigger–stop gap because the production ladder lives on 0.1R. An
+absent key, `None` or `{}` means "no trailing". **No write path calls these helpers yet** — this repository
+has no `validate_config()` — so a malformed ladder still saves until #146 / #149 gate on
+`require_valid_trailing_stop()`.
+
+**Shipped default.** `TRAILING_STOP` in `trading_config.py`: `enabled=false`, steps
+`2.0→1.9 / 2.5→2.4 / 3.0→2.9` — the `ultra_late_tight` grid the Product Owner approved on 2026-09-08 from the
+#143 / #155 robustness lattice (50k replay of config id=126: equity 110 434 ₽ against 103 216 ₽ for `ref139`,
+PF 1.60 against 1.55, daily MaxDD 3.06 against 2.72 pp). `ref139` (`2.0→1.5 / 2.5→2.0`, Issue #139) is not a
+default; it stays the parity anchor that #147 injects explicitly.
+
+**Status.** Contract only — defaults plus validators, with no caller in any runtime path
+(`StrategyEvaluator.on_bar`, the paper plugin, the portfolio simulator, paper, live) reading the block yet, so
+every figure in §4–§14 is fixed-stop/take.
+Ladder application is #145, the Lab editor #146, the parity gate #147, paper #148, sandbox live #151, live
+acceptance #152. Until #145 lands, the executable reference for the semantics above stays the analytics
+implementation: `analytics/issue-139-trailing-stop-new-level/trailing.py` (`apply_trailing`) and
+`analytics/trailing_grid_lab.py` (same ladder, CLI `--grid` / `--grid-file`).
 
 
