@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-09-08 (в §35 зафиксировано решение Product Owner: `ultra_late_tight` — сетка из решётки `143-trailing-v3`, допоставленной задачей #155, — становится боевым дефолтом сетки трейлинг-стопа для #144; `enabled` остаётся `false`; контракт `config.trailing_stop` задачи #144 уже в коде — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-09 (задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейта на записи по-прежнему нет». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -511,15 +511,16 @@ ORDER BY id DESC LIMIT 20;
 - Дефолт `TRAILING_STOP`: `enabled=false`, шаги `2.0→1.9 / 2.5→2.4 / 3.0→2.9` — сетка
   `ultra_late_tight` из §35 — с дефолтами границ `max_steps=6`, `min_trigger=0.0` (строгая),
   `max_trigger=3.5`, `min_stop=0.0`, `max_stop=3.0`. Сама правка лестницы ничего не включает.
-- **Только контракт — ни гейта, ни потребителя.** `validate_config()` **не существует в этом
-  репозитории**, поэтому вопреки прежнему тексту этого раздела никто `validate_trailing_steps()` пока не
-  вызывает: битая лестница по-прежнему принимается при создании/обновлении стратегии и при запуске Lab, а
-  блок `enabled=true` без пригодных шагов просто отдаёт `trailing_disabled` вместо отказа на сохранении.
-  Гейт, который должны вызвать #146 и #149, — `require_valid_trailing_stop()`. `EXIT_TRAILING` объявлен в
-  `backtest_models.py`, но никогда не эмитится, а `StrategyEvaluator.on_bar`,
-  `paper_trader.levels_strategy_plugin`, `portfolio_simulator`, путь Lab и `live_executor` блок не читают
-  (#145 / #148 / #151) — поэтому до их выхода нельзя описывать результат Lab, бэктеста, paper или live как
-  полученный с трейлинг-стопом.
+- **Применяется с #145 — гейта на записи по-прежнему нет.** `validate_config()` **не существует в этом
+  репозитории**, поэтому при создании/обновлении стратегии и при запуске Lab битая лестница по-прежнему
+  принимается: блок `enabled=true` без пригодных шагов сохраняется и просто отдаёт `trailing_disabled`.
+  Гейт, который должны вызвать #146 и #149, остаётся `require_valid_trailing_stop()`. В #145 изменилась
+  сторона чтения: `app.analytics.trailing_stop` разрешает блок, и `StrategyEvaluator.on_bar`, плагин
+  `levels_reversal`, `portfolio_backtest` / `portfolio_simulator` и walk-forward вооружают лестницу из
+  него; `EXIT_TRAILING` теперь эмитится боевым движком (см. §37). Движок не угадывает: лестницу,
+  которую отверг валидатор, он не вооружает, — поэтому называть результат Lab, бэктеста или портфеля
+  полученным с трейлинг-стопом можно только когда в конфиге лежит валидный блок с `enabled=true`;
+  paper (`paper_trader`) и песочница (`live_executor`) блок ещё не читают — до #148 / #151.
 - Legacy: параметры `trailing_stop` / `trailing_step` уровня паттерна в `pattern_registry.py` — другой
   контракт, #144 его не меняет; не путать с `config.trailing_stop`.
 - Тесты: `cd backend && python -m pytest -q tests/test_trailing_contract.py tests/test_trading_config.py`
@@ -527,4 +528,51 @@ ORDER BY id DESC LIMIT 20;
   `test_levels_sr_support.py`, `test_resistance_zone_veto.py`, `test_strategy_plugin.py`,
   `test_pattern_registry.py`, `test_issue139_analysis.py` и `test_issue155_analysis.py` — это
   **99 passed** на 2026-09-08; `--collect-only` по-прежнему проверяет импорт Lab-API.
+
+## 37. Эксплуатация боевого трейлинг-стопа (задача #145)
+
+- Единственная лестница — `backend/app/analytics/trailing_stop.py`: `StrategyEvaluator.on_bar`
+  (одиночный бэктест), `LevelsReversalStrategy.check_exit` / `manage_position` (зеркало плагина),
+  `portfolio_backtest` → `portfolio_simulator` и `run_walkforward` вызывают один и тот же
+  `evaluate_bar(...)`. Не переписывайте ratchet в другом месте: плагин — зеркало мозга, а вторая
+  копия правила — это ровно то, на чём в своё время ломался паритет #41.
+- Конвенция внутри управляемого бара: проверка стопа → проверка тейка → вооружение. Ступень,
+  вооружённая баром *i*, действует с бара *i+1*; входной бар не вооружает ничего (как в #139, чей
+  `path` исключает бар входа). Если в одном баре достижимы и стоп, и тейк, выигрывает стоп.
+  Причины: `stop` (лестница стоп не двигала — baseline-случай), `trailing` (сработал поджатый стоп),
+  `take`.
+- Включается это конфигом, а не кодом: в `strategies.config` стратегии добавляется
+  `{"trailing_stop": {"enabled": true, "steps": [...]}}` (множители R от входа; поставляемая по
+  умолчанию лестница — `ultra_late_tight`, §35). Locked-конфиги 126 / 36 / 102 / 118 не тронуты —
+  блока там нет, и #145 не повод их править. Редактор Lab — #146, валидация API — #149.
+- Как читать прогон: в сделках бэктеста `step_reached` появляется только когда лестница вооружена
+  (нет ключа — форма до #145); `portfolio_simulator.metrics` теперь содержит
+  `exit_reason_counts`, `trailing_exits`, `take_exits`, `initial_stop_exits`,
+  `trailing_exit_share_pct`. Лестница, которая срабатывает раньше, раньше освобождает слот, поэтому
+  `n_trades` растёт, а `skipped_entries_no_slot` падает — именно так у #139 было 2 649 → 3 118 и у
+  #143 — 3 162; это механизм, а не баг.
+- Как воспроизвести приёмочные доказательства (регрессия `critical`-задачи, красная линия SOP №3):
+  ```
+  # after (эта ветка)
+  python reports/Arctic/145_trailing-evaluator/regression_run.py --label after --out after.json
+  # baseline (main, например временный worktree: git worktree add <tmp>/wt origin/main)
+  python reports/Arctic/145_trailing-evaluator/regression_run.py --label baseline \
+      --backend <tmp>/wt/backend --out baseline.json
+  python reports/Arctic/145_trailing-evaluator/regression_run.py \
+      --compare baseline.json after.json --verdict regression_verdict.json   # regression_match: true
+  # лестница против опубликованной книги #143 (без БД, только кэши путей)
+  python reports/Arctic/145_trailing-evaluator/grid_check.py
+  ```
+  Оба скрипта **только читают** (`SELECT` из `trading.strategies` / `trading.candles_1min_raw`);
+  #145 не пишет ни сделок, ни результатов, ни строк стратегий. С хоста указывайте
+  `--db-host 127.0.0.1` (значение `postgres` из `.env` резолвится только в сети compose).
+- Паритет с аналитическими книгами здесь намеренно не заявляется: этот гейт за #147. #145 показывает
+  `grid_check.json` — боевая лестница воспроизводит выходы #143 по каждой сделке на обеих сетках
+  (`ref139` и `ultra_late_tight`) с 0 реальных расхождений на 3 305 сделках, а книга сходится с
+  опубликованными цифрами после применения 4-значного округления цен, принятого в #143.
+- Подводные камни: у `Position` (dataclass плагина) появились поля `initial_stop` / `step_reached` /
+  `trailing` — передавайте их только по имени; движок хранит своё состояние в
+  `position['trailing_state']`, при этом `position['stop']` — стоп *следующего* бара, а
+  `trailing_state.live_stop` — тот, по которому выходил бар текущий. Метрики в `backtest_results`
+  по-прежнему идут через `_json_safe` (#116).
 

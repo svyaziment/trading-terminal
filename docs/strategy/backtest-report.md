@@ -1,6 +1,6 @@
 # Backtest Report: Trading Terminal Strategy Validation
 
-> Last updated: 2026-07-25. Source: task-049..065 backtest runs, task-054..063 1min candle loading.
+> Last updated: 2026-09-09 (section 4 gained the opt-in stepped trailing stop of Issue #145 — one shared ladder in `backend/app/analytics/trailing_stop.py`, `stop → take → arm`, `exit_reason=trailing`. Earlier: 2026-07-25, task-049..065 backtest runs, task-054..063 1min candle loading.)
 > This document describes the backtesting methodology, patterns, strategies, matrices, filters, benchmarks, results, and conclusions.
 
 ## 1. Overview
@@ -60,8 +60,18 @@ Four exit mechanisms, tested in combinations:
 | Signal exit (sigOn) | Exit on any opposite (SELL) signal | signal_exit=True, signal_exit_min_total=1 |
 | Signal exit strong (sigOn_ts3) | Exit only on opposite signal with total_signals ≥ 3 | signal_exit=True, signal_exit_min_total=3 |
 | No signal exit (sigOff) | Ignore opposite signals; exit only by stop/take/holding | signal_exit=False |
+| Stepped trailing stop (Issue #145, opt-in) | Rungs expressed in R from the entry raise the stop after a trigger is reached; the raised stop closes with `exit_reason=trailing`, an untouched stop stays `stop` | `config.trailing_stop = {"enabled": bool, "steps": [{"trigger": R, "stop": R}]}`, shipped `enabled=false` |
 
 **Priority:** Stop and take are checked on bar high/low. If both hit on the same bar, stop wins (conservative). Gap-open beyond a level → fill at open. Holding expiry and signal exit use close price.
+
+**Trailing order (Issue #145).** When a ladder is armed, one managed bar runs *stop → take → arm*:
+the exit check uses the stop that earlier bars armed, the take is checked against the unchanged
+level, and only if neither fired does this bar's high arm the next rung — effective from the **next**
+bar, never from the bar that armed it (no intra-bar look-ahead). The take never moves and the stop is
+never lowered below where the ladder already put it. The ladder is one pure function
+(`backend/app/analytics/trailing_stop.py`) shared by `StrategyEvaluator`, the `levels_reversal`
+plugin, `portfolio_simulator` and walk-forward; trades carry `step_reached` while a ladder is live.
+Policy default, grid choice and the write-path gate are in `docs/agents/project-context.md` §6/§18/§19.
 
 ## 5. Backtest Matrix
 

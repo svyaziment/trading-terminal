@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-08 (Product Owner decision recorded in §18: `ultra_late_tight` — the densest late ladder of the `143-trailing-v3` lattice — is the production default trailing-stop grid for #144; epic #142 / roadmap Block W; the #144 contract itself landed the same day — validation only, full field contract in section 6, tests `backend/tests/test_trailing_contract.py`). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-09-09 (Issue #145 — the stepped trailing stop now runs in the **production** exit path: one pure ladder in `backend/app/analytics/trailing_stop.py`, called by `StrategyEvaluator.on_bar`, the `levels_reversal` plugin, `portfolio_simulator` and walk-forward; `EXIT_TRAILING` is emitted; the policy still ships **disabled**, §19 and handover §37). Previous refresh: 2026-09-08 (Product Owner decision recorded in §18: `ultra_late_tight` — the densest late ladder of the `143-trailing-v3` lattice — is the production default trailing-stop grid for #144; epic #142 / roadmap Block W; the #144 contract itself landed the same day — validation only, full field contract in section 6, tests `backend/tests/test_trailing_contract.py`). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -161,7 +161,7 @@ trading-terminal/
 | backtest_metrics | ~6.3k | Aggregated metrics per run/group (PF, expectancy, win_rate, benchmarks) |
 
 Key columns (new tables):
-- `strategies`: id, name (unique), config (jsonb: patterns, confirm_windows, commission_pct, slippage_pct, risk_reward, trailing_stop, n_runs), in_paper_test (bool), locked (bool), description. `trailing_stop` is the top-level stepped-trailing exit block of Issue #144 (§6, no schema migration, default OFF) — the other keys keep their pre-#144 meaning.
+- `strategies`: id, name (unique), config (jsonb: patterns, confirm_windows, commission_pct, slippage_pct, risk_reward, trailing_stop, n_runs), in_paper_test (bool), locked (bool), description. `trailing_stop` is the top-level stepped-trailing exit block of Issue #144 (§6, no schema migration, default OFF), applied by the backtest engine since Issue #145 (§19) — the other keys keep their pre-#144 meaning.
 - `backtest_results`: id, strategy_id (FK), ticker, test_type (full_sample/walkforward), depth, metrics (jsonb), created_at
 - `paper_positions`: id, ticker, entry_ts/price, stop_price, take_price, limit_price, limit_ts, size_lots, size_rub, lot_size, status (pending/open/closed_stop/closed_take/cancelled), signal_source, window_mode, rr_mode, rr_ratio, entry_mode (market/limit), signal_id, strategy_name, exit_ts/price/reason, pnl_rub, pnl_pct
 - `live_positions`: id, ticker, instrument_id, signal_ts, entry_price, lot_size, size_lots, stop_price, take_price, broker_order_id/stop_id/take_id, status, strategy_name, exit_ts/price/reason, pnl_rub
@@ -243,7 +243,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 - `signal_4h_buy` — 4h BUY aggregate from `trading.signals` (TF fixed; not refactored).
 - `rsi_oversold` / `macd_bullish` / `bb_lower` — 1min indicator AND-filters. `rsi_oversold` is not `MR_RSI_Reversal`.
 - The ten SignalEngine ids above — AND-filters on the last closed HTF bar via inline `BasePattern.evaluate` on `trading.indicators`. Schemas come from `GET /api/patterns` (`timeframe` select 30min/1h/2h/4h/1d/1w, default 4h, plus 4h numeric defaults). Timeframe is set in the pattern settings modal. `StrategyLab.tsx` groups chips by API `category` (RU titles: levels / signal / trend / price_action / volume / mean_reversion / breakout). It does not hardcode the ten SignalEngine ids or the `level_breakout_retest` / `levels_sr_breakout` / `levels_sr_support` param lists; the two-chip fallback is only used when `GET /api/patterns` is empty.
-- **Trailing-stop exit contract (Issue #144, Epic #142)**: `config.trailing_stop` is the top-level exit-policy block whose schema, defaults and validation helpers live in `trading_config.py`. Shape: `{"enabled": bool, "steps": [{"trigger": 2.0, "stop": 1.9}, ...]}` in R multiples measured from the entry — there is **no `take_partial`** and no `trigger_r` / `lock_r` naming, because a partial take is not part of the approved grid. `validate_trailing_steps()` never raises: it returns the stable reason codes `trailing_disabled` / `trailing_step_invalid` / `trailing_not_monotonic` / `trailing_too_many_steps` (empty list = accepted), `normalize_trailing_stop()` canonicalizes, and `resolve_trailing_stop(config)` hands every consumer `{'enabled', 'steps', 'reasons'}`. Bounds come from `TRAILING_STOP` and are the single source of truth: `0 < trigger <= 3.5`, `0 <= stop <= 3.0`, always `stop < trigger`, at most `max_steps` = 6 steps, and a step must be a dict (a list of pairs is not accepted). There is deliberately **no minimum trigger–stop gap** — the shipped ladder lives on 0.1R, so a "gap ≥ 0.5R" rule would reject the default. Default policy `TRAILING_STOP` = `enabled=false`, steps `2.0→1.9 / 2.5→2.4 / 3.0→2.9` — the `ultra_late_tight` grid the Product Owner approved on 2026-09-08 (handover §35, §18) and shipped **disabled**, so no config changes behaviour. An absent key, `None`, `{}` or a non-dict block mean "no trailing" with an empty reasons list; `enabled=true` with no usable steps reports `trailing_disabled`. `enabled` is strict (only a real bool or `'1' / 'true' / 'yes' / 'on'` arms the ladder) and normalization keeps float precision — 1.9 / 2.4 / 2.9 are never rounded to 0.5R. **Contract only, no write-path gate:** `validate_config()` does not exist in this repository, so nothing calls these helpers yet and a malformed ladder still saves; `require_valid_trailing_stop()` is the gate #146 / #149 are expected to call. `StrategyEvaluator.on_bar`, the plugin path, the portfolio simulator, paper and live still ignore the block (#145, #148, #151), and `EXIT_TRAILING` is declared in `backtest_models.py` without ever being emitted. The legacy pattern-level `trailing_stop` / `trailing_step` params in `pattern_registry.py` are a different contract untouched by #144. Test: `backend/tests/test_trailing_contract.py` (33).
+- **Trailing-stop exit contract (Issue #144, Epic #142)**: `config.trailing_stop` is the top-level exit-policy block whose schema, defaults and validation helpers live in `trading_config.py`. Shape: `{"enabled": bool, "steps": [{"trigger": 2.0, "stop": 1.9}, ...]}` in R multiples measured from the entry — there is **no `take_partial`** and no `trigger_r` / `lock_r` naming, because a partial take is not part of the approved grid. `validate_trailing_steps()` never raises: it returns the stable reason codes `trailing_disabled` / `trailing_step_invalid` / `trailing_not_monotonic` / `trailing_too_many_steps` (empty list = accepted), `normalize_trailing_stop()` canonicalizes, and `resolve_trailing_stop(config)` hands every consumer `{'enabled', 'steps', 'reasons'}`. Bounds come from `TRAILING_STOP` and are the single source of truth: `0 < trigger <= 3.5`, `0 <= stop <= 3.0`, always `stop < trigger`, at most `max_steps` = 6 steps, and a step must be a dict (a list of pairs is not accepted). There is deliberately **no minimum trigger–stop gap** — the shipped ladder lives on 0.1R, so a "gap ≥ 0.5R" rule would reject the default. Default policy `TRAILING_STOP` = `enabled=false`, steps `2.0→1.9 / 2.5→2.4 / 3.0→2.9` — the `ultra_late_tight` grid the Product Owner approved on 2026-09-08 (handover §35, §18) and shipped **disabled**, so no config changes behaviour. An absent key, `None`, `{}` or a non-dict block mean "no trailing" with an empty reasons list; `enabled=true` with no usable steps reports `trailing_disabled`. `enabled` is strict (only a real bool or `'1' / 'true' / 'yes' / 'on'` arms the ladder) and normalization keeps float precision — 1.9 / 2.4 / 2.9 are never rounded to 0.5R. **Applied since #145; still no write-path gate:** `backend/app/analytics/trailing_stop.py` reads the block through `resolve_trailing_stop()` and `StrategyEvaluator.on_bar`, the `levels_reversal` plugin, `portfolio_simulator` and walk-forward arm the ladder from it (§19); `EXIT_TRAILING` is emitted from #145 on. The engine **fails safe** — a ladder the validator refuses is never armed, so that position is managed exactly as it was before #145. `validate_config()` still does not exist in this repository, so a malformed block keeps saving into `trading.strategies` until #146 / #149 call `require_valid_trailing_stop()` on the write path, and `paper_trader` / `live_executor` still ignore the block (#148, #151). The legacy pattern-level `trailing_stop` / `trailing_step` params in `pattern_registry.py` are a different contract untouched by #144. Tests: `backend/tests/test_trailing_contract.py` (33 — the contract) and `backend/tests/test_trailing_stop.py` (52 — the #145 behaviour matrix).
 
 ## 7. Known Issues & Status
 
@@ -267,6 +267,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 - **Issue #137 (2026-08-30)**: Overnight LiveExecutor. Without `DURATION_MINUTES`, `start_processes.sh` sizes paper until the next session open after 19:00; LiveExecutor waits until 10:00, **enters only [10:00, 19:00)**, and keeps stop/take until the price hits (also after 19:00). Calendar: `MOEX_SESSION` / `moex_session.py`. Canary still uses explicit `DURATION_MINUTES=N`.
 - **LIVE_UNIVERSE extension (2026-09-02)**: PO added FEES, GAZP, PLZL. Sandbox list is 12 names. Strategy remains `test_20260830_new_level`. Not a rewrite of #66 or published C.
 - **Issue #144 (Epic #142, 2026-09-08)**: `config.trailing_stop` contract in `backend/app/analytics/trading_config.py` — `TRAILING_STOP` default block (Product Owner grid `ultra_late_tight` = `2.0→1.9 / 2.5→2.4 / 3.0→2.9`, shipped `enabled=false`) + `normalize_trailing_stop()` / `validate_trailing_steps()` / `resolve_trailing_stop()` / `require_valid_trailing_stop()`. **Contract only:** nothing calls these helpers yet — there is no `validate_config()` in this repo — so a malformed ladder still saves until #146 / #149 gate on `require_valid_trailing_stop()`. JSONB key only, no migration; no engine / paper / live behaviour change (that is #145 / #148 / #151). Tests: `backend/tests/test_trailing_contract.py` (33: acceptance §6 cases + defaults + backward compatibility + reason-code wording + the shape #146 will reuse).
+- **Issue #145 (Epic #142, 2026-09-09)**: the ladder runs in production. New module `backend/app/analytics/trailing_stop.py` holds the single pure step function (`ladder_stop`, `TrailingState`, `evaluate_bar`, `trailing_from_config`) that `StrategyEvaluator.on_bar`, the `levels_reversal` plugin, `portfolio_backtest` / `portfolio_simulator` and walk-forward all call — bar order `stop → take → arm`, the armed stop bites only from the next bar, arming is bar-keyed so `manage_position` before `check_exit` on the same bar cannot look ahead. A raised stop closes with `exit_reason='trailing'` (`EXIT_TRAILING`), an unraised one keeps `'stop'` so the baseline book stays bit-for-bit; the take never moves, the stop never lowers. Trade records and portfolio trades carry `step_reached`; `_portfolio_metrics` adds `exit_reason_counts` / `trailing_exits` / `take_exits` / `initial_stop_exits` / `trailing_exit_share_pct`. An absent key, `enabled=false`, an empty ladder or a ladder #144 refuses changes nothing (fail-safe). Paper (#148) and sandbox live (#151) still do not read the block. Regression on the locked configs: `reports/Arctic/145_trailing-evaluator/regression_verdict.json` (`regression_match: true`, `baseline.json` / `after.json` from `main` vs this branch); the ladder is checked against the #143 book in the same folder (`grid_check.json`: 0 per-trade mismatches over 3 305 trades on both `ultra_late_tight` and `ref139`). Tests: `backend/tests/test_trailing_stop.py` (52).
 - **Legacy pattern-matrix backtest**: rule-based strategies NOT profitable after commission on MOEX top-3 over 2 years (all PF < 1). Superseded by the levels approach.
 - **Universe**: top-15 by PF (`trading_universe`) remains the paper ranking via `get_trading_universe()`. Do not shrink that table. Streaming and data refresh use `get_streaming_universe()` = top-15 ∪ `LIVE_UNIVERSE`. Sandbox live execution uses `LIVE_UNIVERSE` = ROSN, IRAO, AFKS, NVTK, SBER, MTSS, PHOR, MOEX, FLOT, FEES, GAZP, PLZL via `get_live_trading_universe()` (no clip against top-15). The Issue #66 top-5 (SBER, LKOH, RUAL, NVTK, GAZP) stays historical in `analytics/issue-66-live-universe/`.
 - **Sandbox canary (Issue #74, 2026-08-19)**: `LiveExecutor` initialized the then top-5 on locked strategy `test_20260731` and submitted a sandbox market BUY on RUAL (37 lots at 26.73, take 28.02, stop 26.19). That RUAL row is now `closed_stop`. The next signal for the same ticker was skipped with `reason=duplicate_ticker`. Historical runbook: handover §19. Current sandbox day: Issue #135 / handover §33.
@@ -300,7 +301,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | T | Composite S/R pattern (Epic #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 Lab chip + #119 AFKS smoke + #124 Lab-universe A/B done |
 | U | Support with tracker (Epic #126) | #127 `levels_sr_support` backend + #128 Lab chip + #129 isolated Lab universe + #130 portfolio #44 done |
 | V | Stepped trailing-stop analytics (Issue #139) | Done — analytics-only A/B (fixed 1:3 vs stepped trailing) on locked `test_20260830_new_level` id=126, RR 1:3; trailing lives in `analytics/.../trailing.py`, not wired into the production exit path |
-| W | Stepped trailing stop in production (Epic #142) | In progress — #144 `config.trailing_stop` contract **done** (defaults + validators, shipped OFF, no production caller yet — §6), #145 engine/plugin/portfolio simulator, #146 Lab editor, #147 parity gate vs #139, #143 robustness analytics done (8-grid lattice `143-trailing-v3`, walk-forward, cost stress — §18; the lattice shape itself was re-delivered by #155; **the Product Owner approved the production default grid on 2026-09-08: `ultra_late_tight`**), #148 paper trader, #149 API + filters, #150 Paper/Live panels, #151 sandbox `LiveExecutor`, #152 live-period acceptance verdict. Ships **default OFF**; basis is the #139 result (A 95 180.01 -> B 103 176.00 RUB, PF 1.41 -> 1.54, daily MaxDD 6.49% -> 2.74%) and the #143 lattice (95 827 … 110 434 RUB); the #139 grid `ref139` stays the parity anchor that #147 injects explicitly |
+| W | Stepped trailing stop in production (Epic #142) | In progress — #144 `config.trailing_stop` contract **done** (defaults + validators, shipped OFF — §6), #145 stepped trailing in the engine / plugin / portfolio simulator / walk-forward **done** (one ladder in `app.analytics.trailing_stop`, `EXIT_TRAILING` emitted, the policy still ships OFF — §19, handover §37), #146 Lab editor, #147 parity gate vs #139, #143 robustness analytics done (8-grid lattice `143-trailing-v3`, walk-forward, cost stress — §18; the lattice shape itself was re-delivered by #155; **the Product Owner approved the production default grid on 2026-09-08: `ultra_late_tight`**), #148 paper trader, #149 API + filters, #150 Paper/Live panels, #151 sandbox `LiveExecutor`, #152 live-period acceptance verdict. Ships **default OFF**; basis is the #139 result (A 95 180.01 -> B 103 176.00 RUB, PF 1.41 -> 1.54, daily MaxDD 6.49% -> 2.74%) and the #143 lattice (95 827 … 110 434 RUB); the #139 grid `ref139` stays the parity anchor that #147 injects explicitly |
 
 
 ## 9. Important Notes
@@ -504,4 +505,62 @@ it, and a config without the key behaves exactly as before. Full field contract:
   the synthetic stop of `LiveExecutor` consumes a visible share of the locked profit. #151 owes a defensive price
   step and #152 owes the break-even slippage measured against 0.1R; the leave / tune / rollback verdict of #152 can
   move the default only back through the Product Owner.
+
+## 19. Stepped trailing stop in production (Issue #145, Epic #142)
+
+`backend/app/analytics/trailing_stop.py` is the only ladder. Every contour that closes a
+position calls it, so the fill convention cannot drift between the single-ticker backtest, the
+Lab plugin replay, the portfolio simulator and walk-forward — and the same module is what #148
+(paper) and #151 (sandbox live) will reuse.
+
+- **Pure step function.** `ladder_stop(entry_exec, initial_stop, steps, ref_high)` returns
+  `(stop_price, step_reached)`: the highest rung whose trigger `entry_exec + trigger × R` the
+  high-water mark `ref_high` has reached, with `R = entry_exec - initial_stop`. Prices are
+  derived from the entry and the initial risk — no percentages are restated anywhere in the
+  engine. `TrailingState.evaluate(high, low, bar_key)` turns that into a per-bar decision, and
+  `evaluate_bar(state, ...)` is the single call sites use.
+- **Bar order is the contract.** (1) `low <= live_stop` → exit at `live_stop`, reason
+  `trailing` once the ladder has raised the stop, plain `stop` while it has not; (2) otherwise
+  `high >= take` → exit at the take; (3) only if neither fired, arm the next rung from **this**
+  bar's high, effective from the **next** bar. The take never moves, the stop never lowers and
+  never sits below the initial stop. This is #139's convention
+  (`analytics/issue-139-trailing-stop-new-level/trailing.py`) reproduced deliberately: diverging
+  from it fails the #147 parity gate.
+- **Bar-keyed arming.** The evaluator keys on `idx`, the plugin keys on `context.timestamp`.
+  Feeding the same bar twice is a no-op, which is what keeps the documented plugin lifecycle
+  (`manage_position` before `check_exit`) free of intra-bar look-ahead.
+- **Entry geometry lives on the position.** `position['initial_stop']`, `['risk_r']`,
+  `['trailing_steps']`, `['stop']` / `['current_stop']` and `['step_reached']` mirror the ladder.
+  `stop` / `step_reached` are the pair that becomes effective on the next bar;
+  `position['trailing_state'].live_stop` is what the exit check of the current bar used.
+  `step_reached` reaches the trade record and the portfolio trade, and the state is created per
+  position — a walk-forward window opens its own evaluator, so nothing is remembered between
+  windows.
+- **Off by default, fail-safe when wrong.** `trailing_from_config()` returns None — "manage this
+  position exactly as before #145" — when the key is absent, `enabled=false`, the ladder is
+  empty, or `resolve_trailing_stop()['reasons']` is non-empty. The engine does not raise:
+  refusing a malformed ladder is the write path's job (#146 Lab editor, #149 API), and until
+  those land a bad block changes no exits and only logs a warning.
+- **Reason names.** Production emits `stop` / `take` / `trailing`; the #139/#143 analytics books
+  used `initial_stop` / `take` / `trailing`. The mapping is spelled out in
+  `reports/Arctic/145_trailing-evaluator/grid_check.py` (`EXIT_REASON_MAP`) and #147 owns the
+  formal gate.
+- **Metrics.** `_portfolio_metrics` keeps every existing key and adds `exit_reason_counts`,
+  `trailing_exits`, `take_exits`, `initial_stop_exits` and `trailing_exit_share_pct`.
+- **Reproduce it.** Behaviour matrix: `cd backend && python -m pytest -q
+  tests/test_trailing_stop.py tests/test_trailing_contract.py`. Bit-for-bit regression against
+  the locked configs (read-only, needs the warehouse):
+  `python reports/Arctic/145_trailing-evaluator/regression_run.py --label after --out after.json`
+  on this branch; the same script with `--label baseline --backend <origin-main-worktree>/backend
+  --out baseline.json` on `main`; then
+  `python reports/Arctic/145_trailing-evaluator/regression_run.py --compare baseline.json after.json
+  --verdict regression_verdict.json` → `regression_match: true`. Directed ladder check against the
+  published #143 book (offline, path caches only):
+  `python reports/Arctic/145_trailing-evaluator/grid_check.py`.
+- **Grid choice is unchanged by this issue:** the production default stays `ultra_late_tight`
+  (§18, handover §35), and `ref139` is not a default — it is the parity anchor #147 injects
+  explicitly.
+- **Out of scope for #145:** paper (#148), the Lab/API write gate (#146 / #149), the Paper/Live
+  panels (#150), sandbox live (#151), the parity gate (#147) and the live-period acceptance
+  verdict (#152).
 

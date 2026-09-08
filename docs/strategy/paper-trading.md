@@ -23,6 +23,21 @@ Four background processes (started via `start_processes.sh`; default duration is
   the limit (low <= limit <= high) -> closed_stop (market) / closed_take (limit).
   PENDING -> CANCELLED if not filled within TTL (20 min) or price ran above take.
 
+## Exit rule and the stepped trailing stop (status)
+
+Paper closes a position on the **fixed** stop / take recorded at entry: `closed_stop` when a 1min
+candle prints `low <= stop_price`, `closed_take` when it prints `high >= take_price`, stop checked
+first. This contour does **not** read `config.trailing_stop` yet — Issue #148 owns that wiring.
+
+What is already true since Issue #145: the ladder itself is a single pure function in
+`backend/app/analytics/trailing_stop.py` (bar order *stop → take → arm*, a rung armed by bar *i*
+bites from bar *i+1*, an untouched stop keeps the `stop` reason, a raised one reports `trailing`),
+and it is live in the backtest engine, the `levels_reversal` plugin, the portfolio simulator and
+walk-forward. So a backtest of a config with `trailing_stop.enabled=true` and a valid ladder is a
+trailing-stop result, while a **paper position opened from the same config is not**: it keeps the
+fixed stop until #148 lands. Do not compare the two books as if they used the same exit rule, and
+do not switch the block on in a paper strategy before then.
+
 ## A/B factors (per position)
 
 signal_source (base/imbalance) x window_mode (window/always) x rr_mode (all/rr15/rr2)

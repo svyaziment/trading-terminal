@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-08 (Product Owner decision recorded in §35: `ultra_late_tight` — the lattice grid delivered by Issue #155 in the `143-trailing-v3` lattice — becomes the production default trailing-stop grid for #144; `enabled` stays `false`; the #144 `config.trailing_stop` contract itself has landed — validation only, §36. Companion to project-context.md.
+Last refreshed: 2026-09-09 (Issue #145 delivered the stepped trailing stop into the production exit path — one ladder in `backend/app/analytics/trailing_stop.py`, shared by `StrategyEvaluator`, the `levels_reversal` plugin, `portfolio_simulator` and walk-forward; `EXIT_TRAILING` is emitted; the policy still ships disabled. New §37; §36 reworded from «contract only, no consumer» to «applied since #145, still no write-path gate». Earlier: Product Owner decision in §35 — `ultra_late_tight` is the production default grid for #144, `enabled` stays `false`; the #144 `config.trailing_stop` contract is validation only, §36. Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -507,15 +507,17 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
 - Shipped default `TRAILING_STOP`: `enabled=false`, steps `2.0→1.9 / 2.5→2.4 / 3.0→2.9` — the
   `ultra_late_tight` grid of §35 — with bound defaults `max_steps=6`, `min_trigger=0.0` (exclusive),
   `max_trigger=3.5`, `min_stop=0.0`, `max_stop=3.0`. Editing the ladder switches nothing on by itself.
-- **Contract only — no gate, no consumer.** `validate_config()` **does not exist in this repository**, so
-  contrary to the wording this section carried before, nothing calls `validate_trailing_steps()` yet: a
-  malformed ladder is still accepted on strategy create/update and on a Lab run, and an `enabled=true`
-  block with no usable steps simply reports `trailing_disabled` instead of being refused at save time.
-  `require_valid_trailing_stop()` is the gate #146 and #149 are expected to call. `EXIT_TRAILING` exists in
-  `backtest_models.py` but is never emitted, and `StrategyEvaluator.on_bar`,
-  `paper_trader.levels_strategy_plugin`, `portfolio_simulator`, the Lab path and `live_executor` all ignore
-  the block (#145 / #148 / #151) — so do not describe any Lab, backtest, paper or live result as
-  trailing-stop-enabled until then.
+- **Applied since #145 — still no write-path gate.** `validate_config()` **does not exist in this
+  repository**, so nothing refuses a malformed ladder on strategy create/update or on a Lab run: an
+  `enabled=true` block with no usable steps still saves and simply reports `trailing_disabled`.
+  `require_valid_trailing_stop()` remains the gate #146 and #149 are expected to call. What changed in
+  #145 is the read path: `app.analytics.trailing_stop` resolves the block and
+  `StrategyEvaluator.on_bar`, the `levels_reversal` plugin, `portfolio_backtest` /
+  `portfolio_simulator` and walk-forward arm the ladder from it, and `EXIT_TRAILING` is now emitted by
+  the production engine (see §37). The engine fails safe — a ladder the validator refuses is never
+  armed — so backtest, Lab-run and portfolio results may be described as trailing-stop-enabled only
+  when the config carries a valid block with `enabled=true`; paper (`paper_trader`) and sandbox
+  (`live_executor`) still ignore the block until #148 / #151.
 - Legacy: the pattern-level `trailing_stop` / `trailing_step` parameters in `pattern_registry.py` are a
   different contract that #144 does not touch — do not confuse them with `config.trailing_stop`.
 - Tests: `cd backend && python -m pytest -q tests/test_trailing_contract.py tests/test_trading_config.py`
@@ -523,4 +525,50 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
   `test_levels_sr_support.py`, `test_resistance_zone_veto.py`, `test_strategy_plugin.py`,
   `test_pattern_registry.py`, `test_issue139_analysis.py` and `test_issue155_analysis.py` — stands at
   **99 passed** as of 2026-09-08; `--collect-only` still guards the Lab API import.
+
+## 37. Operating the production trailing stop (Issue #145)
+
+- One ladder, `backend/app/analytics/trailing_stop.py`, is the only exit-ratchet in the repo:
+  `StrategyEvaluator.on_bar` (single-ticker backtest), `LevelsReversalStrategy.check_exit` /
+  `manage_position` (the plugin mirror), `portfolio_backtest` → `portfolio_simulator` and
+  `run_walkforward` all call `evaluate_bar(...)`. Do not re-implement the ratchet anywhere else: the
+  plugin is a mirror of the brain, and a second copy is exactly how #41 parity broke before.
+- Fill convention inside a managed bar: stop check → take check → arm. A rung armed by bar *i*
+  applies from bar *i+1*; the entry bar never arms anything (matching #139, whose `path` excludes
+  the entry bar). Stop beats take when both are reachable in one bar. Reasons: `stop` (ladder never
+  moved the stop — the baseline case), `trailing` (raised stop hit), `take`.
+- Turning it on is a config decision, not a code change: add
+  `{"trailing_stop": {"enabled": true, "steps": [...]}}` to a strategy's `strategies.config`
+  (R multiples from the entry; the shipped default ladder is `ultra_late_tight`, §35). Locked
+  126 / 36 / 102 / 118 stay untouched — the block is not present there, and #145 must not be used
+  as a reason to edit them. Lab editing is #146, API validation is #149.
+- Reading a run: backtest trades carry `step_reached` only when a ladder was armed (no key = the
+  pre-#145 shape); `portfolio_simulator.metrics` now carries `exit_reason_counts`,
+  `trailing_exits`, `take_exits`, `initial_stop_exits`, `trailing_exit_share_pct`. A ladder that
+  fires earlier also releases a slot earlier, so `n_trades` rises and `skipped_entries_no_slot`
+  falls — that is the mechanism behind #139's 2 649 → 3 118 and #143's 3 162, not a bug.
+- Reproduce the acceptance evidence (this is the `critical`-task regression, SOP red line #3):
+  ```
+  # after (this branch)
+  python reports/Arctic/145_trailing-evaluator/regression_run.py --label after --out after.json
+  # baseline (main, e.g. a scratch worktree: git worktree add <tmp>/wt origin/main)
+  python reports/Arctic/145_trailing-evaluator/regression_run.py --label baseline \
+      --backend <tmp>/wt/backend --out baseline.json
+  python reports/Arctic/145_trailing-evaluator/regression_run.py \
+      --compare baseline.json after.json --verdict regression_verdict.json   # regression_match: true
+  # the ladder against the published #143 book (no DB, path caches only)
+  python reports/Arctic/145_trailing-evaluator/grid_check.py
+  ```
+  Both scripts are **read-only** (`SELECT` on `trading.strategies` / `trading.candles_1min_raw`);
+  nothing in #145 writes trades, results or strategy rows. From the host, point the warehouse at
+  `--db-host 127.0.0.1` (the `.env` default `postgres` resolves only inside the compose network).
+- Parity with the analytics books is deliberately *not* claimed here: #147 owns that gate. What
+  #145 shows is `grid_check.json` — the production ladder reproduces #143's per-trade exits on both
+  `ref139` and `ultra_late_tight` with 0 real mismatches over 3 305 trades, and replays the book to
+  the published figures once #143's 4-decimal rounding convention is re-applied.
+- Gotchas: `Position` (plugin dataclass) grew `initial_stop` / `step_reached` / `trailing` fields —
+  always pass them by keyword; the evaluator keeps its ladder in `position['trailing_state']`, and
+  `position['stop']` is the *next-bar* stop while `trailing_state.live_stop` is what the current bar
+  was checked against. Metrics going into `backtest_results` still pass through `_json_safe` (#116).
+
 
