@@ -478,14 +478,16 @@ The Product Owner approved **`ultra_late_tight`** — `+2.0R → +1.9R`, `+2.5R 
 default value of `config.trailing_stop.steps` in `trading_config.TRAILING_STOP` (#144). `config.trailing_stop.enabled`
 stays `false`: picking a grid switches nothing on and rewrites no locked configuration (126 / 36 / 102 / 118).
 
-- Why it won: best capital of the lattice, 110 434 RUB (+7 218 over `ref139`, +1 865 over the best ladder), PF 1.60,
-  3 162 trades, win rate 42.6 %, walk-forward floor +1 366 RUB per window versus +745 for the base grid, best
-  worst node in the cost-stress lattice (19 364 RUB at commission 0.15 % + 20 b.p. slippage), and the smallest
-  behavioural diff among the ladders (141 exit-reason flips = 4.3 % against the base grid, Spearman ρ 0.9966) —
+- Why it won: best capital of the lattice, 110 434 RUB (+7 218 over `ref139`, +1 865 over the best other ladder), PF 1.60,
+  3 162 trades, win rate 42.6 %, the best average walk-forward profit factor of the lattice (1.62) with a +1 366 RUB
+  worst-window floor against +745 for the base grid (`three_step_steady` floors higher, at +1 512), more equity than the
+  base at every node of the cost-stress lattice (19 364 vs 16 708 RUB at the worst node, commission 0.15 % + 20 b.p.;
+  DD degrades +64.45 vs +68.60 pp), and one of the smallest behavioural diffs in the lattice (141 exit-reason flips
+  = 4.3 % against the base grid, Spearman ρ 0.9966 — only `two_step_aggressive` is closer, at 126 flips / 3.8 %) —
   the gain comes from the shape of the rule, not from one lucky trade (ΔPnL per trade +2.0 RUB).
 - What was traded away: composite stability score 46.3 versus 47.3 for `ref139` and daily MaxDD 3.06 pp versus
   2.72 pp. The score is a summary of these eight grids on one book and one period, not an objective (report §4),
-  and the equity, walk-forward and stress-floor gains were judged worth the +0.34 pp of drawdown.
+  and the equity, average walk-forward PF and stress-node gains were judged worth the +0.34 pp of drawdown.
 - What stays unchanged: `ref139` (the #139 grid) remains the **parity anchor** — #147 injects it explicitly, it is
   not a production default — and the published artifacts of #139 and #143 are frozen evidence. #143 and #155 stay
   closed, with a pointer comment recording the decision.

@@ -459,9 +459,11 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
   `config.trailing_stop.steps` defaults to `2.0→1.9`, `2.5→2.4`, `3.0→2.9` in `trading_config.TRAILING_STOP`
   (#144), and `config.trailing_stop.enabled` stays `false` — the choice switches nothing on and touches no
   locked configuration (126 / 36 / 102 / 118). Why this grid: 110 434 ₽ against 103 216 ₽ for `ref139`
-  (+7 218 ₽), PF 1.60 vs 1.55, 3 162 vs 3 118 trades, walk-forward floor +1 366 ₽ vs +745 ₽, best worst node
-  in the cost-stress lattice (19 364 ₽ vs 16 708 ₽ at commission 0.15 % + 20 b.p.), and the smallest
-  behavioural diff among the ladders (141 exit-reason flips = 4.3 %, Spearman ρ 0.9966). Accepted trade-off:
+  (+7 218 ₽), PF 1.60 vs 1.55, 3 162 vs 3 118 trades, the best average walk-forward PF of the lattice (1.62) with a
+  +1 366 ₽ worst-window floor against +745 ₽ (`three_step_steady` floors higher, at +1 512 ₽), more equity than the base
+  at every cost-stress node (19 364 ₽ vs 16 708 ₽ at the worst node, commission 0.15 % + 20 b.p.; DD degrades
+  +64.45 vs +68.60 pp), and one of the smallest behavioural diffs in the lattice (141 exit-reason flips = 4.3 %,
+  Spearman ρ 0.9966 — only `two_step_aggressive` is closer, at 126 flips / 3.8 %). Accepted trade-off:
   composite stability score 46.3 vs 47.3 for `ref139` and daily MaxDD 3.06 vs 2.72 pp — a deliberate swap,
   because the score is a summary of this lattice and not an objective (report §4).
 - **What the decision does not change.** `ref139` (the #139 grid) remains the parity anchor: #147 injects it
