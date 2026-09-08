@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-07 (Issue #143 trailing-grid robustness analytics package). Companion to project-context.md.
+Last refreshed: 2026-09-07 (Issue #143 robustness lattice re-delivered as `143-trailing-v3` by Issue #155 — 8 grids + `summary.json.lattice` + tracked tests). Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -123,8 +123,8 @@ python docs/refresh/context_collector.py
 
 - Prerequisites: backend rebuilt, streaming online data running, one active locked strategy, a funded sandbox account, and `LIVE_TRADING.enabled=true`.
 - Apply the migration explicitly when provisioning a database: `psql ... -f backend/migrations/20260817_01_live_positions.sql`. `LiveExecutor.initialize()` also applies the same idempotent schema automatically.
-- Safe overnight start (Issue #137): rebuild backend, then `START_LIVE_EXECUTOR=1 ./start_processes.sh` with **no**`DURATION_MINUTES`. Paper processes run until the next weekday **10:00** after this session's 19:00 (so leftover protection still has streaming). LiveExecutor sleeps until 10:00 MSK, **enters only 10:00-19:00**, then keeps stop/take until the position closes by price. Clock is the computer clock converted to MSK (UTC+3). `START_LIVE_EXECUTOR=1` remains opt-in so a normal paper launch does not place sandbox orders. Logs: `reports/live-executor/executor.log`.
 - Safe overnight start (Issue #137): rebuild backend, then `START_LIVE_EXECUTOR=1 ./start_processes.sh` with **no** `DURATION_MINUTES`. Paper processes run until the next weekday **10:00** after this session's 19:00 (so leftover protection still has streaming). LiveExecutor sleeps until 10:00 MSK, **enters only 10:00–19:00**, then keeps stop/take until the position closes by price. Clock is the computer clock converted to MSK (UTC+3). `START_LIVE_EXECUTOR=1` remains opt-in so a normal paper launch does not place sandbox orders. Logs: `reports/live-executor/executor.log`.
+- Documentation and published artifacts drift apart: when `report.md` and an agent doc disagree about the grid count, the lattice schema or a headline number, trust the artifacts and re-render — `python analytics/issue-143-trailing-robustness/run.py --stage report`, then `cd backend && python -m pytest -q tests/test_issue155_analysis.py`. Never carry lattice numbers out of a PR or commit message.
 - Canary / fixed window: `DURATION_MINUTES=N` still starts immediately and stops N minutes after launch. Do not use that for an overnight Sunday→Monday session.
 - LiveExecutor entries are gated to [10:00, 19:00) MSK (`reason=outside_entry_window`) even if `StrategyEvaluator.entry_window` is 7–19. Stop/take fire when price hits, after 19:00 as well; the process stops only when the book is flat (or SIGTERM). Shutdown policy is unchanged (`close_positions_on_shutdown=false`).
 - Processing order is fixed: `StrategyEvaluator` BUY -> session window -> fresh imbalance -> free RUB -> position sizing -> market BUY -> take sell-limit -> DB record/reconciliation.
@@ -403,7 +403,7 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
   consider adopting (analytics only; the production exit path is untouched, not a paper lock).
 - Units (no DB): `cd backend && python -m pytest -q tests/test_issue139_analysis.py`.
 
-## 35. Trailing-grid robustness analytics on `test_20260830_new_level` (Issue #143)
+## 35. Trailing-grid robustness analytics on `test_20260830_new_level` (Issue #143, lattice v3 by #155)
 
 - Robustness lattice over the #139 book: same 28 tickers, config id=126, `StrategyEvaluator`,
   slot simulator and `apply_trailing`; only the stepped-trailing grids and the stress factors
@@ -421,29 +421,37 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
   `--stage report`. Debug slice: `--tickers SBER --limit 20 --out-dir out_debug` — keep
   `--out-dir` at the repo root; pointing it inside the package leaves untracked duplicates
   (`analytics/issue-143-*/reports/run.md`) that must not be committed.
-- Headline of the published run: 5 multi-step grids over the same 3 305 candidate trades; parity with
-  #139 confirmed (0 exit-mechanic mismatches; equity 103 216 ₽ vs 103 176 ₽ in #139, PF 1.55, DD 2.72 pp).
-  Equity spread across the grids — 12 742 ₽ (`two_step_aggressive` 108 569 ₽ best, `three_step_steady`
-  95 827 ₽ worst); `ref139` tops the composite stability score (47.3/100) and all five grids stay
-  profitable in 9/9 walk-forward windows. Max stress (0.15 % commission + 20 b.p. slippage) drops the
-  base grid to 16 708 ₽ with no game-over; worst grid against the control (stakeholder test) is
-  `three_step_steady` (Δequity −525 ₽). Exit concordance: identical outcome for 80.5 % of trades
-  (median pairwise Spearman ρ 0.86, min 0.7497), exit reason flips vs the base grid in 1 112 of
-  3 305 trades (1 057 material at the 20 ₽ threshold). No PO decision; see report §4–§8.
+- Headline of the published run (`grids.json` schema `143-trailing-v3`): 8 grids — six multi-step
+  (2–4 steps, incl. the PO probe `ultra_late_tight`) and two single-step (`single_step_2_15`,
+  break-even `breakeven_2_0`) — over the same 3 305 candidate trades; parity with #139 confirmed
+  (0 exit-mechanic mismatches; equity 103 216 ₽ vs 103 176 ₽ in #139, PF 1.55, DD 2.72 pp).
+  Equity spread — 14 607 ₽ (`ultra_late_tight` 110 434 ₽ best, `three_step_steady` 95 827 ₽ worst);
+  `ref139` tops the composite stability score (47.3/100) and all eight grids stay profitable in 9/9
+  walk-forward windows. Max stress (0.15 % commission + 20 b.p. slippage, 96 runs) drops the worst
+  grid to 9 614 ₽ with no game-over; worst grid against the control (stakeholder test) is
+  `three_step_steady` (Δequity −525 ₽). Exit concordance: identical outcome for 69.3 % of trades
+  (median pairwise Spearman ρ 0.89, min 0.7497), exit reason flips vs the base grid in 1 797 of
+  3 305 trades (1 726 material at the 20 ₽ threshold). See report §4–§8.
+- Machine-readable lattice slice (Issue #155): `summary.json.lattice` — `groups` by step count,
+  `pairs` (single step ↔ the ladder sharing its first step), `boundaries` (PO probe / single-step /
+  break-even), `verdicts`, and both thresholds: `material_rub_per_trade` (50 RUB, #143 lattice-wide)
+  vs `po_material_rub_per_trade` (20 RUB, the #155 stakeholder threshold that judges the probe).
+  Validation is tracked, not scratch: `cd backend && python -m pytest -q
+  tests/test_issue155_analysis.py` (canonical artifacts + synthetic `run.lattice_analysis`).
 - Reproducibility: `--stage report` rebuilds `report.md`, `summary.json` and `run.md` from the committed
   `report.json.gz` alone — verified in a clean worktree (no `cache/`, no DB): `report.md` and
   `summary.json` come out byte-identical, `report.json.gz` matches on every value (only the gzip header
   timestamp differs), and `run.md` differs only as a protocol log (timestamp, stage, elapsed). Full
-  `--stage all`: exit 0 — 156.73 s of analysis (`summary.json.elapsed_sec`) inside 160.62 s of process
-  (`run.md`).
-- Documented limits (report §13, keep them honest): 5 multi-step grids instead of the 8–12 the issue
-  asked for (no single-step, no break-even step), milder stress than specified (0.06/0.10/0.15 %
-  commission and b.p. slippage instead of 0.3/0.6/1.5 % and MOEX price steps), no `risk_reward`
-  sensitivity, no charts. These are #143 debt listed in the report's continuation block — do not
-  silently expand the lattice inside this package.
+  `--stage all` of the published v3 run: exit 0 — 231.9 s of analysis (`summary.json.elapsed_sec`).
+- Documented limits (report §13, keep them honest): the grid-shape debt is closed by #155 (8 grids,
+  single-step and break-even bounds included); still open — milder stress than specified (0.06/0.10/0.15 %
+  commission and b.p. slippage instead of 0.3/0.6/1.5 % and MOEX price steps, no min-lot sensitivity),
+  no `risk_reward` sensitivity, no fixed-stop-vs-trailing threshold at max stress (book A was never
+  stress-run), only one direct single-step ↔ ladder pair, and no charts. These stay in the report's
+  continuation block — do not silently extend the lattice inside this package.
 - Verdict: analytics only. Do not read the composite robustness score as an objective: in this run its
   stress-capital, DD-degradation and walk-forward components tie every grid (0.0 / 0.0 / 15.0 for all
-  five), so only absolute drawdown and exit-reason stability discriminate (report §4). The default grid
-  stays a Product Owner decision (#144); engine work is #145, live-path parity is #147, sandbox #151,
-  acceptance #152. Mirrored in `project-context.md` §18 and roadmap block W (§8).
-
+  eight), so only absolute drawdown and exit-reason stability discriminate (report §4). The default grid
+  and the `ultra_late_tight` probe stay Product Owner decisions (#144); engine work is #145, live-path
+  parity is #147, sandbox #151, acceptance #152. Mirrored in `project-context.md` §18 and roadmap
+  block W (§8).

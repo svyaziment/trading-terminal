@@ -1,8 +1,8 @@
 {
-  "schema": "143-trailing-v2",
+  "schema": "143-trailing-v3",
   "issue": 143,
   "ref_issue": 139,
-  "comment": "Робастность ступенчатого трейла #139 (конфиг id=126). Все цены — в R от начального стопа. Эталонная сетка ref139 обязана совпасть с results.json #139.",
+  "comment": "Робастность ступенчатого трейла #139 (конфиг id=126). Все цены — в R от начального стопа. Эталонная сетка ref139 обязана совпасть с results.json #139. Схема v3 (#155): решётка расширена до 8 сеток — 4 многоступенчатые из v2, сверхплотная PO-проба ultra_late_tight и две одношаговые (single_step_2_15, breakeven_2_0); стоп в безубыток (0R) валиден.",
   "baseline_grid_id": "ref139",
   "data": {
     "date_from": "2024-08-01",
@@ -23,43 +23,97 @@
     {
       "id": "ref139",
       "label": "Эталон #139: 2R→1.5R, 2.5R→2R",
-      "steps": [{"trigger": 2.0, "stop": 1.5}, {"trigger": 2.5, "stop": 2.0}],
+      "steps": [
+        {"trigger": 2.0, "stop": 1.5},
+        {"trigger": 2.5, "stop": 2.0}
+      ],
       "time_stop_bars": null,
       "comment": "Якорь паритета: должен дать ровно exit_type_counts {trailing, initial_stop, take} из #139."
     },
     {
       "id": "tight_after_take",
       "label": "Ранний и плотный: 1.5→1.2, 2→1.6, 2.5→2, 3→2.5",
-      "steps": [{"trigger": 1.5, "stop": 1.2}, {"trigger": 2.0, "stop": 1.6}, {"trigger": 2.5, "stop": 2.0}, {"trigger": 3.0, "stop": 2.5}],
+      "steps": [
+        {"trigger": 1.5, "stop": 1.2},
+        {"trigger": 2.0, "stop": 1.6},
+        {"trigger": 2.5, "stop": 2.0},
+        {"trigger": 3.0, "stop": 2.5}
+      ],
       "time_stop_bars": null,
       "comment": "Фиксирует раньше, но среж хвосты: проверка гипотезы «первый шаг не позже +1.5R»."
     },
     {
       "id": "late_conservative",
       "label": "Поздний и широкий: 2.5→2, 3.5→3",
-      "steps": [{"trigger": 2.5, "stop": 2.0}, {"trigger": 3.5, "stop": 3.0}],
+      "steps": [
+        {"trigger": 2.5, "stop": 2.0},
+        {"trigger": 3.5, "stop": 3.0}
+      ],
       "time_stop_bars": null,
       "comment": "Максимальная свобода движения: платой является отдача прибыли при развороте."
     },
     {
       "id": "three_step_steady",
       "label": "Три ступени: 1.5→1.2, 2.5→2, 3.5→3",
-      "steps": [{"trigger": 1.5, "stop": 1.2}, {"trigger": 2.5, "stop": 2.0}, {"trigger": 3.5, "stop": 3.0}],
+      "steps": [
+        {"trigger": 1.5, "stop": 1.2},
+        {"trigger": 2.5, "stop": 2.0},
+        {"trigger": 3.5, "stop": 3.0}
+      ],
       "time_stop_bars": null,
       "comment": "Компромисс: ранняя защита + длинный хвост."
     },
     {
       "id": "two_step_aggressive",
       "label": "Агрессивный захват: 2→1.9, 3→2.9",
-      "steps": [{"trigger": 2.0, "stop": 1.9}, {"trigger": 3.0, "stop": 2.9}],
+      "steps": [
+        {"trigger": 2.0, "stop": 1.9},
+        {"trigger": 3.0, "stop": 2.9}
+      ],
       "time_stop_bars": null,
       "comment": "Ступени почти по точке входа: ожидание роста доли trailing-выходов."
+    },
+    {
+      "id": "ultra_late_tight",
+      "label": "Сверхплотная PO: 2→1.9, 2.5→2.4, 3→2.9",
+      "steps": [
+        {"trigger": 2.0, "stop": 1.9},
+        {"trigger": 2.5, "stop": 2.4},
+        {"trigger": 3.0, "stop": 2.9}
+      ],
+      "time_stop_bars": null,
+      "comment": "Предложение Product Owner (#144), посчитанная проба #154 и включена в решётку (#155): ступени на 0.1R ниже триггера — фиксируют почти всё движение ценой раннего выбивания."
+    },
+    {
+      "id": "single_step_2_15",
+      "label": "Один шаг: 2→1.5",
+      "steps": [
+        {"trigger": 2.0, "stop": 1.5}
+      ],
+      "time_stop_bars": null,
+      "comment": "Одношаговый эквивалент первой ступени эталона (#155, долг #143): сколько даёт одна ступень без второй — ответ на вопрос «нужны ли многоступенчатые сетки»."
+    },
+    {
+      "id": "breakeven_2_0",
+      "label": "Безубыточный шаг: 2→0",
+      "steps": [
+        {"trigger": 2.0, "stop": 0.0}
+      ],
+      "time_stop_bars": null,
+      "comment": "Нижняя граница пользы трейла (#155, долг #143): после +2R стоп в безубыток — нулевой риск по сделке против неограниченного хвоста прибыли."
     }
   ],
   "control": {
     "grid_id": "tight_after_take",
     "flip_threshold_rub": 20.0,
     "comment": "Контрольная сетка stakeholder-теста: дельты против неё важнее абсолютных цифр; flip_threshold_rub — порог материальности смены причины выхода (₽ на сделку при slot 10k)."
+  },
+  "stakeholder": {
+    "grid_id": "ultra_late_tight",
+    "material_rub_per_trade": 20.0,
+    "question": "Оправдан ли сверхплотный трейл (ступень 0.1R при триггере до +3R) против базовой сетки и против лучшей в решётке, и материальна ли разница на одну сделку?",
+    "decided_by": "Product Owner (#144)",
+    "comment": "PO-проба #154/#155: самая поздняя и самая плотная лестница решётки. Решение о применении — за Product Owner, аналитика дефолт не назначает. material_rub_per_trade — порог материальности ΔPnL на сделку (#155)."
   },
   "thresholds": {
     "parity_rub": 1.0,
@@ -69,11 +123,11 @@
     "comment": "parity_rub/tol — допуски паритета с #139; tolerance_rub — допуск смещения сетки в scorecard; material_rub_per_trade — материальность дельты."
   },
   "stress": {
-    "commission_pct": [0.06, 0.10, 0.15],
+    "commission_pct": [0.06, 0.1, 0.15],
     "slippage_bps": [0, 5, 10, 20],
     "base_commission_pct": 0.06,
-    "grids": ["ref139", "tight_after_take", "late_conservative", "three_step_steady", "two_step_aggressive"],
-    "comment": "Комиссия в % на сделку (оборот), слиппейдж в б.п. от цены; базовая комиссия = значение из конфига id=126."
+    "grids": ["ref139", "tight_after_take", "late_conservative", "three_step_steady", "two_step_aggressive", "ultra_late_tight", "single_step_2_15", "breakeven_2_0"],
+    "comment": "Комиссия в % на сделку (оборот), слиппейдж в б.п. от цены; базовая комиссия = значение из конфига id=126. По #155 стресс гоняется по всем 8 сеткам решётки."
   },
   "walk_forward": {
     "step_months": 3,

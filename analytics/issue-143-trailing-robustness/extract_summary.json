@@ -197,7 +197,7 @@
       "status": "success"
     }
   },
-  "elapsed_sec": 2.12,
+  "elapsed_sec": 2.0,
   "max_path_bars": 43200,
   "n_tickers": 28,
   "per_ticker": {
@@ -210,7 +210,7 @@
     "paths_extracted": 0,
     "paths_failed": 0,
     "paths_missing": 0,
-    "seconds": 2.1,
+    "seconds": 2.0,
     "tickers": 28
   },
   "period": [
@@ -229,7 +229,7 @@
     "paths_extracted": 0,
     "paths_failed": 0,
     "paths_missing": 0,
-    "seconds": 2.1,
+    "seconds": 2.0,
     "tickers": 28
   }
 }

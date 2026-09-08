@@ -1,6 +1,6 @@
 # Инструкции команды · Trading Terminal
 
-Эпик в работе: **#142 — Ступенчатый трейлинг-стоп в боевом пути** (задачи #143–#152). Основание — аналитика #139 (PR #141): на запертой `test_20260830_new_level` ступенчатый трейлинг даёт +8.40% капитала, PF 1.41 → 1.54 и daily MaxDD 6.49% → 2.74%. Механизм ставится **выключенным по умолчанию** (`config.trailing_stop.enabled=false`).
+Эпик в работе: **#142 — Ступенчатый трейлинг-стоп в боевом пути** (задачи #143–#152 плюс follow-up #155). Основание — аналитика #139 (PR #141): на запертой `test_20260830_new_level` ступенчатый трейлинг даёт +8.40% капитала, PF 1.41 → 1.54 и daily MaxDD 6.49% → 2.74%. Механизм ставится **выключенным по умолчанию** (`config.trailing_stop.enabled=false`).
 
 | Документ | Зачем |
 |---|---|
@@ -17,6 +17,7 @@
 | #146 | Редактор ступеней трейлинга в Strategy Lab (schema-driven) | Fennec (Frontend) | #144 |
 | #147 | Паритет боевого пути с книгой B из #139 — **merge-гейт волны 1** | Vulpec (Analytics) | #145 |
 | #143 | Робастность: сетки ступеней, walk-forward по периодам, slippage/комиссии | Vulpec (Analytics) | #145 |
+| #155 | Расшишение решётки #143 до `143-trailing-v3`: 8 сеток (две одношаговые, безубыточная граница и PO-проба), машиночитаемый `summary.json.lattice`, тесты `backend/tests/test_issue155_analysis.py` | Vulpec (Analytics) | #143 |
 | #148 | Трейлинг в paper-контуре: миграция, `monitor_open`, catchup, Telegram | Arctic (Backend) | #145, #147 |
 | #149 | API и фильтры: strategies / paper-trading / live-trading, `closed_trailing` | Arctic (Backend) | #148 |
 | #150 | Текущий стоп и выход `trailing` в панелях Paper Trading / Live Trading | Fennec (Frontend) | #149 |

@@ -298,7 +298,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | T | Composite S/R pattern (Epic #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 Lab chip + #119 AFKS smoke + #124 Lab-universe A/B done |
 | U | Support with tracker (Epic #126) | #127 `levels_sr_support` backend + #128 Lab chip + #129 isolated Lab universe + #130 portfolio #44 done |
 | V | Stepped trailing-stop analytics (Issue #139) | Done — analytics-only A/B (fixed 1:3 vs stepped trailing) on locked `test_20260830_new_level` id=126, RR 1:3; trailing lives in `analytics/.../trailing.py`, not wired into the production exit path |
-| W | Stepped trailing stop in production (Epic #142) | Planned — #144 `config.trailing_stop` contract, #145 engine/plugin/portfolio simulator, #146 Lab editor, #147 parity gate vs #139, #143 robustness analytics done (5 multi-step grids, walk-forward, cost stress — §18), #148 paper trader, #149 API + filters, #150 Paper/Live panels, #151 sandbox `LiveExecutor`, #152 live-period acceptance verdict. Ships **default OFF**; basis is the #139 result (A 95 180.01 -> B 103 176.00 RUB, PF 1.41 -> 1.54, daily MaxDD 6.49% -> 2.74%) |
+| W | Stepped trailing stop in production (Epic #142) | Planned — #144 `config.trailing_stop` contract, #145 engine/plugin/portfolio simulator, #146 Lab editor, #147 parity gate vs #139, #143 robustness analytics done (8-grid lattice `143-trailing-v3`, walk-forward, cost stress — §18; the lattice shape itself was re-delivered by #155), #148 paper trader, #149 API + filters, #150 Paper/Live panels, #151 sandbox `LiveExecutor`, #152 live-period acceptance verdict. Ships **default OFF**; basis is the #139 result (A 95 180.01 -> B 103 176.00 RUB, PF 1.41 -> 1.54, daily MaxDD 6.49% -> 2.74%) |
 
 
 ## 9. Important Notes
@@ -405,15 +405,26 @@ slot replay + comparison + `summary.json` + `report.md` (RU+EN) with NO database
 figures and the recommendation live in `summary.json` / `report.md`. Note: #129/#130 used RR
 1:2 (`3b7864c4…`); #139 re-extracts for RR 1:3 — the #129 candidate book is not reused.
 
-## 18. Trailing-grid robustness analytics (Issue #143)
+## 18. Trailing-grid robustness analytics (Issue #143, lattice shape by Issue #155)
 
-`analytics/issue-143-trailing-robustness/` replays the #139 book (§17) off-engine over five stepped
-trailing grids — `ref139` (`+2R→+1.5R, +2.5R→+2R`, the #139 consensus) plus `two_step_aggressive`,
-`three_step_steady`, `tight_after_take` and `late_conservative` — on the same 28 tickers, locked
+`analytics/issue-143-trailing-robustness/` replays the #139 book (§17) off-engine over the 8-grid
+stepped trailing lattice of schema `143-trailing-v3` (grid shape delivered by Issue #155) — `ref139`
+(`+2R→+1.5R, +2.5R→+2R`, the #139 consensus), the ladders `two_step_aggressive`, `three_step_steady`,
+`tight_after_take` and `late_conservative`, the stakeholder probe `ultra_late_tight` (a step 0.1R above
+the lattice's latest trigger, 3R) and two single-step grids, `single_step_2_15` and `breakeven_2_0`
+(stop parked at 0R) — on the same 28 tickers, locked
 config id=126, 3 305 candidate trades, capital 50 000 RUB, slot 10 000 RUB, max 5 positions.
 Entries come from `StrategyEvaluator` and the published 1m paths; the exit is
 `analytics/issue-139-trailing-stop-new-level/trailing.apply_trailing`, so a grid delta is
 attributable to the grid alone.
+
+The shape of the lattice is machine-readable, not just prose: `summary.json.lattice` carries `groups`
+(by number of steps), `pairs` (a single-step grid against the ladder that shares its first step),
+`boundaries` (PO probe / single-step / break-even), `verdicts`, plus `po_grid_id`, `po_gap_r`,
+`po_trigger_r` and two thresholds — `material_rub_per_trade` (50 RUB, the lattice-wide flip threshold
+of #143) and `po_material_rub_per_trade` (20 RUB, the stakeholder threshold of #155 that judges the
+probe grid). `backend/tests/test_issue155_analysis.py` pins the schema, the 8-grid shape, the RU report
+wording and that slice.
 
 Parity with #139 is contractual: the base grid reproduces equity 103 216.04 RUB against the
 published 103 176.00 (tolerance ±206.35), PF 1.55 vs 1.54, daily MaxDD 2.72 vs 2.74 pp, with 0
@@ -421,30 +432,42 @@ exit-mechanic mismatches over 3 305 trades (max |Δ net_return| = 0.0969 pp — 
 not bit-for-bit).
 
 Headline of the published run:
-- Equity 95 826.80 … 108 568.88 RUB (spread 12 742.08 RUB — larger than the whole trailing effect
-  measured in #139, +7 995.99 RUB); PF 1.49 … 1.59; daily MaxDD 2.42 … 4.34 pp; no GAME OVER.
-- Cost stress (commission 0.06 / 0.10 / 0.15 % × slippage 0 / 5 / 10 / 20 b.p., 60 runs): at the
-  worst node every grid is loss-making (PnL −31 959 … −40 386 RUB) and none reaches GAME OVER —
-  equity drops to 9 613.65 … 18 041.44 RUB, DD degrades by up to +79.81 pp. Costs move the book
-  more than the choice of steps does.
+- Equity 95 827 … 110 434 RUB (spread 14 607 RUB — larger than the whole trailing effect measured in
+  #139, +7 996 RUB); PF 1.49 … 1.60; daily MaxDD 2.42 … 4.70 pp; no GAME OVER. The best capital belongs
+  to the PO probe `ultra_late_tight` (+7 218 RUB over the base grid, +1 865 RUB over the best ladder,
+  ΔPnL per trade +2.0 RUB — inside the 20 RUB stakeholder threshold of #155), the worst to
+  `three_step_steady`.
+- Cost stress (commission 0.06 / 0.10 / 0.15 % × slippage 0 / 5 / 10 / 20 b.p., 96 runs = 8 grids × 12
+  nodes): at the worst node every grid is loss-making and none reaches GAME OVER — equity drops to
+  9 614 … 23 029 RUB, DD degrades by up to +79.81 pp. Costs move the book more than the choice of steps
+  does.
 - Walk-forward (9 three-month windows, ≥20 trades each): every grid profitable in 9/9 windows, base
-  grid's worst window +745 RUB — the sign is stable, the level is not.
+  grid's worst window +745 RUB (`single_step_2_15` dips to +593 RUB) — the sign is stable, the level
+  is not.
+- One step vs a ladder (the shape #155 added): the only direct pair is `single_step_2_15` ↔ `ref139` —
+  the added `2.5→2R` step buys +691 RUB of equity for −0.35 pp of DD and +0.8 score points; by group,
+  the best single-step grid reaches 102 525 RUB against 110 434 RUB for the best ladder. The break-even
+  bound `breakeven_2_0` (stop at 0R) is the lower edge of trailing's usefulness: −5 596 RUB, DD 4.70 pp,
+  win rate 20.0 % — a sensitivity bound by design, not a defect.
 - Composite stability score (`summary.json.grids[].robustness_score_0_100`) is effectively driven by
   absolute DD and exit-reason stability: the stress-capital and DD-degradation components collapse to
-  0 for every grid in this run and walk-forward pays the same 15 to all of them (9/9 profitable
-  windows), so the spread is narrow — `ref139` 47.3, `two_step_aggressive` 46.2,
-  `three_step_steady` 46.0, `tight_after_take` 45.7, `late_conservative` 44.3. The score is a
-  summary, not an objective; no grid was optimised under it.
-- Exit concordance: 80.5 % of trades keep the same outcome across all five grids (median Spearman ρ
-  0.86, minimum 0.7497). Exit reason flips against the base grid in 1 112 of 3 305 trades (1 057
-  material at the 20 RUB threshold; `trailing` becomes the new reason 784 times). Against
-  `tight_after_take` as control — the stakeholder test «worst grid not materially below control» —
-  `three_step_steady` is −524.60 RUB.
+  0 for every grid in this run and walk-forward pays the same 15 to all eight (9/9 profitable windows),
+  so the spread is narrow — `ref139` 47.3, `single_step_2_15` 46.5, `ultra_late_tight` 46.3,
+  `two_step_aggressive` 46.2, `three_step_steady` 46.0, `tight_after_take` 45.7, `late_conservative`
+  44.3, `breakeven_2_0` 43.2. The score is a summary, not an objective; no grid was optimised under it.
+- Exit concordance: 69.3 % of trades keep the same outcome across all eight grids (median pairwise
+  Spearman ρ 0.89, minimum 0.7497). Exit reason flips against the base grid in 1 797 of 3 305 trades
+  (1 726 material at the 20 RUB threshold; `trailing` becomes the new reason 915 times, `take` 663,
+  `initial_stop` 148). Against `tight_after_take` as control — the stakeholder test «worst grid not
+  materially below control» — `three_step_steady` is −525 RUB.
 
-Not done, recorded as #143 debt in `report.md` §13: 5 multi-step grids instead of the 8–12 the issue
-asked for (no single-step, no break-even `stop = 0` step); stress milder than specified (no MOEX
+Grid-shape debt closed: Issue #143 asked for 8–12 grids and shipped 5 multi-step ones — Issue #155
+delivered the v3 shape (8 grids: six ladders + two single-step, including the break-even `stop = 0R`
+bound and the `ultra_late_tight` PO probe) and made the comparison machine-readable through
+`summary.json.lattice`. Still open, recorded in `report.md` §13: stress milder than specified (no MOEX
 price-step / min-lot sensitivity); no `risk_reward` 1:2 sensitivity; no fixed-stop-vs-trailing
-threshold at max stress (book A was not stress-run); no charts. Choosing the production default grid
+threshold at max stress (book A was not stress-run); no charts; only one direct
+single-step ↔ ladder pair, so the group comparison stays indirect. Choosing the production default grid
 is a Product Owner decision in #144, not a result of this package. No production code path was
 touched — engine work is #145, live-path parity gate is #147.
 

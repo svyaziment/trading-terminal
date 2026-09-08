@@ -114,14 +114,14 @@
     "walkforward_csv": "analytics/issue-143-trailing-robustness/walkforward.csv"
   },
   "base_grid": "ref139",
-  "best_grid": "two_step_aggressive",
+  "best_grid": "ultra_late_tight",
   "concordance": {
-    "median_pairwise_rho": 0.86,
+    "median_pairwise_rho": 0.89,
     "min_pairwise_rho": 0.7497,
-    "n_disagree": 644,
-    "n_grids": 5,
+    "n_disagree": 1016,
+    "n_grids": 8,
     "n_scored": 3305,
-    "n_stable": 2661,
+    "n_stable": 2289,
     "n_trades": 3305,
     "pairs": [
       {
@@ -145,6 +145,21 @@
         "rho": 0.9967
       },
       {
+        "a": "ref139",
+        "b": "ultra_late_tight",
+        "rho": 0.9966
+      },
+      {
+        "a": "ref139",
+        "b": "single_step_2_15",
+        "rho": 0.9969
+      },
+      {
+        "a": "ref139",
+        "b": "breakeven_2_0",
+        "rho": 0.9526
+      },
+      {
         "a": "tight_after_take",
         "b": "late_conservative",
         "rho": 0.7497
@@ -160,6 +175,21 @@
         "rho": 0.859
       },
       {
+        "a": "tight_after_take",
+        "b": "ultra_late_tight",
+        "rho": 0.8593
+      },
+      {
+        "a": "tight_after_take",
+        "b": "single_step_2_15",
+        "rho": 0.8549
+      },
+      {
+        "a": "tight_after_take",
+        "b": "breakeven_2_0",
+        "rho": 0.8014
+      },
+      {
         "a": "late_conservative",
         "b": "three_step_steady",
         "rho": 0.7548
@@ -170,13 +200,73 @@
         "rho": 0.8888
       },
       {
+        "a": "late_conservative",
+        "b": "ultra_late_tight",
+        "rho": 0.8888
+      },
+      {
+        "a": "late_conservative",
+        "b": "single_step_2_15",
+        "rho": 0.891
+      },
+      {
+        "a": "late_conservative",
+        "b": "breakeven_2_0",
+        "rho": 0.9005
+      },
+      {
         "a": "three_step_steady",
         "b": "two_step_aggressive",
         "rho": 0.8564
+      },
+      {
+        "a": "three_step_steady",
+        "b": "ultra_late_tight",
+        "rho": 0.8568
+      },
+      {
+        "a": "three_step_steady",
+        "b": "single_step_2_15",
+        "rho": 0.8528
+      },
+      {
+        "a": "three_step_steady",
+        "b": "breakeven_2_0",
+        "rho": 0.8017
+      },
+      {
+        "a": "two_step_aggressive",
+        "b": "ultra_late_tight",
+        "rho": 0.9994
+      },
+      {
+        "a": "two_step_aggressive",
+        "b": "single_step_2_15",
+        "rho": 0.9936
+      },
+      {
+        "a": "two_step_aggressive",
+        "b": "breakeven_2_0",
+        "rho": 0.9471
+      },
+      {
+        "a": "ultra_late_tight",
+        "b": "single_step_2_15",
+        "rho": 0.9933
+      },
+      {
+        "a": "ultra_late_tight",
+        "b": "breakeven_2_0",
+        "rho": 0.9466
+      },
+      {
+        "a": "single_step_2_15",
+        "b": "breakeven_2_0",
+        "rho": 0.9571
       }
     ],
     "pairs_low_rho": [],
-    "stable_pct": 80.5
+    "stable_pct": 69.3
   },
   "contract": {
     "checks": [
@@ -425,6 +515,18 @@
   "contract_ok": true,
   "control_deltas": [
     {
+      "drawdown_delta_pp": 0.31,
+      "equity_delta_pct": 14.62,
+      "equity_delta_rub": 14082.28,
+      "grid_id": "ultra_late_tight",
+      "label": "Сверхплотная PO: 2→1.9, 2.5→2.4, 3→2.9",
+      "pnl_delta_rub": 14082.28,
+      "profit_factor_delta": 0.07,
+      "signature": "2-1.9|2.5-2.4|3-2.9",
+      "vs_control": "tight_after_take",
+      "win_rate_delta_pp": -6.4
+    },
+    {
       "drawdown_delta_pp": 0.5,
       "equity_delta_pct": 12.68,
       "equity_delta_rub": 12217.48,
@@ -449,6 +551,18 @@
       "win_rate_delta_pp": -6.7
     },
     {
+      "drawdown_delta_pp": 0.32,
+      "equity_delta_pct": 6.41,
+      "equity_delta_rub": 6173.18,
+      "grid_id": "single_step_2_15",
+      "label": "Один шаг: 2→1.5",
+      "pnl_delta_rub": 6173.18,
+      "profit_factor_delta": 0.02,
+      "signature": "2-1.5",
+      "vs_control": "tight_after_take",
+      "win_rate_delta_pp": -6.9
+    },
+    {
       "drawdown_delta_pp": 1.59,
       "equity_delta_pct": 5.88,
       "equity_delta_rub": 5665.29,
@@ -459,6 +573,18 @@
       "signature": "2.5-2|3.5-3",
       "vs_control": "tight_after_take",
       "win_rate_delta_pp": -11.6
+    },
+    {
+      "drawdown_delta_pp": 1.95,
+      "equity_delta_pct": 1.32,
+      "equity_delta_rub": 1268.51,
+      "grid_id": "breakeven_2_0",
+      "label": "Безубыточный шаг: 2→0",
+      "pnl_delta_rub": 1268.51,
+      "profit_factor_delta": 0.0,
+      "signature": "2-0",
+      "vs_control": "tight_after_take",
+      "win_rate_delta_pp": -29.0
     },
     {
       "drawdown_delta_pp": -0.33,
@@ -474,10 +600,10 @@
     }
   ],
   "control_grid": "tight_after_take",
-  "elapsed_sec": 156.73,
+  "elapsed_sec": 231.9,
   "environment": {
     "biosim_env": "-",
-    "grids_sha": "f33bfdaccfd3198a",
+    "grids_sha": "070a8770b69fa32a",
     "issue139_dir": "analytics/issue-139-trailing-stop-new-level",
     "issue139_sha": {
       "analysis.py": "13b2374a5bafb9c9",
@@ -499,35 +625,44 @@
     "tickers": 28,
     "workers": 8
   },
-  "equity_spread_rub": 12742.0,
+  "equity_spread_rub": 14607.0,
   "flip_matrix": {
     "base_id": "ref139",
     "immaterial_by_target": {
       "initial_stop": 6,
-      "take": 2,
-      "trailing": 47
+      "take": 8,
+      "trailing": 57
     },
     "material_by_target": {
       "initial_stop": 148,
-      "take": 125,
-      "trailing": 784
+      "take": 663,
+      "trailing": 915
     },
     "n_flows": 3305,
     "note": "rows — смены причины выхода базовой сетки → данная сетка (столбец — новая причина); материальные — с |ΔPnL| выше порога",
     "per_grid_flips": {
+      "breakeven_2_0": 456,
       "late_conservative": 304,
       "ref139": 0,
+      "single_step_2_15": 88,
       "three_step_steady": 347,
       "tight_after_take": 335,
-      "two_step_aggressive": 126
+      "two_step_aggressive": 126,
+      "ultra_late_tight": 141
     },
     "rows": {
+      "breakeven_2_0": {
+        "take": 456
+      },
       "late_conservative": {
         "initial_stop": 154,
         "take": 110,
         "trailing": 40
       },
       "ref139": {},
+      "single_step_2_15": {
+        "take": 88
+      },
       "three_step_steady": {
         "take": 14,
         "trailing": 333
@@ -538,11 +673,14 @@
       "two_step_aggressive": {
         "take": 3,
         "trailing": 123
+      },
+      "ultra_late_tight": {
+        "trailing": 141
       }
     },
     "threshold_rub_per_trade": 20.0
   },
-  "generated_at": "2026-09-07T08:14:55+00:00",
+  "generated_at": "2026-09-07T21:24:23+00:00",
   "grid_rows": [
     {
       "avg_trade_pnl_rub": 17.07,
@@ -735,25 +873,295 @@
         }
       ],
       "win_rate_pct": 42.6
+    },
+    {
+      "avg_trade_pnl_rub": 19.11,
+      "drawdown_delta_pp": 0.34,
+      "equity_delta_pct": 6.99,
+      "equity_delta_rub": 7217.64,
+      "exit_type_counts": {
+        "initial_stop": 1790,
+        "take": 76,
+        "trailing": 1296
+      },
+      "final_equity_rub": 110433.68,
+      "game_over": false,
+      "grid_id": "ultra_late_tight",
+      "label": "Сверхплотная PO: 2→1.9, 2.5→2.4, 3→2.9",
+      "max_drawdown_pct": 3.06,
+      "n_trades": 3162,
+      "pnl_pct": 120.87,
+      "pnl_rub": 60433.68,
+      "profit_factor": 1.6,
+      "share_initial_stop_pct": 56.6,
+      "share_take_pct": 2.4,
+      "share_trailing_pct": 41.0,
+      "signature": "2-1.9|2.5-2.4|3-2.9",
+      "skipped_no_slot": 143,
+      "steps": [
+        {
+          "stop": 1.9,
+          "trigger": 2.0
+        },
+        {
+          "stop": 2.4,
+          "trigger": 2.5
+        },
+        {
+          "stop": 2.9,
+          "trigger": 3.0
+        }
+      ],
+      "win_rate_pct": 42.6
+    },
+    {
+      "avg_trade_pnl_rub": 17.12,
+      "drawdown_delta_pp": 0.35,
+      "equity_delta_pct": -0.67,
+      "equity_delta_rub": -691.46,
+      "exit_type_counts": {
+        "initial_stop": 1732,
+        "take": 279,
+        "trailing": 1057
+      },
+      "final_equity_rub": 102524.58,
+      "game_over": false,
+      "grid_id": "single_step_2_15",
+      "label": "Один шаг: 2→1.5",
+      "max_drawdown_pct": 3.07,
+      "n_trades": 3068,
+      "pnl_pct": 105.05,
+      "pnl_rub": 52524.58,
+      "profit_factor": 1.55,
+      "share_initial_stop_pct": 56.5,
+      "share_take_pct": 9.1,
+      "share_trailing_pct": 34.5,
+      "signature": "2-1.5",
+      "skipped_no_slot": 237,
+      "steps": [
+        {
+          "stop": 1.5,
+          "trigger": 2.0
+        }
+      ],
+      "win_rate_pct": 42.1
+    },
+    {
+      "avg_trade_pnl_rub": 17.04,
+      "drawdown_delta_pp": 1.98,
+      "equity_delta_pct": -5.42,
+      "equity_delta_rub": -5596.13,
+      "exit_type_counts": {
+        "initial_stop": 1581,
+        "take": 556,
+        "trailing": 658
+      },
+      "final_equity_rub": 97619.91,
+      "game_over": false,
+      "grid_id": "breakeven_2_0",
+      "label": "Безубыточный шаг: 2→0",
+      "max_drawdown_pct": 4.7,
+      "n_trades": 2795,
+      "pnl_pct": 95.24,
+      "pnl_rub": 47619.91,
+      "profit_factor": 1.53,
+      "share_initial_stop_pct": 56.6,
+      "share_take_pct": 19.9,
+      "share_trailing_pct": 23.5,
+      "signature": "2-0",
+      "skipped_no_slot": 510,
+      "steps": [
+        {
+          "stop": 0.0,
+          "trigger": 2.0
+        }
+      ],
+      "win_rate_pct": 20.0
     }
   ],
   "headline": [
     "1. Якорный паритет базовой сетки с #139: подтверждён — сверено 3305 сделок: по механике выхода расхождений 0, сверх допуска по доходности — 0 (",
-    "2. Разброс итоговой equity между сетками — до 7,389 ₽ (7% базовой) — выбор ступеней значим сильнее, чем сама идея трейла.",
-    "3. Смена причины выхода относительно базовой сетки — 1112 из 3305 сделок; материальные (> 20.0 ₽): 1057.",
-    "4. Исход identical во всех сетках для 80.5% сделок; медианная ранговая корреляция по доходности — 0.86.",
-    "5. Walk-forward (9 окон по 3 мес.): чаще всех прибыльны ref139 (9), tight_after_take (9), late_conservative (9).",
-    "6. Максимальная дневная просадка по сеткам — 4.3% (методика #139: close-дневная equity, пик-впадина).",
-    "7. Лучшие по итоговому баллу устойчивости: ref139 (47.3), two_step_aggressive (46.2), three_step_steady (46.0)."
+    "2. Долг #143 по группам ступеней: лучший одношаговый `single_step_2_15` — 102,525 ₽ (медиана группы 100,072 ₽), лучший многоступенчатый `ultra_",
+    "3. Цена следующей ступени: у `ref139` первый шаг совпадает с одношаговой `single_step_2_15`, добавленные ступени (2.5→2) стоят +691 ₽ капитала,",
+    "4. PO-проба `ultra_late_tight` (ступень в 0.1R от триггера, самый поздний триггер решётки 3R): 110,434 ₽ — базовой `ref139` +7,218 ₽, лучшей из",
+    "5. Одношаговая `single_step_2_15` (одна фиксация вместо лестницы): 102,525 ₽ (-691 ₽ к базовой, просадка 3.07 п.п., винрейт 42.1 %, балл 46.5) ",
+    "6. Нижняя граница пользы трейла — `breakeven_2_0` со стопом в 0R: 97,620 ₽ (-5,596 ₽ к базовой), просадка 4.7 п.п. (+1.98 п.п.), винрейт 20 %, ",
+    "7. Одношаговая `breakeven_2_0` (одна фиксация вместо лестницы): 97,620 ₽ (-5,596 ₽ к базовой, просадка 4.7 п.п., винрейт 20 %, балл 43.2) — на ",
+    "8. Разброс итоговой equity между сетками — до 7,389 ₽ (7% базовой) — выбор ступеней значим сильнее, чем сама идея трейла.",
+    "9. Смена причины выхода относительно базовой сетки — 1797 из 3305 сделок; материальные (> 20.0 ₽): 1726.",
+    "10. Исход identical во всех сетках для 69.3% сделок; медианная ранговая корреляция по доходности — 0.89.",
+    "11. Walk-forward (9 окон по 3 мес.): чаще всех прибыльны ref139 (9), tight_after_take (9), late_conservative (9).",
+    "12. Максимальная дневная просадка по сеткам — 4.7% (методика #139: close-дневная equity, пик-впадина).",
+    "13. Лучшие по итоговому баллу устойчивости: ref139 (47.3), single_step_2_15 (46.5), ultra_late_tight (46.3)."
   ],
   "issue": 143,
+  "lattice": {
+    "baseline_grid_id": "ref139",
+    "best_other_equity_rub": 108569.0,
+    "best_other_grid_id": "two_step_aggressive",
+    "boundaries": [
+      {
+        "avg_trade_pnl_rub": 19.1,
+        "dd_vs_base_pp": 0.34,
+        "dpptr_vs_base": 2.0,
+        "final_equity_rub": 110434.0,
+        "grid_id": "ultra_late_tight",
+        "material": false,
+        "max_drawdown_pct": 3.06,
+        "profit_factor": 1.6,
+        "score": 46.3,
+        "steps": "2→1.9, 2.5→2.4, 3→2.9",
+        "tags": "PO-проба",
+        "vs_base_rub": 7218.0,
+        "vs_best_rub": 1865.0,
+        "vs_control_rub": 14082.0,
+        "win_rate_pct": 42.6
+      },
+      {
+        "avg_trade_pnl_rub": 17.1,
+        "dd_vs_base_pp": 0.35,
+        "dpptr_vs_base": 0.1,
+        "final_equity_rub": 102525.0,
+        "grid_id": "single_step_2_15",
+        "material": false,
+        "max_drawdown_pct": 3.07,
+        "profit_factor": 1.55,
+        "score": 46.5,
+        "steps": "2→1.5",
+        "tags": "одношаговая",
+        "vs_base_rub": -691.0,
+        "vs_best_rub": -6044.0,
+        "vs_control_rub": 6173.0,
+        "win_rate_pct": 42.1
+      },
+      {
+        "avg_trade_pnl_rub": 17.0,
+        "dd_vs_base_pp": 1.98,
+        "dpptr_vs_base": -0.0,
+        "final_equity_rub": 97620.0,
+        "grid_id": "breakeven_2_0",
+        "material": false,
+        "max_drawdown_pct": 4.7,
+        "profit_factor": 1.53,
+        "score": 43.2,
+        "steps": "2→0",
+        "tags": "одношаговая · безубыток",
+        "vs_base_rub": -5596.0,
+        "vs_best_rub": -10949.0,
+        "vs_control_rub": 1269.0,
+        "win_rate_pct": 20.0
+      }
+    ],
+    "control_grid_id": "tight_after_take",
+    "groups": [
+      {
+        "best_grid_id": "single_step_2_15",
+        "dd_median_pp": 3.88,
+        "equity_best_rub": 102525.0,
+        "equity_median_rub": 100072.0,
+        "grids": [
+          "breakeven_2_0",
+          "single_step_2_15"
+        ],
+        "n_steps": 1,
+        "pf_median": 1.54,
+        "score_median": 44.9
+      },
+      {
+        "best_grid_id": "two_step_aggressive",
+        "dd_median_pp": 3.25,
+        "equity_best_rub": 108569.0,
+        "equity_median_rub": 103216.0,
+        "grids": [
+          "late_conservative",
+          "ref139",
+          "two_step_aggressive"
+        ],
+        "n_steps": 2,
+        "pf_median": 1.55,
+        "score_median": 46.2
+      },
+      {
+        "best_grid_id": "ultra_late_tight",
+        "dd_median_pp": 2.74,
+        "equity_best_rub": 110434.0,
+        "equity_median_rub": 103130.0,
+        "grids": [
+          "three_step_steady",
+          "ultra_late_tight"
+        ],
+        "n_steps": 3,
+        "pf_median": 1.56,
+        "score_median": 46.1
+      },
+      {
+        "best_grid_id": "tight_after_take",
+        "dd_median_pp": 2.75,
+        "equity_best_rub": 96351.0,
+        "equity_median_rub": 96351.0,
+        "grids": [
+          "tight_after_take"
+        ],
+        "n_steps": 4,
+        "pf_median": 1.53,
+        "score_median": 45.7
+      }
+    ],
+    "material_rub_per_trade": 50.0,
+    "pairs": [
+      {
+        "added_steps": "2.5→2",
+        "dd_delta_pp": -0.35,
+        "equity_delta_rub": 691.0,
+        "multi_grid_id": "ref139",
+        "score_delta": 0.8,
+        "single_grid_id": "single_step_2_15"
+      }
+    ],
+    "po_gap_r": 0.1,
+    "po_grid_id": "ultra_late_tight",
+    "po_material_rub_per_trade": 20.0,
+    "po_trigger_r": 3.0,
+    "verdicts": [
+      {
+        "kind": "design",
+        "severity": "info",
+        "text": "Долг #143 по группам ступеней: лучший одношаговый `single_step_2_15` — 102,525 ₽ (медиана группы 100,072 ₽), лучший многоступенчатый `ultra_late_tight` — 110,434 ₽ (медиана 103,130 ₽), Δ -7,909 ₽. Группы различаются и плотностью, и триггерами — это косвенный срез, прямой контроль — пары «первый шаг ↔ сетка целиком» ниже."
+      },
+      {
+        "kind": "design",
+        "severity": "info",
+        "text": "Цена следующей ступени: у `ref139` первый шаг совпадает с одношаговой `single_step_2_15`, добавленные ступени (2.5→2) стоят +691 ₽ капитала, -0.35 п.п. просадки и +0.8 балла устойчивости."
+      },
+      {
+        "kind": "stakeholder",
+        "severity": "info",
+        "text": "PO-проба `ultra_late_tight` (ступень в 0.1R от триггера, самый поздний триггер решётки 3R): 110,434 ₽ — базовой `ref139` +7,218 ₽, лучшей из остальных `two_step_aggressive` +1,865 ₽, контрольной `tight_after_take` +14,082 ₽. ΔPnL на сделку +2.0 ₽ — не материальна (порог 20 ₽, issue #155). Решает Product Owner (#144), не аналитика."
+      },
+      {
+        "kind": "design",
+        "severity": "info",
+        "text": "Одношаговая `single_step_2_15` (одна фиксация вместо лестницы): 102,525 ₽ (-691 ₽ к базовой, просадка 3.07 п.п., винрейт 42.1 %, балл 46.5) — на этом скоупе одна фиксация короче лестницы: ступени работают."
+      },
+      {
+        "kind": "sensitivity",
+        "severity": "info",
+        "text": "Нижняя граница пользы трейла — `breakeven_2_0` со стопом в 0R: 97,620 ₽ (-5,596 ₽ к базовой), просадка 4.7 п.п. (+1.98 п.п.), винрейт 20 %, средняя сделка +17.0 ₽ — перенос стопов в безубыток убирает капиталу на этом скоупе: хвост прибыли дороже защиты от нулевых выходов. Опорная точка для `exit.breakeven_at_r`."
+      },
+      {
+        "kind": "design",
+        "severity": "info",
+        "text": "Одношаговая `breakeven_2_0` (одна фиксация вместо лестницы): 97,620 ₽ (-5,596 ₽ к базовой, просадка 4.7 п.п., винрейт 20 %, балл 43.2) — на этом скоупе одна фиксация короче лестницы: ступени работают."
+      }
+    ]
+  },
   "limitations": [
     "Анализ исторический: устойчивость параметров не является прогнозом будущих результатов.",
     "Пути строятся из 1m-свечей; внутрибарсовая последовательность high/low неизвестна — упрощение унаследовано от #139 (стоп проверяется раньше тейка на том же баре).",
     "Слоты, комиссия и объёмный приоритет зафиксированы конфигурацией id=126; альтернативные режимы исполнения вынесены в отдельные задачи.",
     "Метрики на подокнах ограничены по числу сделок: выбор сетки по одному окну неустойчив.",
     "Паритет по доходности одной сделки проверяется с допуском 0,1 п.п.: #139 считает net_return_pct от цены исполнения движка, #143 — от entry_price артефакта. Вклад в капитал по книге — единицы-десятки ₽; цена, время и причина выхода совпадают точно.",
-    "Решётка неполная относительно постановки #143 (ожидалось 8–12 комбинаций): проверено 5 многоступенчатых сеток (ref139, tight_after_take, late_conservative, three_step_steady, two_step_aggressive). Одношаговые варианты (+2R→+1R, +2R→+2R) и «безубыточный» шаг (stop = 0) в решётку не входили: вывод переносится только на перечисленные конфигурации.",
+    "Решётка v3 (#155) закрывает долг #143 по форме: 8 сеток — шесть многоступенчатых (2–4 ступени) и две одношаговые (+2R→+1.5R и безубыточная +2R→0R). Верх плотности задан зазором ступени 0,1R от триггера (ultra_late_tight — проба PO); плотнее на этом контуре не тестировали, поэтому вывод о «трейле каждые несколько тиков» ограничен этой границей. Прямая пара «первый шаг ↔ лестница» на решётке одна (single_step_2_15 ↔ ref139): ни у одной другой одношаговой сетки первый шаг не совпадает с лестницей, поэтому сравнение групп по числу ступеней остаётся косвенным.",
     "Стресс издержками мягче заказанного: комиссия 0,06 / 0,10 / 0,15 % от оборота (в #143 ожидались 0,3 / 0,6 / 1,5 %), проскальзывание 0 / 5 / 10 / 20 б.п. от цены вместо 0 / 1 / 3 шага цены тикера; чувствительность к минимальному лоту MOEX не моделировалась.",
     "Графиков прогон не строит (в #139 есть plots/*.png): сводка держится на markdown-таблицах и спарклайнах, визуального сравнения equity-кривых сеток в пакете нет.",
     "Чувствительность результата к risk_reward (1:2 / 1:3) в этот прогон не входила: сетки ступеней перебирались при тейке, зафиксированном конфигурацией id=126.",
@@ -762,19 +1170,22 @@
     "Решётка не регулярная: сдвиг базовой сетки целиком (+0.5R / −0.5R) отдельной осью не строился — варианты подобраны по форме (число ступеней, ранние и поздние триггеры), поэтому на вопрос «не подгонка ли это» отвечает только walk-forward (§6), а не структура решётки."
   ],
   "n_flows": 3305,
-  "n_grids": 5,
+  "n_grids": 8,
   "next_issues": [
     "#144 — контракт config.trailing_stop: схема, валидация и дефолты в trading_config.py (дефолтную сетку утверждает Product Owner, не аналитика).",
     "#145 — ступенчатый трейлинг в StrategyEvaluator, плагине и портфельном симуляторе: решётка #143 становится частью проверки боевой реализации.",
     "#147 — паритет боевого пути трейлинг-стопа с книгой #139 (гейт эпика): вывод #143 перепроверяется на живом коде, а не на оверлей-симуляторе.",
     "#151 — трейлинг-стоп в песочнице LiveExecutor: ratchet, рестарт, kill-switch.",
     "#152 — приёмка на живом периоде: факт против модели и итоговый вердикт.",
-    "Долг #143 — добить решётку до 8–12 сеток (одношаговые и «безубыточный» шаг), перейти на шаг цены вместо б.п., добавить чувствительность к risk_reward 1:2 / 1:3 и графики equity-кривых по примеру #139, а также прогнать книгу A (fixed 1:3) по той же стресс-решётке: только так появляется порог, при котором трейлинг перестаёт бить фиксированный стоп."
+    "Долг #143 — форма решётки закрыта в #155 (8 сеток: многоступенчатые, одношаговые и безубыточная ступень); остаются прочие оси: сдвиг базовой сетки целиком (±0.5R), шаг цены вместо б.п. в стрессе издержками, чувствительность к risk_reward 1:2 / 1:3 и графики equity-кривых по примеру #139, а также прогон книги A (fixed 1:3) по той же стресс-решётке: только так появляется порог, при котором трейлинг перестаёт бить фиксированный стоп."
   ],
   "recommendations": [
     "Решать по совокупности (equity + просадка + PF + устойчивость по подпериодам), а не по одному метрическому пику.",
     "Любую правку trail_steps прогонять через #143 до применения к production-конфигу (защитные флаги контракта не должны давать исключений).",
-    "Приоритетная проверка: сетки ref139, two_step_aggressive, three_step_steady — они лидеры по composite-баллу, но выбор по нему не автоматичен."
+    "Приоритетная проверка: сетки ref139, single_step_2_15, ultra_late_tight — они лидеры по composite-баллу, но выбор по нему не автоматичен.",
+    "Ступени трейла работают не всегда: из 1 прямых пар «первый шаг ↔ сетка целиком» добавление ступеней повысило капитал в 1; максимум — `ref139` (+691 ₽ к её же первому шагу). Новый шаг в production без такой проверки не попадает.",
+    "Проба PO: `ultra_late_tight` (ступень в 0.1R от триггера 3.0R) — +7,218 ₽ к базовой, +1,865 ₽ к лучшей `two_step_aggressive`, ΔPnL на сделку +2.0 ₽ в пределах порога материальности (20 ₽/сделку). Решает Product Owner (#144), не аналитика.",
+    "Граница пользы трейла: `breakeven_2_0` (стоп в 0R) даёт -5,596 ₽ к базовой сетке при просадке 4.7 п.п. и винрейте 20 % — перенос стопов в безубыток (`exit.breakeven_at_r`) — отдельный механизм и отдельное решение, в одной проверке с `trail_steps` его не сравнивают."
   ],
   "ref_issue": 139,
   "regime_concentration": {
@@ -856,6 +1267,14 @@
     }
   },
   "robustness": {
+    "breakeven_2_0": {
+      "drawdown": 15.3,
+      "equity_worst": 0.0,
+      "flips": 12.9,
+      "stress": 0.0,
+      "total": 43.2,
+      "walk_forward": 15.0
+    },
     "late_conservative": {
       "drawdown": 15.7,
       "equity_worst": 0.0,
@@ -870,6 +1289,14 @@
       "flips": 15.0,
       "stress": 0.0,
       "total": 47.3,
+      "walk_forward": 15.0
+    },
+    "single_step_2_15": {
+      "drawdown": 16.9,
+      "equity_worst": 0.0,
+      "flips": 14.6,
+      "stress": 0.0,
+      "total": 46.5,
       "walk_forward": 15.0
     },
     "three_step_steady": {
@@ -895,9 +1322,17 @@
       "stress": 0.0,
       "total": 46.2,
       "walk_forward": 15.0
+    },
+    "ultra_late_tight": {
+      "drawdown": 16.9,
+      "equity_worst": 0.0,
+      "flips": 14.4,
+      "stress": 0.0,
+      "total": 46.3,
+      "walk_forward": 15.0
     }
   },
-  "schema": "143-trailing-v2",
+  "schema": "143-trailing-v3",
   "scope": {
     "full_scope": true,
     "limit": 0,
@@ -944,6 +1379,36 @@
     {
       "commission_max_pct": 0.15,
       "commission_min_pct": 0.06,
+      "dd_nominal_pp": 4.7,
+      "dd_worst_pp": 59.71,
+      "equity_nominal_rub": 97619.91,
+      "equity_worst_rub": 23028.52,
+      "game_over_any": false,
+      "grid_id": "breakeven_2_0",
+      "n_stress": 12,
+      "pnl_nominal_rub": 47619.91,
+      "pnl_worst_rub": -26971.48,
+      "slippage_max_pct": 0.2,
+      "trailing_share_worst_pct": 23.1
+    },
+    {
+      "commission_max_pct": 0.15,
+      "commission_min_pct": 0.06,
+      "dd_nominal_pp": 3.06,
+      "dd_worst_pp": 67.51,
+      "equity_nominal_rub": 110433.68,
+      "equity_worst_rub": 19364.41,
+      "game_over_any": false,
+      "grid_id": "ultra_late_tight",
+      "n_stress": 12,
+      "pnl_nominal_rub": 60433.68,
+      "pnl_worst_rub": -30635.59,
+      "slippage_max_pct": 0.2,
+      "trailing_share_worst_pct": 41.0
+    },
+    {
+      "commission_max_pct": 0.15,
+      "commission_min_pct": 0.06,
       "dd_nominal_pp": 4.34,
       "dd_worst_pp": 69.14,
       "equity_nominal_rub": 102016.69,
@@ -970,6 +1435,21 @@
       "pnl_worst_rub": -32244.2,
       "slippage_max_pct": 0.2,
       "trailing_share_worst_pct": 40.3
+    },
+    {
+      "commission_max_pct": 0.15,
+      "commission_min_pct": 0.06,
+      "dd_nominal_pp": 3.07,
+      "dd_worst_pp": 70.84,
+      "equity_nominal_rub": 102524.58,
+      "equity_worst_rub": 17121.11,
+      "game_over_any": false,
+      "grid_id": "single_step_2_15",
+      "n_stress": 12,
+      "pnl_nominal_rub": 52524.58,
+      "pnl_worst_rub": -32878.89,
+      "slippage_max_pct": 0.2,
+      "trailing_share_worst_pct": 34.5
     },
     {
       "commission_max_pct": 0.15,
