@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -43,7 +43,14 @@ class ExitSignal:
 
 @dataclass
 class Position:
-    """Position state for strategy plugin."""
+    """Position state for strategy plugin.
+
+    Issue #145 (Epic #142 Block W) adds the stepped trailing-stop fields. `trailing` is a
+    `app.analytics.trailing_stop.TrailingState` built by the contour that opens the position;
+    None means "no ladder" and keeps the pre-#145 fixed stop/take exit bit-for-bit.
+    `stop` is the live stop (the ladder raises it, never lowers it), `initial_stop` and
+    `step_reached` mirror the rung bookkeeping for reports and the panels (#150).
+    """
     entry_price: float
     entry_ts: pd.Timestamp
     stop: float
@@ -52,6 +59,9 @@ class Position:
     unrealized_pnl: float = 0.0
     bars_held: int = 0
     metadata: Optional[dict] = None
+    initial_stop: Optional[float] = None
+    step_reached: float = 0.0
+    trailing: Optional[Any] = None
 
 
 class StrategyPlugin(ABC):

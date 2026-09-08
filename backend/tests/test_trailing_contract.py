@@ -1,10 +1,12 @@
 """Contract tests for the stepped trailing stop - Issue #144 (Epic #142, Block W).
 
-#144 delivers the `config.trailing_stop` SCHEMA, its DEFAULTS and its VALIDATION - and
-deliberately nothing else: StrategyEvaluator applies the ladder in #145, the Lab writes
-it in #146, the API surfaces the reason codes in #149, paper in #148, sandbox live in
-#151. These tests are the guard rail of that contract (Issue #144 section 6): they read
-no database, run no backtest and never mutate trading_config.
+#144 delivered the `config.trailing_stop` SCHEMA, its DEFAULTS and its VALIDATION. Issue
+#145 moved the ladder into the production exit path (app.analytics.trailing_stop, called by
+StrategyEvaluator, the levels_reversal plugin and the portfolio simulator); the Lab writes
+the block in #146, the API surfaces the reason codes in #149, paper in #148, sandbox live
+in #151. These tests remain the guard rail of the CONTRACT (Issue #144 section 6): they
+read no database, run no backtest and never mutate trading_config. The behaviour of the
+applied ladder is covered by tests/test_trailing_stop.py (#145).
 """
 from __future__ import annotations
 
@@ -301,7 +303,7 @@ def test_unknown_keys_do_not_change_the_verdict():
 
 
 # ---------------------------------------------------------------------------
-# 5. EXIT_TRAILING is a contract value only - #144 changes no behaviour
+# 5. EXIT_TRAILING: a #144 contract value, emitted by the engine since #145
 # ---------------------------------------------------------------------------
 
 def test_exit_trailing_joins_the_closed_set_without_touching_the_others():
@@ -310,11 +312,18 @@ def test_exit_trailing_joins_the_closed_set_without_touching_the_others():
         EXIT_STOP, EXIT_TAKE, EXIT_HOLDING, EXIT_SIGNAL, EXIT_SESSION, EXIT_TRAILING}
 
 
-def test_engine_does_not_emit_trailing_yet():
-    """#145 owns the emission. Until then no backtest or paper path may return it."""
+def test_engine_emits_trailing_only_through_the_shared_module():
+    """#145 landed: the brain raises the stop, but never restates the rule or the reason.
+
+    The engine must reach EXIT_TRAILING through app.analytics.trailing_stop - one ladder
+    for every contour - and must not hard-code the reason string or a percentage.
+    """
     engine = (Path(__file__).resolve().parents[1] / "app" / "analytics" /
               "strategy_engine.py").read_text(encoding="utf-8")
+    assert "from app.analytics.trailing_stop import" in engine
+    # The brain never names the reason itself - it forwards what the ladder returned.
     assert f'"{EXIT_TRAILING}"' not in engine
+    assert f"'{EXIT_TRAILING}'" not in engine
 
 
 

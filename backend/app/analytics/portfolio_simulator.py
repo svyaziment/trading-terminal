@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 
 from app.db.db_manager import DBManager
+from app.analytics.backtest_models import EXIT_STOP, EXIT_TAKE, EXIT_TRAILING
 from app.analytics.paper_strategy import get_active_paper_strategy
 from app.analytics.pattern_registry import normalize_patterns
 from app.analytics.portfolio_backtest import run_portfolio_backtest
@@ -90,6 +91,28 @@ def get_tickers_by_volume(
     return df["ticker"].tolist() if not df.empty else []
 
 
+def _exit_reason_split(trades: List[Dict]) -> Dict[str, Any]:
+    """How the book was closed: trailing vs take vs the untouched initial stop (Issue #145).
+
+    The counts come from the trade list itself, so the metrics cannot drift from the
+    trades. Production keeps the pre-#145 name `stop` for an exit that never had its stop
+    raised; the #139/#143 analytics books call that same event `initial_stop` - the mapping
+    is Issue #147's job, this report just shows what the engine emitted.
+    """
+    counts: Dict[str, int] = defaultdict(int)
+    for trade in trades:
+        counts[str(trade.get("exit_reason") or "unknown")] += 1
+    trailing = counts.get(EXIT_TRAILING, 0)
+    total = len(trades)
+    return {
+        "exit_reason_counts": dict(sorted(counts.items())),
+        "trailing_exits": trailing,
+        "take_exits": counts.get(EXIT_TAKE, 0),
+        "initial_stop_exits": counts.get(EXIT_STOP, 0),
+        "trailing_exit_share_pct": round(trailing / total * 100, 1) if total else 0.0,
+    }
+
+
 def _portfolio_metrics(trades: List[Dict], equity_curve: List[Dict], initial_capital: float) -> Dict:
     if not trades:
         final = equity_curve[-1]["equity_rub"] if equity_curve else initial_capital
@@ -101,6 +124,7 @@ def _portfolio_metrics(trades: List[Dict], equity_curve: List[Dict], initial_cap
             "final_equity_rub": round(final, 2),
             "pnl_rub": round(final - initial_capital, 2),
             "pnl_pct": round((final / initial_capital - 1) * 100, 2),
+            **_exit_reason_split([]),
         }
 
     pnls = [t["pnl_rub"] for t in trades]
@@ -127,6 +151,7 @@ def _portfolio_metrics(trades: List[Dict], equity_curve: List[Dict], initial_cap
         "final_equity_rub": round(final, 2),
         "pnl_rub": round(final - initial_capital, 2),
         "pnl_pct": round((final / initial_capital - 1) * 100, 2),
+        **_exit_reason_split(trades),
     }
 
 
@@ -178,6 +203,8 @@ def _replay_portfolio_trades(
             "net_return_pct": pos["net_return_pct"],
             "pnl_rub": round(pnl_rub, 2),
             "bars_held": pos.get("bars_held"),
+            **({"step_reached": pos["step_reached"]}
+               if pos.get("step_reached") is not None else {}),
         })
 
     if entry_times:

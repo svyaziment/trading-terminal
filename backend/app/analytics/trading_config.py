@@ -11,7 +11,7 @@ Central trading configuration - SINGLE SOURCE OF TRUTH for:
   8) levels state-machine breakout thresholds (Issue #106 / Epic #105);
   9) level_breakout_retest trigger constant (Issue #107; Lab params live in pattern_registry);
  10) stepped trailing-stop exit contract (Issue #144 / Epic #142 Block W - schema,
-     defaults, normalization and validation; the engine applies it in #145).
+     defaults, normalization and validation; StrategyEvaluator applies it since #145).
 
 Every module (data_refresher, online_data, online_signals, paper_trader, strategy_backtest)
 must import get_trading_universe() / get_strategy() from here instead of hardcoding
@@ -147,11 +147,14 @@ def get_level_breakout_retest_config() -> Dict[str, Any]:
 # --- Stepped trailing stop (Issue #144 / Epic #142, Block W) -------------------
 # Contract only: this block defines the schema, the defaults and the validation of
 # `strategies.config['trailing_stop']`. Nothing here changes exit behaviour -
-# StrategyEvaluator starts applying the ladder in #145, the API surfaces the reason
-# codes in #149, paper in #148 and the sandbox executor in #151. No production path
-# calls these helpers yet - this repo has no validate_config() to hook into - so a
-# malformed ladder is still accepted at save time until the #146 editor and the #149
-# API gate on require_valid_trailing_stop(). A config without the key (or with
+# Since #145 the production engine reads this block: StrategyEvaluator, the levels_reversal
+# plugin and the portfolio simulator arm the ladder through app.analytics.trailing_stop,
+# which calls resolve_trailing_stop() below. The API surfaces the reason codes in #149,
+# paper in #148 and the sandbox executor in #151. This repo has no validate_config() to hook
+# into, so a malformed ladder is still accepted at save time until the #146 editor and the
+# #149 API gate on require_valid_trailing_stop(); the engine refuses to arm such a ladder
+# (fail-safe) and manages the position exactly as it did before #145. A config without the
+# key (or with
 # `enabled: false`, the shipped state) normalizes exactly as it did before #144
 # (Issue #144 section 5).
 # These numbers are the single source of truth: the engine, the API and the frontend
@@ -243,7 +246,8 @@ def normalize_trailing_stop(config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Canonical form of `config['trailing_stop']` -> {'enabled': bool, 'steps': [...]}.
 
     Idempotent: normalizing an already normalized block changes nothing, so the engine
-    (#145), the API (#149) and the paper/live paths can call it on every run.
+    (trailing_stop.py since #145), the API (#149) and the paper/live paths can call it on
+    every run.
 
     - no key / None / {} / non-dict config -> {'enabled': False, 'steps': []} - the
       pre-#144 behaviour is preserved bit-for-bit (Issue #144 section 5);
@@ -289,13 +293,13 @@ def validate_trailing_steps(
     """Stable reason codes explaining why a RAW step list must be rejected.
 
     An empty list means "accepted". The function never raises and never mutates its
-    input, so the engine (#145), the API (#149), paper (#148) and the sandbox executor
-    (#151) all reach the same verdict from one call.
+    input, so the engine (trailing_stop.py since #145), the API (#149), paper (#148) and
+    the sandbox executor (#151) all reach the same verdict from one call.
 
     `enabled` only decides whether an empty ladder is a rejection (`trailing_disabled`):
     a disabled block with no steps is the shipped default. Bounds are checked even when
-    `enabled` is False - a stored-but-disabled ladder is what #145 will arm, so invalid
-    numbers must never reach the database.
+    `enabled` is False - a stored-but-disabled ladder is what the engine arms the moment
+    the flag flips, so invalid numbers must never reach the database.
     """
     reasons: List[str] = []
     if max_steps is None:
@@ -359,9 +363,9 @@ def require_valid_trailing_stop(config: Optional[Dict[str, Any]]) -> Dict[str, A
     """resolve_trailing_stop() that refuses to guess: raises ValueError on any reason code.
 
     Intended gate for the write paths (Lab editor #146, strategy create/update API #149).
-    Nothing calls it in production yet - Issue #144 ships the contract only - so saving a
-    malformed ladder still succeeds today; callers that cannot wait for #146/#149 must read
-    `resolve_trailing_stop(config)['reasons']` themselves.
+    Nothing calls it in production yet - saving a malformed ladder still succeeds today -
+    but the #145 engine reads `resolve_trailing_stop(config)['reasons']` and refuses to arm
+    a ladder the validator rejects, so a malformed block changes no exits.
     """
     resolved = resolve_trailing_stop(config)
     if resolved['reasons']:
