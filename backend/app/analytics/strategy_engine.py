@@ -439,7 +439,13 @@ class StrategyEvaluator:
 
     def on_bar(self, row, idx: int) -> dict:
         """Process one 1min bar (backtest mode; manages position state).
-        Entry logic is delegated to the unified check_entry."""
+        Entry logic is delegated to the unified check_entry.
+
+        Exit order (Issue #145): with a ladder armed on the position the bar runs
+        stop -> take -> arm through app.analytics.trailing_stop (same function the plugin and
+        the portfolio simulator call); without one it is the pre-#145 fixed stop/take branch,
+        unchanged. `idx` is the ladder's bar key, so the stop a bar arms only bites later.
+        """
         ts = pd.Timestamp(row['timestamp'])
 
         # --- exit ---
