@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-06 (Epic #142 — stepped trailing stop planned for the production exit path; roadmap Block W). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-09-08 (Product Owner decision recorded in §18: `ultra_late_tight` — the densest late ladder of the `143-trailing-v3` lattice — is the production default trailing-stop grid for #144; epic #142 / roadmap Block W). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -298,7 +298,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | T | Composite S/R pattern (Epic #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 Lab chip + #119 AFKS smoke + #124 Lab-universe A/B done |
 | U | Support with tracker (Epic #126) | #127 `levels_sr_support` backend + #128 Lab chip + #129 isolated Lab universe + #130 portfolio #44 done |
 | V | Stepped trailing-stop analytics (Issue #139) | Done — analytics-only A/B (fixed 1:3 vs stepped trailing) on locked `test_20260830_new_level` id=126, RR 1:3; trailing lives in `analytics/.../trailing.py`, not wired into the production exit path |
-| W | Stepped trailing stop in production (Epic #142) | Planned — #144 `config.trailing_stop` contract, #145 engine/plugin/portfolio simulator, #146 Lab editor, #147 parity gate vs #139, #143 robustness analytics done (8-grid lattice `143-trailing-v3`, walk-forward, cost stress — §18; the lattice shape itself was re-delivered by #155), #148 paper trader, #149 API + filters, #150 Paper/Live panels, #151 sandbox `LiveExecutor`, #152 live-period acceptance verdict. Ships **default OFF**; basis is the #139 result (A 95 180.01 -> B 103 176.00 RUB, PF 1.41 -> 1.54, daily MaxDD 6.49% -> 2.74%) |
+| W | Stepped trailing stop in production (Epic #142) | Planned — #144 `config.trailing_stop` contract, #145 engine/plugin/portfolio simulator, #146 Lab editor, #147 parity gate vs #139, #143 robustness analytics done (8-grid lattice `143-trailing-v3`, walk-forward, cost stress — §18; the lattice shape itself was re-delivered by #155; **the Product Owner approved the production default grid on 2026-09-08: `ultra_late_tight`**), #148 paper trader, #149 API + filters, #150 Paper/Live panels, #151 sandbox `LiveExecutor`, #152 live-period acceptance verdict. Ships **default OFF**; basis is the #139 result (A 95 180.01 -> B 103 176.00 RUB, PF 1.41 -> 1.54, daily MaxDD 6.49% -> 2.74%) and the #143 lattice (95 827 … 110 434 RUB); the #139 grid `ref139` stays the parity anchor that #147 injects explicitly |
 
 
 ## 9. Important Notes
@@ -467,7 +467,30 @@ bound and the `ultra_late_tight` PO probe) and made the comparison machine-reada
 `summary.json.lattice`. Still open, recorded in `report.md` §13: stress milder than specified (no MOEX
 price-step / min-lot sensitivity); no `risk_reward` 1:2 sensitivity; no fixed-stop-vs-trailing
 threshold at max stress (book A was not stress-run); no charts; only one direct
-single-step ↔ ladder pair, so the group comparison stays indirect. Choosing the production default grid
-is a Product Owner decision in #144, not a result of this package. No production code path was
-touched — engine work is #145, live-path parity gate is #147.
+single-step ↔ ladder pair, so the group comparison stays indirect. Choosing the production default grid was
+a Product Owner decision in #144, not a result of this package — **that decision has now been taken** (see
+below). No production code path was touched by this package — engine work is #145, live-path parity gate is
+#147.
+
+### Production default grid — Product Owner decision (2026-09-08)
+
+The Product Owner approved **`ultra_late_tight`** — `+2.0R → +1.9R`, `+2.5R → +2.4R`, `+3.0R → +2.9R` — as the
+default value of `config.trailing_stop.steps` in `trading_config.TRAILING_STOP` (#144). `config.trailing_stop.enabled`
+stays `false`: picking a grid switches nothing on and rewrites no locked configuration (126 / 36 / 102 / 118).
+
+- Why it won: best capital of the lattice, 110 434 RUB (+7 218 over `ref139`, +1 865 over the best ladder), PF 1.60,
+  3 162 trades, win rate 42.6 %, walk-forward floor +1 366 RUB per window versus +745 for the base grid, best
+  worst node in the cost-stress lattice (19 364 RUB at commission 0.15 % + 20 b.p. slippage), and the smallest
+  behavioural diff among the ladders (141 exit-reason flips = 4.3 % against the base grid, Spearman ρ 0.9966) —
+  the gain comes from the shape of the rule, not from one lucky trade (ΔPnL per trade +2.0 RUB).
+- What was traded away: composite stability score 46.3 versus 47.3 for `ref139` and daily MaxDD 3.06 pp versus
+  2.72 pp. The score is a summary of these eight grids on one book and one period, not an objective (report §4),
+  and the equity, walk-forward and stress-floor gains were judged worth the +0.34 pp of drawdown.
+- What stays unchanged: `ref139` (the #139 grid) remains the **parity anchor** — #147 injects it explicitly, it is
+  not a production default — and the published artifacts of #139 and #143 are frozen evidence. #143 and #155 stay
+  closed, with a pointer comment recording the decision.
+- Residual risk owned by follow-ups: the step margin is **0.1R** (not 0.5R as in `ref139`), so slippage or a gap on
+  the synthetic stop of `LiveExecutor` consumes a visible share of the locked profit. #151 owes a defensive price
+  step and #152 owes the break-even slippage measured against 0.1R; the leave / tune / rollback verdict of #152 can
+  move the default only back through the Product Owner.
 

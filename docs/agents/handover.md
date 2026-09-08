@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-07 (Issue #143 robustness lattice re-delivered as `143-trailing-v3` by Issue #155 — 8 grids + `summary.json.lattice` + tracked tests). Companion to project-context.md.
+Last refreshed: 2026-09-08 (Product Owner decision recorded in §35: `ultra_late_tight` — the lattice grid delivered by Issue #155 in the `143-trailing-v3` lattice — becomes the production default trailing-stop grid for #144; `enabled` stays `false`. Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -452,6 +452,22 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
 - Verdict: analytics only. Do not read the composite robustness score as an objective: in this run its
   stress-capital, DD-degradation and walk-forward components tie every grid (0.0 / 0.0 / 15.0 for all
   eight), so only absolute drawdown and exit-reason stability discriminate (report §4). The default grid
-  and the `ultra_late_tight` probe stay Product Owner decisions (#144); engine work is #145, live-path
-  parity is #147, sandbox #151, acceptance #152. Mirrored in `project-context.md` §18 and roadmap
-  block W (§8).
+  and the `ultra_late_tight` probe were Product Owner decisions (#144) — **the first one has been taken**,
+  see the next bullet; engine work is #145, live-path parity is #147, sandbox #151, acceptance #152.
+  Mirrored in `project-context.md` §18 and roadmap block W (§8).
+- **Product Owner decision, 2026-09-08: `ultra_late_tight` is the production default grid.**
+  `config.trailing_stop.steps` defaults to `2.0→1.9`, `2.5→2.4`, `3.0→2.9` in `trading_config.TRAILING_STOP`
+  (#144), and `config.trailing_stop.enabled` stays `false` — the choice switches nothing on and touches no
+  locked configuration (126 / 36 / 102 / 118). Why this grid: 110 434 ₽ against 103 216 ₽ for `ref139`
+  (+7 218 ₽), PF 1.60 vs 1.55, 3 162 vs 3 118 trades, walk-forward floor +1 366 ₽ vs +745 ₽, best worst node
+  in the cost-stress lattice (19 364 ₽ vs 16 708 ₽ at commission 0.15 % + 20 b.p.), and the smallest
+  behavioural diff among the ladders (141 exit-reason flips = 4.3 %, Spearman ρ 0.9966). Accepted trade-off:
+  composite stability score 46.3 vs 47.3 for `ref139` and daily MaxDD 3.06 vs 2.72 pp — a deliberate swap,
+  because the score is a summary of this lattice and not an objective (report §4).
+- **What the decision does not change.** `ref139` (the #139 grid) remains the parity anchor: #147 injects it
+  explicitly, and it stays out of the production defaults; the frozen evidence in
+  `analytics/issue-139-trailing-stop-new-level/` and `analytics/issue-143-trailing-robustness/` is untouched,
+  and #143 / #155 stay closed with a pointer comment. Residual risk: the step margin is **0.1R**, so slippage or
+  a gap on a synthetic market order eats a visible share of the locked profit — #151 owes a defensive price
+  step and #152 owes the break-even slippage measured against 0.1R, on which the leave / tune / rollback
+  verdict is built. Decision text is recorded in the bodies of #142 (Decision section) and #144 (§1–§2).
