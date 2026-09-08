@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-08 (Product Owner decision recorded in §35: `ultra_late_tight` — the lattice grid delivered by Issue #155 in the `143-trailing-v3` lattice — becomes the production default trailing-stop grid for #144; `enabled` stays `false`. Companion to project-context.md.
+Last refreshed: 2026-09-08 (Product Owner decision recorded in §35: `ultra_late_tight` — the lattice grid delivered by Issue #155 in the `143-trailing-v3` lattice — becomes the production default trailing-stop grid for #144; `enabled` stays `false`; the #144 `config.trailing_stop` contract itself has landed — validation only, §36. Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -473,3 +473,54 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
   a gap on a synthetic market order eats a visible share of the locked profit — #151 owes a defensive price
   step and #152 owes the break-even slippage measured against 0.1R, on which the leave / tune / rollback
   verdict is built. Decision text is recorded in the bodies of #142 (Decision section) and #144 (§1–§2).
+
+## 36. Operating the trailing-stop configuration contract (Issue #144)
+
+- `config.trailing_stop` is now a first-class key of `strategies.config` (JSONB, no schema
+  migration): `{"enabled": bool, "steps": [{"trigger": 2.0, "stop": 1.9}, ...]}` — both numbers are R
+  multiples measured from the entry. **There is no `take_partial` in this contract**, and no
+  `trigger_r` / `lock_r` naming: a partial take was never part of the approved `ultra_late_tight` grid,
+  so #144 does not invent one.
+- The contract lives in `backend/app/analytics/trading_config.py`: `TRAILING_STOP` (defaults + bounds),
+  `get_trailing_stop_config()`, `normalize_trailing_stop()`, `validate_trailing_steps()`,
+  `resolve_trailing_stop()` and `require_valid_trailing_stop()`. `validate_trailing_steps()` never raises
+  and never mutates its input — it returns the sorted, de-duplicated set of **stable reason codes**
+  (`trailing_disabled`, `trailing_step_invalid`, `trailing_not_monotonic`, `trailing_too_many_steps`);
+  an empty list means "accepted". Renaming a code is a contract break: #149 surfaces these strings
+  verbatim, and `require_valid_trailing_stop()` is the only helper that turns them into `ValueError`.
+- Bounds are read from `TRAILING_STOP` and are the single source of truth (engine, API and frontend must
+  never restate them): `0 < trigger <= 3.5` (`min_trigger` is exclusive, so a step at 0R is not a step),
+  `0 <= stop <= 3.0`, `stop < trigger` always, at most `max_steps` = 6 steps. A step must be a **dict
+  with finite numeric `trigger` and `stop`**: `bool` is not a number, a list of `[trigger, stop]` pairs
+  is *not* accepted, and no other key spelling works as an alias. Stops may not fall as triggers rise
+  (`trailing_not_monotonic`), the same trigger twice with two different stops is
+  `trailing_not_monotonic`, and an exact duplicate pair is dropped by normalization rather than
+  rejected. There is deliberately **no minimum gap** between a trigger and its stop — the production
+  ladder lives on 0.1R, so any "gap ≥ 0.5R" heuristic would reject the shipped default.
+- `resolve_trailing_stop(config)` is the one call for consumers: `{"enabled", "steps", "reasons"}`. An
+  absent key, `None`, `{}` or a non-dict block resolve to `{"enabled": false, "steps": [], "reasons": []}`,
+  which is why configs without the key behave exactly as before #144. `enabled` is strict — only a real
+  bool or `'1' / 'true' / 'yes' / 'on'` arm the ladder, any other truthy value normalizes to `false`.
+  `normalize_trailing_stop()` is idempotent, keeps float precision (1.9 / 2.4 / 2.9 are never rounded to
+  0.5R), sorts by `(trigger, stop)` and drops structurally broken steps: it is a canonicalizer, **not**
+  the gatekeeper, so always validate the raw list.
+- Shipped default `TRAILING_STOP`: `enabled=false`, steps `2.0→1.9 / 2.5→2.4 / 3.0→2.9` — the
+  `ultra_late_tight` grid of §35 — with bound defaults `max_steps=6`, `min_trigger=0.0` (exclusive),
+  `max_trigger=3.5`, `min_stop=0.0`, `max_stop=3.0`. Editing the ladder switches nothing on by itself.
+- **Contract only — no gate, no consumer.** `validate_config()` **does not exist in this repository**, so
+  contrary to the wording this section carried before, nothing calls `validate_trailing_steps()` yet: a
+  malformed ladder is still accepted on strategy create/update and on a Lab run, and an `enabled=true`
+  block with no usable steps simply reports `trailing_disabled` instead of being refused at save time.
+  `require_valid_trailing_stop()` is the gate #146 and #149 are expected to call. `EXIT_TRAILING` exists in
+  `backtest_models.py` but is never emitted, and `StrategyEvaluator.on_bar`,
+  `paper_trader.levels_strategy_plugin`, `portfolio_simulator`, the Lab path and `live_executor` all ignore
+  the block (#145 / #148 / #151) — so do not describe any Lab, backtest, paper or live result as
+  trailing-stop-enabled until then.
+- Legacy: the pattern-level `trailing_stop` / `trailing_step` parameters in `pattern_registry.py` are a
+  different contract that #144 does not touch — do not confuse them with `config.trailing_stop`.
+- Tests: `cd backend && python -m pytest -q tests/test_trailing_contract.py tests/test_trading_config.py`
+  (39 together: 33 contract + 6 config). The full issue acceptance set — those two plus
+  `test_levels_sr_support.py`, `test_resistance_zone_veto.py`, `test_strategy_plugin.py`,
+  `test_pattern_registry.py`, `test_issue139_analysis.py` and `test_issue155_analysis.py` — stands at
+  **99 passed** as of 2026-09-08; `--collect-only` still guards the Lab API import.
+
