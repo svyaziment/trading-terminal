@@ -2,7 +2,7 @@
   "issue": 145,
   "epic": 142,
   "branch": "feature/issue-145-trailing-evaluator",
-  "commit": "bc8d4b4",
+  "commit": "188986d",
   "pr": 159,
   "pr_url": "https://github.com/svyaziment/trading-terminal/pull/159",
   "pr_base": "main",
@@ -664,5 +664,36 @@
     }
   ],
   "note": "Issue #145 moves the stepped trailing stop from the #139 analytics overlay into the production exit path. One pure ladder (backend/app/analytics/trailing_stop.py) is called by StrategyEvaluator.on_bar, the levels_reversal plugin (check_exit mirror + ratchet in manage_position), portfolio_backtest/portfolio_simulator and walk-forward; the bar order stop -> take -> arm and \"armed by bar i, effective from bar i+1\" are copied from #139 on purpose. The policy stays shipped OFF (TRAILING_STOP.enabled=false) and the engine fails safe: an absent key, enabled=false, an empty ladder or a ladder refused by the #144 validator does not change a single exit. The write-path gate (require_valid_trailing_stop) is still uncalled - #146 / #149 own it - and paper/live do not read the block yet (#148 / #151). Verification: 52 new unit tests, the acceptance set green, full `pytest -m \"not integration\"` suite 323 -> 375 passed with 0 new failures between origin/main and this branch, a read-only DB regression of the locked configs 126 and 36 across two git trees (regression_verdict.json), and a DB-free per-trade check against the published #143 book (grid_check.json). The backend container was not rebuilt on this machine: the stack is stopped here, so `docker compose up -d --build backend` is left to CI / the dev box.",
-  "next_action": "Team Lead review + squash-merge (WORKFLOW section 8). #147 owns the formal parity gate; #146 / #149 must wire require_valid_trailing_stop() into the write paths; #148 / #151 reuse this module in paper and sandbox live."
+  "next_action": "Team Lead review + squash-merge (WORKFLOW section 8). #147 owns the formal parity gate; #146 / #149 must wire require_valid_trailing_stop() into the write paths; #148 / #151 reuse this module in paper and sandbox live.",
+  "commits": [
+    {
+      "sha": "188986d",
+      "subject": "#145 docs(ru): поправка падежа в разделе 19 (Lab-реплеем плагина)"
+    },
+    {
+      "sha": "ec58ae8",
+      "subject": "#145 репорт: ссылка на PR 159"
+    },
+    {
+      "sha": "bc8d4b4",
+      "subject": "#145 репорт приёмки: полный report.json (recoverable note field) и журнал log.txt"
+    },
+    {
+      "sha": "e327f29",
+      "subject": "#145 артефакты приёмки: кросс-деревная регрессия боевого выхода на реальных путях #143 (3 305 сделок, 6 вариантов trailing_stop, regression_match: true), проверка лестницы по опубликованной книге #143 (0 реальных расхождений), сквозной портфельный контур на живой БД (только SELECT), изоляция walk-forward, report.json + log.txt и воспроизводимые харнесы"
+    },
+    {
+      "sha": "1f77f7c",
+      "subject": "#145 document the on_bar exit order and the bar key used by the ladder"
+    },
+    {
+      "sha": "a7f99c1",
+      "subject": "#145 docs EN+RU: project-context new section 19 and sections 3/6/7/8, handover new section 37 and reworded 36, backtest-report 4, paper-trading exit-rule status, levels-reversal-strategy 2.3/15; Last refreshed bumped"
+    },
+    {
+      "sha": "9e08901",
+      "subject": "#145 stepped trailing stop in the production exit path: single ladder in analytics/trailing_stop.py, applied by StrategyEvaluator, the levels_reversal plugin, portfolio simulator and walk-forward; EXIT_TRAILING emitted, shipped disabled and fail-safe on an invalid ladder"
+    }
+  ],
+  "commit_note": "code + tests in the first commit, docs EN+RU in the second, the acceptance artifacts and the reproducible harnesses in the last ones"
 }
