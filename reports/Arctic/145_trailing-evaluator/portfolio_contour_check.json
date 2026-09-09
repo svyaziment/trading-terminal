@@ -1,0 +1,63 @@
+{
+  "portfolio_contour_ok": true,
+  "scope": {
+    "plugin": "levels_reversal",
+    "tickers": [
+      "AFKS",
+      "ALRS",
+      "CBOM"
+    ],
+    "date_from": "2026-07-01",
+    "date_to": "2026-07-15",
+    "strategy": "126 (read-only)"
+  },
+  "results": {
+    "baseline": {
+      "status": "success",
+      "candidate_trades": 6,
+      "n_trades": 6,
+      "final_equity_rub": 49568.23,
+      "profit_factor": 0.0,
+      "skipped_entries_no_slot": 0,
+      "exit_reason_counts": {
+        "stop": 6
+      },
+      "trailing_exit_share_pct": 0.0,
+      "elapsed_s": 292.1,
+      "trades_with_step_reached": 0,
+      "max_step_reached": null
+    },
+    "ultra_late_tight": {
+      "status": "success",
+      "candidate_trades": 7,
+      "n_trades": 7,
+      "final_equity_rub": 49818.93,
+      "profit_factor": 0.58,
+      "skipped_entries_no_slot": 0,
+      "exit_reason_counts": {
+        "stop": 6,
+        "trailing": 1
+      },
+      "trailing_exit_share_pct": 14.3,
+      "elapsed_s": 264.0,
+      "trades_with_step_reached": 7,
+      "max_step_reached": 1.9
+    },
+    "ref139": {
+      "status": "success",
+      "candidate_trades": 7,
+      "n_trades": 7,
+      "final_equity_rub": 49764.89,
+      "profit_factor": 0.46,
+      "skipped_entries_no_slot": 0,
+      "exit_reason_counts": {
+        "stop": 6,
+        "trailing": 1
+      },
+      "trailing_exit_share_pct": 14.3,
+      "elapsed_s": 263.5,
+      "trades_with_step_reached": 7,
+      "max_step_reached": 1.5
+    }
+  }
+}

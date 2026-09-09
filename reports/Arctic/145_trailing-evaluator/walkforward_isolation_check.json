@@ -1,0 +1,39 @@
+{
+  "windows": {
+    "w1": 1652,
+    "w2": 1653
+  },
+  "universe": "28 tickers of locked config 126 (the #143 path cache)",
+  "method": "run the second window alone, then again after the first window has been played in the same interpreter; the trade lists must be equal",
+  "blocks": {
+    "absent": {
+      "w2_alone": 1653,
+      "w2_after_previous_window": 1653,
+      "identical": true,
+      "exit_reason_mix_w1": {
+        "stop": 1255,
+        "take": 397
+      },
+      "exit_reason_mix_w2": {
+        "stop": 1220,
+        "take": 433
+      }
+    },
+    "ultra_late_tight": {
+      "w2_alone": 1653,
+      "w2_after_previous_window": 1653,
+      "identical": true,
+      "exit_reason_mix_w1": {
+        "stop": 927,
+        "take": 42,
+        "trailing": 683
+      },
+      "exit_reason_mix_w2": {
+        "stop": 929,
+        "take": 41,
+        "trailing": 683
+      }
+    }
+  },
+  "walkforward_state_isolated": true
+}
