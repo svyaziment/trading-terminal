@@ -1,0 +1,66 @@
+Task: #146 lab-trailing-editor (branch feature/issue-146-lab-trailing-editor)
+Epic: #142 / Block W. Depends on #144 (contract, merged) and integrates after #145 (merged, squash 82aecfa).
+
+[context recovery]
+  Prior session's files were NOT on disk (all writes had silently failed); working tree was clean at
+  origin/feature/issue-145-trailing-evaluator. Rebuilt context from scratch.
+  Recovered the issue body: reports/Reynard/183_grid-decision/bodies/146.md
+  Verified the shipped contract default is ultra_late_tight (2.0->1.9 / 2.5->2.4 / 3.0->2.9),
+  NOT ref139 -- trading_config.py:165-169 and handover §35 (PO decision 2026-09-08).
+  Discovered the issue's stated paths are stale (see report.json deviations_from_issue).
+  Discovered config_hash does not exist anywhere in the repo (requirement 4 partially unverifiable).
+  Discovered #146's schema endpoint is owned by OPEN issue #149; maintainer chose to land a
+  minimal read-only endpoint in this PR, inherited by #149.
+  git checkout -b feature/issue-146-lab-trailing-editor origin/main
+
+[baseline]
+  python -m pytest -q tests/test_trailing_contract.py tests/test_health.py ... 34 passed
+  npx tsc --noEmit ... 0 errors
+
+[backend]
+  trading_config.py: + TRAILING_REASON_CODES, TRAILING_STOP_DEFAULT_GRID, TRAILING_INPUT_STEP,
+                     get_trailing_stop_schema()   (additive; TRAILING_STOP untouched) ... OK
+  strategy_jobs.py:  + GET /api/strategies/trailing-schema (read-only) ... OK
+  tests/test_trailing_schema_endpoint.py: 7 new ... OK
+  python -m pytest -q tests/test_trailing_schema_endpoint.py tests/test_trailing_contract.py ... 41 passed
+
+[frontend]
+  types.ts: TrailingStopStep / TrailingStopConfig / TrailingStopSchema; StrategyConfig.trailing_stop OPTIONAL ... OK
+  api.ts:   getTrailingStopSchema() ... OK
+  trailingStop.ts: pure ladder logic; validateLadder mirrors validate_trailing_steps ... OK
+  components/TrailingStopFields.tsx: renders from schema only ... OK
+  exitReasons.ts: closed reason set, trailing distinct from stop ... OK
+  StrategyLab.tsx: state + schema fetch + load hydration + conditional spread + save guard + section ... OK
+  npx tsc --noEmit ... 0 errors (after fixing a readonly-tuple assignment in the exit-reason filter)
+
+[tests]
+  npx vitest run ... 91 passed / 6 files (29 trailingStop + 20 TrailingStopFields + 42 pre-existing)
+  Two initial failures were test-side, not product-side:
+    - jsdom makes import.meta.url non-file -> resolve() against process.cwd()
+    - the overflow ladder I generated breached max_stop (3.0) -> rebuilt inside all bounds
+  npx vite build ... OK, 60 modules, dist built
+
+[regression]
+  python -m pytest -q tests/test_trailing_contract.py tests/test_trailing_stop.py
+      tests/test_trailing_schema_endpoint.py tests/test_pattern_registry.py
+      tests/test_pattern_preview.py tests/test_health.py ... 116 passed
+
+[live check]
+  booted app.main under uvicorn on :8011 and fetched the endpoint:
+  200, steps = 2.0->1.9 / 2.5->2.4 / 3.0->2.9 (floats, tenths intact through JSON),
+  max_steps 6, bounds intact, default_grid = ultra_late_tight, enabled = false ... OK
+  (scratch script and its output removed afterwards)
+
+[docs]
+  project-context.md / .ru.md: section 20, API endpoint row, file tree, roadmap block W, Last refreshed
+  handover.md / .ru.md: section 38, section 36 corrected (#146 shipped without the write gate),
+  Last refreshed
+  All in the same commit as the code, per repo convention (EN + RU together).
+
+[NOT DONE]
+  docker compose up -d --build frontend -- not run
+  EN/RU screenshots -- not taken (no browser pass was performed)
+  => status = needs_review
+
+report.json written
+Done

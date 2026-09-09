@@ -1,0 +1,81 @@
+{
+  "issue": 146,
+  "epic": 142,
+  "pr": "https://github.com/svyaziment/trading-terminal/pull/160",
+  "branch": "feature/issue-146-lab-trailing-editor",
+  "status": "needs_review",
+  "started_at": "2026-09-09T12:00:00Z",
+  "finished_at": "2026-09-09T14:10:00Z",
+  "checks": {
+    "py_compile_rc": 0,
+    "import_rc": 0,
+    "tsc_rc": 0,
+    "vitest_rc": 0,
+    "pytest_rc": 0,
+    "vite_build_rc": 0,
+    "rebuild_rc": null,
+    "regression_match": null
+  },
+  "test_totals": {
+    "backend_targeted": "116 passed (trailing contract + engine + new schema endpoint + pattern registry + preview + health)",
+    "frontend": "91 passed / 6 files (29 trailingStop unit + 20 TrailingStopFields component; 42 pre-existing, no regressions)",
+    "tsc_no_emit": "0 errors",
+    "live_endpoint": "GET /api/strategies/trailing-schema -> 200, steps [1.9, 2.4, 2.9] intact through JSON"
+  },
+  "acceptance": {
+    "Топпл + редактор ступеней в Strategy Lab, значения/границы из схемы API": true,
+    "Нулевой хардкод полей/чисел трейлинга в TSX": true,
+    "Прод-дефолт ultra_late_tight (1.9 / 2.4 / 2.9) рендерится из схемы и сохраняется без потери десяточных долей": true,
+    "Кнопка «Применить дефолтную сетку» берёт значения из схемы бэкенда, а не из константы фронта": true,
+    "Клиентская валидация с кодами причин #144, ошибки не дают сохранить битый конфиг": true,
+    "Стратегия без трейлинга сохраняется без изменений в конфиге (обратная совместимость)": true,
+    "Выход trailing различим в результатах бэктеста": true,
+    "npx tsc --noEmit — 0 ошибок; vitest зелёные": true,
+    "docker compose up -d --build frontend": false,
+    "Скриншоты EN и RU в отчёте": false
+  },
+  "changes": [
+    "backend/app/analytics/trading_config.py: get_trailing_stop_schema() + TRAILING_STOP_DEFAULT_GRID + TRAILING_INPUT_STEP + TRAILING_REASON_CODES (additive; TRAILING_STOP itself untouched)",
+    "backend/app/api/strategy_jobs.py: read-only GET /api/strategies/trailing-schema",
+    "backend/tests/test_trailing_schema_endpoint.py: 7 tests pinning the endpoint to the contract, the JSON decimal round-trip, and the grid label to the published lattice",
+    "frontend/src/trailingStop.ts: pure ladder logic — parse/render, stepsFromRows, validateLadder (mirrors validate_trailing_steps), buildTrailingStopPayload, matchesDefaultGrid, reason text RU/EN, shareOfTake",
+    "frontend/src/components/TrailingStopFields.tsx: schema-driven rung editor, zero trailing numbers",
+    "frontend/src/exitReasons.ts: closed exit-reason set with labels + tones, trailing distinct from stop",
+    "frontend/src/components/StrategyLab.tsx: state, schema fetch, load hydration with touched=false, conditional spread into config, save guard, section render, exit-reason column fix",
+    "frontend/src/types.ts / api.ts: TrailingStopStep / TrailingStopConfig / TrailingStopSchema, optional config key, getTrailingStopSchema()",
+    "frontend/src/trailingStop.test.ts (29) + components/TrailingStopFields.test.tsx (20)",
+    "docs: project-context .md/.ru.md section 20 + API table + tree + roadmap block W; handover .md/.ru.md section 38 + section 36 correction + Last refreshed"
+  ],
+  "deviations_from_issue": [
+    "Paths in the issue do not exist: frontend/src/pages/strategies/StrategyConfigPanel.tsx -> components/StrategyLab.tsx; frontend/src/lib/api.ts -> src/api.ts; there is no strategiesApi object (the file exports free functions).",
+    "components/ui/{Button,Input,Select} and lucide-react are not in this repo (package.json has no lucide-react; ui/ has only DataTable, DatePicker, FilterChips). Followed the existing convention: the Lab-local Section/numInput primitives, native inputs, and inline SVG (the PatternIcon precedent).",
+    "config_hash does not exist anywhere in the codebase (zero hits outside issue text), so requirement 4's 'hash changes after enabling trailing' is unverifiable here. Substance covered: the saved config JSONB really carries the block.",
+    "The suggested exit-reason mapping 'stop | take | trailing | eod | error' does not match the engine: backtest_models.VALID_EXIT_REASONS is stop | take | holding | signal | session | trailing. Implemented against the real set.",
+    "Requirement 1 said to 'request the endpoint in a comment' rather than build it, since the schema endpoint belongs to #149. Per the maintainer's decision it was added here (read-only, produced from trading_config) so #146 is demoable end-to-end; #149 inherits and owns its future shape.",
+    "Requirement 2's 'derived price entry + x*R in points/rubles' needs a live entry quote, which the config rail does not have. Shipped the honest derived figure instead: each rung as a percentage of the distance to take-profit, computed from risk_reward (take sits at reward/risk R)."
+  ],
+  "known_gaps": [
+    "The write path is not gated: POST /api/strategies does not call require_valid_trailing_stop(), so a malformed ladder still saves and the client-side check can be bypassed by a non-Lab client. This is #149's deliverable (422 + reason codes). The #145 engine remains the safety net: it refuses to arm a ladder the validator rejects, so a bad config changes no exits.",
+    "No EN/RU screenshots and no docker frontend rebuild — verified against a live uvicorn instance and a production vite build, not a rendered browser session. Needs a human pass on the running container."
+  ],
+  "files_changed": [
+    "backend/app/analytics/trading_config.py",
+    "backend/app/api/strategy_jobs.py",
+    "backend/tests/test_trailing_schema_endpoint.py",
+    "frontend/src/types.ts",
+    "frontend/src/api.ts",
+    "frontend/src/trailingStop.ts",
+    "frontend/src/trailingStop.test.ts",
+    "frontend/src/exitReasons.ts",
+    "frontend/src/components/TrailingStopFields.tsx",
+    "frontend/src/components/TrailingStopFields.test.tsx",
+    "frontend/src/components/StrategyLab.tsx",
+    "frontend/src/test/fixtures.ts",
+    "docs/agents/project-context.md",
+    "docs/agents/project-context.ru.md",
+    "docs/agents/handover.md",
+    "docs/agents/handover.ru.md"
+  ],
+  "next_action": "review + rebuild frontend container + EN/RU screenshots; #149 inherits GET /api/strategies/trailing-schema and adds the 422 write gate"
+}
+
