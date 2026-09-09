@@ -1,0 +1,91 @@
+{
+  "issue": 145,
+  "regression_match": true,
+  "method": "The exit branch of StrategyEvaluator.on_bar replayed bar by bar over the real recorded 1-minute paths of the locked config id=126 (the #143 path cache), once per git tree and once per trailing_stop variant.",
+  "baseline_rev": "ab1edf1",
+  "after_rev": "1f77f7c",
+  "scope": {
+    "trades": 3305,
+    "period": "2024-08-01..2026-08-21",
+    "universe": "28 tickers of locked config 126",
+    "path_cache": "analytics/issue-143-trailing-robustness/cache/",
+    "variants": [
+      "absent",
+      "disabled",
+      "enabled_empty",
+      "invalid_non_monotone",
+      "ref139",
+      "ultra_late_tight"
+    ]
+  },
+  "db_write_policy": "no database was touched: the paths are the cache #143 committed, so nothing here can write a trade, a result or a strategy row",
+  "checks": [
+    {
+      "variant": "absent",
+      "n_trades": 3305,
+      "exit_reason_mix": {
+        "stop": 2475,
+        "take": 830
+      },
+      "identical_inside_baseline_tree": true,
+      "identical_inside_after_tree": true,
+      "identical_baseline_vs_after": true
+    },
+    {
+      "variant": "disabled",
+      "n_trades": 3305,
+      "exit_reason_mix": {
+        "stop": 2475,
+        "take": 830
+      },
+      "identical_inside_baseline_tree": true,
+      "identical_inside_after_tree": true,
+      "identical_baseline_vs_after": true
+    },
+    {
+      "variant": "enabled_empty",
+      "n_trades": 3305,
+      "exit_reason_mix": {
+        "stop": 2475,
+        "take": 830
+      },
+      "identical_inside_baseline_tree": true,
+      "identical_inside_after_tree": true,
+      "identical_baseline_vs_after": true
+    },
+    {
+      "variant": "invalid_non_monotone",
+      "n_trades": 3305,
+      "exit_reason_mix": {
+        "stop": 2475,
+        "take": 830
+      },
+      "identical_inside_baseline_tree": true,
+      "identical_inside_after_tree": true,
+      "identical_baseline_vs_after": true
+    }
+  ],
+  "armed_ladders": {
+    "ultra_late_tight": {
+      "n_trades": 3305,
+      "differs_from_no_ladder_in_after_tree": 3305,
+      "baseline_tree_ignores_the_block": true,
+      "exit_reason_mix": {
+        "stop": 1856,
+        "take": 83,
+        "trailing": 1366
+      }
+    },
+    "ref139": {
+      "n_trades": 3305,
+      "differs_from_no_ladder_in_after_tree": 3305,
+      "baseline_tree_ignores_the_block": true,
+      "exit_reason_mix": {
+        "stop": 1856,
+        "take": 224,
+        "trailing": 1225
+      }
+    }
+  },
+  "mismatches": []
+}

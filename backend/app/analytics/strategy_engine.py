@@ -35,6 +35,13 @@ Issue #117 / Epic #115: ``levels_sr_breakout`` is an isolated entry engine
 Issue #127 / Epic #126: ``levels_sr_support`` is the support-only engine
 from #124 B-support (tracker veto, no ``check_breakout_retest``). It does
 not require ``levels_reversal``. The composite still wins if both ids are on.
+
+Issue #145 / Epic #142 Block W: ``config.trailing_stop`` arms a stepped trailing stop in
+the exit branch of ``on_bar``. The ratchet itself is the pure step function in
+``app.analytics.trailing_stop`` - the same one the ``levels_reversal`` plugin and the
+portfolio simulator call, so the contours cannot drift. Without the block, with
+``enabled=false`` or with a ladder the Issue #144 validator refuses, the exit branch is
+the pre-#145 code path, bit-for-bit.
 """
 from __future__ import annotations
 
@@ -66,6 +73,10 @@ from app.analytics.signal_pattern_filters import (
     enabled_signal_filters,
     iter_pattern_items,
     signal_engine_filters_pass,
+)
+from app.analytics.trailing_stop import (
+    evaluate_bar,
+    trailing_from_config,
 )
 
 
@@ -428,31 +439,54 @@ class StrategyEvaluator:
 
     def on_bar(self, row, idx: int) -> dict:
         """Process one 1min bar (backtest mode; manages position state).
-        Entry logic is delegated to the unified check_entry."""
+        Entry logic is delegated to the unified check_entry.
+
+        Exit order (Issue #145): with a ladder armed on the position the bar runs
+        stop -> take -> arm through app.analytics.trailing_stop (same function the plugin and
+        the portfolio simulator call); without one it is the pre-#145 fixed stop/take branch,
+        unchanged. `idx` is the ladder's bar key, so the stop a bar arms only bites later.
+        """
         ts = pd.Timestamp(row['timestamp'])
 
         # --- exit ---
         if self.position is not None:
-            exited = None
-            if row['low'] <= self.position['stop']:
-                exited = (self.position['stop'], 'stop')
-            elif row['high'] >= self.position['take']:
-                exited = (self.position['take'], 'take')
+            pos = self.position
+            state = pos.get('trailing_state')
+            step_reached = None
+            if state is None:
+                # Pre-#145 baseline branch: fixed stop, fixed take, stop checked first.
+                exited = None
+                if row['low'] <= pos['stop']:
+                    exited = (pos['stop'], 'stop')
+                elif row['high'] >= pos['take']:
+                    exited = (pos['take'], 'take')
+            else:
+                # Issue #145: stop -> take -> arm (the armed stop bites from the NEXT bar).
+                decision = evaluate_bar(state, high=row['high'], low=row['low'], bar_key=idx)
+                pos['stop'] = decision.stop
+                pos['current_stop'] = decision.stop
+                pos['step_reached'] = decision.step_reached
+                step_reached = decision.step_reached
+                exited = None
+                if decision.exits:
+                    exited = (decision.exit_price, decision.exit_reason)
             if exited:
                 exit_price, reason = exited
-                gross = (exit_price * (1 - self.slip) / self.position['entry_exec'] - 1.0) * 100.0
+                gross = (exit_price * (1 - self.slip) / pos['entry_exec'] - 1.0) * 100.0
                 net = gross - self.round_trip * 100.0
                 trade = {
-                    'entry_ts': str(self.position['entry_ts']),
+                    'entry_ts': str(pos['entry_ts']),
                     'exit_ts': str(ts),
-                    'entry_price': float(self.position['entry_price']),
+                    'entry_price': float(pos['entry_price']),
                     'exit_price': float(exit_price),
                     'exit_reason': reason,
-                    'bars_held': idx - self.position['idx'],
+                    'bars_held': idx - pos['idx'],
                     'net_return_pct': round(net, 5),
                 }
-                if self.position.get('source'):
-                    trade['source'] = self.position['source']
+                if pos.get('source'):
+                    trade['source'] = pos['source']
+                if step_reached is not None:
+                    trade['step_reached'] = float(step_reached)
                 self.position = None
                 return {'action': 'exit', 'trade': trade}
             return {'action': 'hold'}
@@ -461,11 +495,21 @@ class StrategyEvaluator:
         dec = self.check_entry(row)
         if dec is not None:
             price = dec['entry_price']
-            self.position = {
-                'entry_ts': dec['ts'], 'entry_price': price, 'entry_exec': price * (1 + self.slip),
+            entry_exec = price * (1 + self.slip)
+            position = {
+                'entry_ts': dec['ts'], 'entry_price': price, 'entry_exec': entry_exec,
                 'stop': dec['stop'], 'take': dec['take'], 'idx': idx,
                 'source': dec.get('source'),
             }
+            trailing = trailing_from_config(
+                self.config, entry_exec=entry_exec,
+                initial_stop=dec['stop'], take=dec['take'])
+            if trailing is not None:
+                # Issue #145: initial_stop / risk_r / trailing_steps / current_stop /
+                # step_reached live on the position so every contour reports the same ladder.
+                position.update(trailing.snapshot())
+                position['trailing_state'] = trailing
+            self.position = position
             return {'action': 'enter', 'entry_price': price, 'stop': dec['stop'], 'take': dec['take']}
 
         return {'action': 'hold'}

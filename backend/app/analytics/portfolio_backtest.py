@@ -8,6 +8,11 @@ to guarantee bit-for-bit regression parity with strategy_backtest.
 Usage:
     from app.analytics.portfolio_backtest import run_portfolio_backtest
     result = run_portfolio_backtest(db, 'levels_reversal', config, tickers, ...)
+
+Issue #145 (Epic #142 Block W): the Position this loop opens can carry a stepped trailing
+ladder (app.analytics.trailing_stop). The ladder is armed from the strategy config, the
+exit decision is taken by the plugin, and the trade records step_reached - so the
+portfolio contour and the single-ticker brain share one exit rule.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ from app.analytics.strategies.context import MarketContext
 from app.analytics.strategies.registry import get_registry
 from app.analytics.levels_backtest import compute_atr
 from app.analytics.strategy_backtest import compute_indicators_1min, _bootstrap_metrics
+from app.analytics.trailing_stop import trailing_from_config
 
 logger = logging.getLogger(__name__)
 
@@ -160,7 +166,7 @@ def _backtest_ticker_plugin(
                 # Mirror of on_bar: gross uses exit*(1-slip)/entry_exec
                 gross = (exit_price * (1 - slip) / entry_exec - 1.0) * 100.0
                 net = gross - round_trip * 100.0
-                trades.append({
+                trade = {
                     'entry_ts': str(position.entry_ts),
                     'exit_ts': str(ts),
                     'entry_price': float(position.entry_price),
@@ -168,7 +174,11 @@ def _backtest_ticker_plugin(
                     'exit_reason': exit_signal.reason,
                     'bars_held': i - entry_idx,
                     'net_return_pct': round(net, 5),
-                })
+                }
+                if position.trailing is not None:
+                    # Issue #145: which rung the ladder had reached when it closed the trade.
+                    trade['step_reached'] = float(position.step_reached)
+                trades.append(trade)
                 position = None
                 continue
             position.bars_held += 1
@@ -187,6 +197,15 @@ def _backtest_ticker_plugin(
                 size=1.0,
                 bars_held=0,
                 metadata={'entry_exec': entry_exec},
+                # Issue #145: the ladder is a per-position state. None keeps the fixed
+                # stop/take exit of the pre-#145 plugin bit-for-bit.
+                initial_stop=entry_signal.stop,
+                trailing=trailing_from_config(
+                    config,
+                    entry_exec=entry_exec,
+                    initial_stop=entry_signal.stop,
+                    take=entry_signal.take,
+                ),
             )
             entry_idx = i
 

@@ -32,11 +32,12 @@ EXIT_HOLDING: str = "holding"
 EXIT_SIGNAL: str = "signal"
 EXIT_SESSION: str = "session"
 EXIT_UNTRADEABLE: str = "untradeable"   # signal on last bar (no T+1) -> skipped, not an error
-# Issue #144 (Epic #142 / Block W): stepped trailing stop. Part of the contract, NOT
-# yet emitted - StrategyEvaluator starts producing it in #145, the paper path in #148
-# and sandbox live in #151. The ladder's shape is checked by
-# trading_config.validate_trailing_steps() (contract only - no production caller yet);
-# its numbers live nowhere else.
+# Issue #144 (Epic #142 / Block W): stepped trailing stop. Emitted by the production
+# engine since Issue #145 - StrategyEvaluator.on_bar, the levels_reversal plugin and the
+# portfolio simulator all raise the stop through app.analytics.trailing_stop and close the
+# position with this reason once the ladder has moved it. The paper path (#148) and sandbox
+# live (#151) reuse the same module; an exit whose stop was never raised keeps EXIT_STOP.
+# The ladder's shape is validated by trading_config.validate_trailing_steps().
 EXIT_TRAILING: str = "trailing"
 
 VALID_EXIT_REASONS = {

@@ -3,6 +3,10 @@
 Refactored for Issue #41: check_exit delegates the exit logic that lives in
 StrategyEvaluator.on_bar (stop/take checks). The exit logic here is a direct
 mirror of the exit branch in on_bar, ensuring bit-for-bit regression parity.
+
+Issue #145 (Epic #142 Block W) extends that mirror with the stepped trailing stop:
+the ladder lives in app.analytics.trailing_stop and is evaluated through the same
+pure step function the brain calls, so the plugin can never drift from on_bar.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ from app.analytics.strategies.base import (
     StrategyPlugin,
 )
 from app.analytics.strategies.context import MarketContext
+from app.analytics.trailing_stop import evaluate_bar
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +92,24 @@ class LevelsReversalStrategy(StrategyPlugin):
         )
 
     def manage_position(self, position: Position, context: MarketContext) -> PositionAction:
-        """No position management (no averaging/pyramiding)."""
+        """Ratchet the trailing ladder; no averaging/pyramiding (Issue #145).
+
+        Arming is keyed on the bar, so running this before check_exit on the same bar is
+        idempotent and can never promote a stop produced by that bar's own high: the stop
+        a bar arms becomes effective on the NEXT bar, exactly as in StrategyEvaluator.on_bar.
+        """
+        state = getattr(position, 'trailing', None)
+        if state is not None and context.candles_1min is not None \
+                and not context.candles_1min.empty:
+            latest_bar = context.candles_1min.iloc[-1]
+            decision = evaluate_bar(
+                state,
+                high=float(latest_bar['high']),
+                low=float(latest_bar['low']),
+                bar_key=context.timestamp,
+            )
+            position.stop = decision.stop
+            position.step_reached = decision.step_reached
         return PositionAction.HOLD
 
     def check_exit(self, position: Position, context: MarketContext) -> Optional[ExitSignal]:
@@ -97,6 +119,10 @@ class LevelsReversalStrategy(StrategyPlugin):
             if row['low'] <= stop: exit at stop
             elif row['high'] >= take: exit at take
         Kept as a direct mirror to guarantee bit-for-bit regression parity.
+
+        Issue #145: when the position carries a ladder, the same three steps run through
+        app.analytics.trailing_stop (stop -> take -> arm), so 'trailing' exits here and in
+        on_bar are produced by one function, not by two copies of a rule.
         """
         if context.candles_1min is None or context.candles_1min.empty:
             return None
@@ -104,6 +130,23 @@ class LevelsReversalStrategy(StrategyPlugin):
         latest_bar = context.candles_1min.iloc[-1]
         bar_low = float(latest_bar['low'])
         bar_high = float(latest_bar['high'])
+
+        state = getattr(position, 'trailing', None)
+        if state is not None:
+            decision = evaluate_bar(
+                state, high=bar_high, low=bar_low, bar_key=context.timestamp)
+            position.stop = decision.stop
+            position.step_reached = decision.step_reached
+            if not decision.exits:
+                return None
+            return ExitSignal(
+                exit_price=float(decision.exit_price),
+                reason=decision.exit_reason,
+                timestamp=context.timestamp,
+                partial_pct=1.0,
+                metadata={'bars_held': position.bars_held,
+                          'step_reached': decision.step_reached},
+            )
 
         # Mirror of on_bar exit branch (stop checked first, then take)
         if bar_low <= position.stop:

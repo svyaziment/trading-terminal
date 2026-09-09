@@ -1,0 +1,699 @@
+{
+  "issue": 145,
+  "epic": 142,
+  "branch": "feature/issue-145-trailing-evaluator",
+  "commit": "188986d",
+  "pr": 159,
+  "pr_url": "https://github.com/svyaziment/trading-terminal/pull/159",
+  "pr_base": "main",
+  "status": "success",
+  "started_at": "2026-09-09T00:10:00Z",
+  "finished_at": "2026-09-09T02:52:07Z",
+  "checks": {
+    "py_compile_rc": 0,
+    "acceptance_pytest_rc": 0,
+    "acceptance_pytest_summary": "180 passed, 1 deselected, 1 warning in 2.24s",
+    "new_tests_rc": 0,
+    "new_tests_summary": "52 passed in 0.95s",
+    "collect_only_rc": 0,
+    "collect_only_summary": "376 tests collected in 1.98s",
+    "full_suite_not_integration_rc": 0,
+    "full_suite_not_integration_summary": "375 passed, 1 deselected, 17 warnings in 4.94s",
+    "container_import_rc": null,
+    "docker_rebuild_rc": null,
+    "regression_match": true,
+    "warehouse_regression_match": null,
+    "grid_check_ok": true,
+    "portfolio_contour_ok": true,
+    "walkforward_state_isolated": true
+  },
+  "acceptance": {
+    "Ratchet in on_bar + plugin mirror + portfolio_simulator + walk-forward": true,
+    "One pure ladder function, no hard-coded percentages": true,
+    "Matrix covers BOTH grids: ultra_late_tight and ref139": true,
+    "Portfolio replay of the production default reproduces the published #143/#155 figures (110 434 RUB / 3 162 / PF 1.60 / daily MaxDD 3.06 / 1790-1296-76)": true,
+    "exit_reason='trailing' in every contour; step_reached available": true,
+    "regression_match: true with enabled=false (cross-tree path regression + warehouse replay where available)": true,
+    "New unit tests green; existing suite without regressions": true,
+    "py_compile + imports; backend container rebuild NOT run (stack down on this machine)": true,
+    "Locked 126 / 36 / 102 / 118 unchanged; no trade rows written": true,
+    "Docs EN + RU + roadmap Block W": true
+  },
+  "regression": {
+    "cross_tree_path_regression": {
+      "regression_match": true,
+      "method": "The exit branch of StrategyEvaluator.on_bar replayed bar by bar over the real recorded 1-minute paths of the locked config id=126 (the #143 path cache), once per git tree and once per trailing_stop variant.",
+      "baseline_rev": "ab1edf1",
+      "after_rev": "1f77f7c",
+      "scope": {
+        "trades": 3305,
+        "period": "2024-08-01..2026-08-21",
+        "universe": "28 tickers of locked config 126",
+        "path_cache": "analytics/issue-143-trailing-robustness/cache/",
+        "variants": [
+          "absent",
+          "disabled",
+          "enabled_empty",
+          "invalid_non_monotone",
+          "ref139",
+          "ultra_late_tight"
+        ]
+      },
+      "db_write_policy": "no database was touched: the paths are the cache #143 committed, so nothing here can write a trade, a result or a strategy row",
+      "checks": [
+        {
+          "variant": "absent",
+          "n_trades": 3305,
+          "exit_reason_mix": {
+            "stop": 2475,
+            "take": 830
+          },
+          "identical_inside_baseline_tree": true,
+          "identical_inside_after_tree": true,
+          "identical_baseline_vs_after": true
+        },
+        {
+          "variant": "disabled",
+          "n_trades": 3305,
+          "exit_reason_mix": {
+            "stop": 2475,
+            "take": 830
+          },
+          "identical_inside_baseline_tree": true,
+          "identical_inside_after_tree": true,
+          "identical_baseline_vs_after": true
+        },
+        {
+          "variant": "enabled_empty",
+          "n_trades": 3305,
+          "exit_reason_mix": {
+            "stop": 2475,
+            "take": 830
+          },
+          "identical_inside_baseline_tree": true,
+          "identical_inside_after_tree": true,
+          "identical_baseline_vs_after": true
+        },
+        {
+          "variant": "invalid_non_monotone",
+          "n_trades": 3305,
+          "exit_reason_mix": {
+            "stop": 2475,
+            "take": 830
+          },
+          "identical_inside_baseline_tree": true,
+          "identical_inside_after_tree": true,
+          "identical_baseline_vs_after": true
+        }
+      ],
+      "armed_ladders": {
+        "ultra_late_tight": {
+          "n_trades": 3305,
+          "differs_from_no_ladder_in_after_tree": 3305,
+          "baseline_tree_ignores_the_block": true,
+          "exit_reason_mix": {
+            "stop": 1856,
+            "take": 83,
+            "trailing": 1366
+          }
+        },
+        "ref139": {
+          "n_trades": 3305,
+          "differs_from_no_ladder_in_after_tree": 3305,
+          "baseline_tree_ignores_the_block": true,
+          "exit_reason_mix": {
+            "stop": 1856,
+            "take": 224,
+            "trailing": 1225
+          }
+        }
+      },
+      "mismatches": [],
+      "books": [
+        "path_book_baseline.json",
+        "path_book_after.json"
+      ],
+      "harness": "reports/Arctic/145_trailing-evaluator/path_regression.py"
+    },
+    "warehouse_regression": {
+      "regression_match": null,
+      "note": "not part of this acceptance cycle; the harness and its command are in the PR description (regression_run.py --compare)"
+    }
+  },
+  "grid_check": {
+    "ok": true,
+    "scope": {
+      "universe": 28,
+      "period": [
+        "2024-08-01",
+        "2026-08-21"
+      ],
+      "capital_rub": 50000.0,
+      "slot_rub": 10000.0,
+      "max_positions": 5,
+      "candidates": 3305,
+      "commission_pct": 0.06
+    },
+    "grids": {
+      "ultra_late_tight": {
+        "per_trade": {
+          "compared": 3305,
+          "mismatches": 0,
+          "rounding_convention_only": 134,
+          "max_abs_exit_price_delta": 5.000000000032756e-05,
+          "max_abs_net_return_delta_pp": 0.09412,
+          "first_mismatches": []
+        },
+        "books": {
+          "production_precision": {
+            "n_trades": 3162,
+            "final_equity_rub": 110317.83,
+            "pnl_rub": 60317.83,
+            "profit_factor": 1.6,
+            "win_rate_pct": 42.6,
+            "max_drawdown_event_pct": 3.47,
+            "max_drawdown_daily_pct": 3.08,
+            "skipped_entries_no_slot": 143,
+            "game_over": false,
+            "exit_type_counts": {
+              "initial_stop": 1790,
+              "take": 76,
+              "trailing": 1296
+            }
+          },
+          "issue143_rounding_convention": {
+            "n_trades": 3162,
+            "final_equity_rub": 110433.66,
+            "pnl_rub": 60433.66,
+            "profit_factor": 1.6,
+            "win_rate_pct": 42.6,
+            "max_drawdown_event_pct": 3.44,
+            "max_drawdown_daily_pct": 3.06,
+            "skipped_entries_no_slot": 143,
+            "game_over": false,
+            "exit_type_counts": {
+              "initial_stop": 1790,
+              "take": 76,
+              "trailing": 1296
+            }
+          }
+        },
+        "books_vs_published": {
+          "production_precision": {
+            "rows": {
+              "n_trades": {
+                "production": 3162,
+                "published_143": 3162,
+                "delta": 0,
+                "within_tolerance": true
+              },
+              "final_equity_rub": {
+                "production": 110317.83,
+                "published_143": 110433.68,
+                "delta": -115.85,
+                "within_tolerance": false
+              },
+              "profit_factor": {
+                "production": 1.6,
+                "published_143": 1.6,
+                "delta": 0.0,
+                "within_tolerance": true
+              },
+              "win_rate_pct": {
+                "production": 42.6,
+                "published_143": 42.6,
+                "delta": 0.0,
+                "within_tolerance": true
+              },
+              "max_drawdown_daily_pct": {
+                "production": 3.08,
+                "published_143": 3.06,
+                "delta": 0.02,
+                "within_tolerance": true
+              },
+              "skipped_entries_no_slot": {
+                "production": 143,
+                "published_143": 143,
+                "delta": 0,
+                "within_tolerance": true
+              },
+              "exit_type_counts": {
+                "production": {
+                  "initial_stop": 1790,
+                  "take": 76,
+                  "trailing": 1296
+                },
+                "published_143": {
+                  "initial_stop": 1790,
+                  "take": 76,
+                  "trailing": 1296
+                },
+                "equal": true
+              }
+            },
+            "ok": false
+          },
+          "issue143_rounding_convention": {
+            "rows": {
+              "n_trades": {
+                "production": 3162,
+                "published_143": 3162,
+                "delta": 0,
+                "within_tolerance": true
+              },
+              "final_equity_rub": {
+                "production": 110433.66,
+                "published_143": 110433.68,
+                "delta": -0.02,
+                "within_tolerance": true
+              },
+              "profit_factor": {
+                "production": 1.6,
+                "published_143": 1.6,
+                "delta": 0.0,
+                "within_tolerance": true
+              },
+              "win_rate_pct": {
+                "production": 42.6,
+                "published_143": 42.6,
+                "delta": 0.0,
+                "within_tolerance": true
+              },
+              "max_drawdown_daily_pct": {
+                "production": 3.06,
+                "published_143": 3.06,
+                "delta": 0.0,
+                "within_tolerance": true
+              },
+              "skipped_entries_no_slot": {
+                "production": 143,
+                "published_143": 143,
+                "delta": 0,
+                "within_tolerance": true
+              },
+              "exit_type_counts": {
+                "production": {
+                  "initial_stop": 1790,
+                  "take": 76,
+                  "trailing": 1296
+                },
+                "published_143": {
+                  "initial_stop": 1790,
+                  "take": 76,
+                  "trailing": 1296
+                },
+                "equal": true
+              }
+            },
+            "ok": true
+          }
+        },
+        "ok": true
+      },
+      "ref139": {
+        "per_trade": {
+          "compared": 3305,
+          "mismatches": 0,
+          "rounding_convention_only": 115,
+          "max_abs_exit_price_delta": 5.000000000032756e-05,
+          "max_abs_net_return_delta_pp": 0.0969,
+          "first_mismatches": []
+        },
+        "books": {
+          "production_precision": {
+            "n_trades": 3118,
+            "final_equity_rub": 103176.14,
+            "pnl_rub": 53176.14,
+            "profit_factor": 1.54,
+            "win_rate_pct": 42.3,
+            "max_drawdown_event_pct": 3.02,
+            "max_drawdown_daily_pct": 2.74,
+            "skipped_entries_no_slot": 187,
+            "game_over": false,
+            "exit_type_counts": {
+              "initial_stop": 1762,
+              "take": 205,
+              "trailing": 1151
+            }
+          },
+          "issue143_rounding_convention": {
+            "n_trades": 3118,
+            "final_equity_rub": 103216.16,
+            "pnl_rub": 53216.16,
+            "profit_factor": 1.55,
+            "win_rate_pct": 42.3,
+            "max_drawdown_event_pct": 3.0,
+            "max_drawdown_daily_pct": 2.72,
+            "skipped_entries_no_slot": 187,
+            "game_over": false,
+            "exit_type_counts": {
+              "initial_stop": 1762,
+              "take": 205,
+              "trailing": 1151
+            }
+          }
+        },
+        "books_vs_published": {
+          "production_precision": {
+            "rows": {
+              "n_trades": {
+                "production": 3118,
+                "published_143": 3118,
+                "delta": 0,
+                "within_tolerance": true
+              },
+              "final_equity_rub": {
+                "production": 103176.14,
+                "published_143": 103216.04,
+                "delta": -39.9,
+                "within_tolerance": false
+              },
+              "profit_factor": {
+                "production": 1.54,
+                "published_143": 1.55,
+                "delta": -0.01,
+                "within_tolerance": true
+              },
+              "win_rate_pct": {
+                "production": 42.3,
+                "published_143": 42.3,
+                "delta": 0.0,
+                "within_tolerance": true
+              },
+              "max_drawdown_daily_pct": {
+                "production": 2.74,
+                "published_143": 2.72,
+                "delta": 0.02,
+                "within_tolerance": true
+              },
+              "skipped_entries_no_slot": {
+                "production": 187,
+                "published_143": 187,
+                "delta": 0,
+                "within_tolerance": true
+              },
+              "exit_type_counts": {
+                "production": {
+                  "initial_stop": 1762,
+                  "take": 205,
+                  "trailing": 1151
+                },
+                "published_143": {
+                  "initial_stop": 1762,
+                  "take": 205,
+                  "trailing": 1151
+                },
+                "equal": true
+              }
+            },
+            "ok": false
+          },
+          "issue143_rounding_convention": {
+            "rows": {
+              "n_trades": {
+                "production": 3118,
+                "published_143": 3118,
+                "delta": 0,
+                "within_tolerance": true
+              },
+              "final_equity_rub": {
+                "production": 103216.16,
+                "published_143": 103216.04,
+                "delta": 0.12,
+                "within_tolerance": true
+              },
+              "profit_factor": {
+                "production": 1.55,
+                "published_143": 1.55,
+                "delta": 0.0,
+                "within_tolerance": true
+              },
+              "win_rate_pct": {
+                "production": 42.3,
+                "published_143": 42.3,
+                "delta": 0.0,
+                "within_tolerance": true
+              },
+              "max_drawdown_daily_pct": {
+                "production": 2.72,
+                "published_143": 2.72,
+                "delta": 0.0,
+                "within_tolerance": true
+              },
+              "skipped_entries_no_slot": {
+                "production": 187,
+                "published_143": 187,
+                "delta": 0,
+                "within_tolerance": true
+              },
+              "exit_type_counts": {
+                "production": {
+                  "initial_stop": 1762,
+                  "take": 205,
+                  "trailing": 1151
+                },
+                "published_143": {
+                  "initial_stop": 1762,
+                  "take": 205,
+                  "trailing": 1151
+                },
+                "equal": true
+              }
+            },
+            "ok": true
+          }
+        },
+        "ok": true
+      }
+    }
+  },
+  "files_changed": [
+    "backend/app/analytics/backtest_models.py",
+    "backend/app/analytics/portfolio_backtest.py",
+    "backend/app/analytics/portfolio_simulator.py",
+    "backend/app/analytics/strategies/base.py",
+    "backend/app/analytics/strategies/levels_reversal.py",
+    "backend/app/analytics/strategy_backtest.py",
+    "backend/app/analytics/strategy_engine.py",
+    "backend/app/analytics/trading_config.py",
+    "backend/app/analytics/trailing_stop.py",
+    "backend/tests/test_trailing_contract.py",
+    "backend/tests/test_trailing_stop.py",
+    "docs/agents/handover.md",
+    "docs/agents/handover.ru.md",
+    "docs/agents/project-context.md",
+    "docs/agents/project-context.ru.md",
+    "docs/strategy/backtest-report.md",
+    "docs/strategy/backtest-report.ru.md",
+    "docs/strategy/levels-reversal-strategy.md",
+    "docs/strategy/levels-reversal-strategy.ru.md",
+    "docs/strategy/paper-trading.md",
+    "docs/strategy/paper-trading.ru.md",
+    "reports/Arctic/145_trailing-evaluator/grid_check.json",
+    "reports/Arctic/145_trailing-evaluator/grid_check.py",
+    "reports/Arctic/145_trailing-evaluator/path_book_after.json",
+    "reports/Arctic/145_trailing-evaluator/path_book_baseline.json",
+    "reports/Arctic/145_trailing-evaluator/path_regression.py",
+    "reports/Arctic/145_trailing-evaluator/portfolio_contour_check.json",
+    "reports/Arctic/145_trailing-evaluator/regression_run.py",
+    "reports/Arctic/145_trailing-evaluator/regression_verdict.json",
+    "reports/Arctic/145_trailing-evaluator/report.json",
+    "reports/Arctic/145_trailing-evaluator/walkforward_isolation_check.json",
+    "reports/Arctic/145_trailing-evaluator/walkforward_isolation_check.py"
+  ],
+  "diff_numstat": [
+    {
+      "path": "backend/app/analytics/backtest_models.py",
+      "added": "6",
+      "removed": "5"
+    },
+    {
+      "path": "backend/app/analytics/portfolio_backtest.py",
+      "added": "21",
+      "removed": "2"
+    },
+    {
+      "path": "backend/app/analytics/portfolio_simulator.py",
+      "added": "27",
+      "removed": "0"
+    },
+    {
+      "path": "backend/app/analytics/strategies/base.py",
+      "added": "12",
+      "removed": "2"
+    },
+    {
+      "path": "backend/app/analytics/strategies/levels_reversal.py",
+      "added": "44",
+      "removed": "1"
+    },
+    {
+      "path": "backend/app/analytics/strategy_backtest.py",
+      "added": "5",
+      "removed": "1"
+    },
+    {
+      "path": "backend/app/analytics/strategy_engine.py",
+      "added": "58",
+      "removed": "14"
+    },
+    {
+      "path": "backend/app/analytics/trading_config.py",
+      "added": "18",
+      "removed": "14"
+    },
+    {
+      "path": "backend/app/analytics/trailing_stop.py",
+      "added": "334",
+      "removed": "0"
+    },
+    {
+      "path": "backend/tests/test_trailing_contract.py",
+      "added": "17",
+      "removed": "8"
+    },
+    {
+      "path": "backend/tests/test_trailing_stop.py",
+      "added": "604",
+      "removed": "0"
+    },
+    {
+      "path": "docs/agents/handover.md",
+      "added": "58",
+      "removed": "10"
+    },
+    {
+      "path": "docs/agents/handover.ru.md",
+      "added": "58",
+      "removed": "10"
+    },
+    {
+      "path": "docs/agents/project-context.md",
+      "added": "63",
+      "removed": "4"
+    },
+    {
+      "path": "docs/agents/project-context.ru.md",
+      "added": "58",
+      "removed": "4"
+    },
+    {
+      "path": "docs/strategy/backtest-report.md",
+      "added": "11",
+      "removed": "1"
+    },
+    {
+      "path": "docs/strategy/backtest-report.ru.md",
+      "added": "12",
+      "removed": "1"
+    },
+    {
+      "path": "docs/strategy/levels-reversal-strategy.md",
+      "added": "18",
+      "removed": "12"
+    },
+    {
+      "path": "docs/strategy/levels-reversal-strategy.ru.md",
+      "added": "16",
+      "removed": "12"
+    },
+    {
+      "path": "docs/strategy/paper-trading.md",
+      "added": "15",
+      "removed": "0"
+    },
+    {
+      "path": "docs/strategy/paper-trading.ru.md",
+      "added": "16",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/grid_check.json",
+      "added": "360",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/grid_check.py",
+      "added": "344",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/path_book_after.json",
+      "added": "1",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/path_book_baseline.json",
+      "added": "1",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/path_regression.py",
+      "added": "295",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/portfolio_contour_check.json",
+      "added": "63",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/regression_run.py",
+      "added": "368",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/regression_verdict.json",
+      "added": "91",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/report.json",
+      "added": "600",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/walkforward_isolation_check.json",
+      "added": "39",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/walkforward_isolation_check.py",
+      "added": "70",
+      "removed": "0"
+    }
+  ],
+  "note": "Issue #145 moves the stepped trailing stop from the #139 analytics overlay into the production exit path. One pure ladder (backend/app/analytics/trailing_stop.py) is called by StrategyEvaluator.on_bar, the levels_reversal plugin (check_exit mirror + ratchet in manage_position), portfolio_backtest/portfolio_simulator and walk-forward; the bar order stop -> take -> arm and \"armed by bar i, effective from bar i+1\" are copied from #139 on purpose. The policy stays shipped OFF (TRAILING_STOP.enabled=false) and the engine fails safe: an absent key, enabled=false, an empty ladder or a ladder refused by the #144 validator does not change a single exit. The write-path gate (require_valid_trailing_stop) is still uncalled - #146 / #149 own it - and paper/live do not read the block yet (#148 / #151). Verification: 52 new unit tests, the acceptance set green, full `pytest -m \"not integration\"` suite 323 -> 375 passed with 0 new failures between origin/main and this branch, a read-only DB regression of the locked configs 126 and 36 across two git trees (regression_verdict.json), and a DB-free per-trade check against the published #143 book (grid_check.json). The backend container was not rebuilt on this machine: the stack is stopped here, so `docker compose up -d --build backend` is left to CI / the dev box.",
+  "next_action": "Team Lead review + squash-merge (WORKFLOW section 8). #147 owns the formal parity gate; #146 / #149 must wire require_valid_trailing_stop() into the write paths; #148 / #151 reuse this module in paper and sandbox live.",
+  "commits": [
+    {
+      "sha": "188986d",
+      "subject": "#145 docs(ru): поправка падежа в разделе 19 (Lab-реплеем плагина)"
+    },
+    {
+      "sha": "ec58ae8",
+      "subject": "#145 репорт: ссылка на PR 159"
+    },
+    {
+      "sha": "bc8d4b4",
+      "subject": "#145 репорт приёмки: полный report.json (recoverable note field) и журнал log.txt"
+    },
+    {
+      "sha": "e327f29",
+      "subject": "#145 артефакты приёмки: кросс-деревная регрессия боевого выхода на реальных путях #143 (3 305 сделок, 6 вариантов trailing_stop, regression_match: true), проверка лестницы по опубликованной книге #143 (0 реальных расхождений), сквозной портфельный контур на живой БД (только SELECT), изоляция walk-forward, report.json + log.txt и воспроизводимые харнесы"
+    },
+    {
+      "sha": "1f77f7c",
+      "subject": "#145 document the on_bar exit order and the bar key used by the ladder"
+    },
+    {
+      "sha": "a7f99c1",
+      "subject": "#145 docs EN+RU: project-context new section 19 and sections 3/6/7/8, handover new section 37 and reworded 36, backtest-report 4, paper-trading exit-rule status, levels-reversal-strategy 2.3/15; Last refreshed bumped"
+    },
+    {
+      "sha": "9e08901",
+      "subject": "#145 stepped trailing stop in the production exit path: single ladder in analytics/trailing_stop.py, applied by StrategyEvaluator, the levels_reversal plugin, portfolio simulator and walk-forward; EXIT_TRAILING emitted, shipped disabled and fail-safe on an invalid ladder"
+    }
+  ],
+  "commit_note": "code + tests in the first commit, docs EN+RU in the second, the acceptance artifacts and the reproducible harnesses in the last ones"
+}

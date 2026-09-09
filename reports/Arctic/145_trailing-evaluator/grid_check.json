@@ -1,0 +1,360 @@
+{
+ "issue": 145,
+ "ref_issues": [
+  139,
+  143
+ ],
+ "production_code": "app.analytics.trailing_stop + portfolio_simulator replay",
+ "backend": "f:\\GIT\\trading-terminal\\backend",
+ "scope": {
+  "universe": 28,
+  "period": [
+   "2024-08-01",
+   "2026-08-21"
+  ],
+  "capital_rub": 50000.0,
+  "slot_rub": 10000.0,
+  "max_positions": 5,
+  "candidates": 3305,
+  "commission_pct": 0.06
+ },
+ "grids": {
+  "ultra_late_tight": {
+   "grid_id": "ultra_late_tight",
+   "steps": [
+    {
+     "trigger": 2.0,
+     "stop": 1.9
+    },
+    {
+     "trigger": 2.5,
+     "stop": 2.4
+    },
+    {
+     "trigger": 3.0,
+     "stop": 2.9
+    }
+   ],
+   "per_trade": {
+    "compared": 3305,
+    "mismatches": 0,
+    "rounding_convention_only": 134,
+    "max_abs_exit_price_delta": 5.000000000032756e-05,
+    "max_abs_net_return_delta_pp": 0.09412,
+    "first_mismatches": []
+   },
+   "books": {
+    "production_precision": {
+     "n_trades": 3162,
+     "final_equity_rub": 110317.83,
+     "pnl_rub": 60317.83,
+     "profit_factor": 1.6,
+     "win_rate_pct": 42.6,
+     "max_drawdown_event_pct": 3.47,
+     "max_drawdown_daily_pct": 3.08,
+     "skipped_entries_no_slot": 143,
+     "game_over": false,
+     "exit_type_counts": {
+      "initial_stop": 1790,
+      "take": 76,
+      "trailing": 1296
+     }
+    },
+    "issue143_rounding_convention": {
+     "n_trades": 3162,
+     "final_equity_rub": 110433.66,
+     "pnl_rub": 60433.66,
+     "profit_factor": 1.6,
+     "win_rate_pct": 42.6,
+     "max_drawdown_event_pct": 3.44,
+     "max_drawdown_daily_pct": 3.06,
+     "skipped_entries_no_slot": 143,
+     "game_over": false,
+     "exit_type_counts": {
+      "initial_stop": 1790,
+      "take": 76,
+      "trailing": 1296
+     }
+    }
+   },
+   "books_vs_published": {
+    "production_precision": {
+     "rows": {
+      "n_trades": {
+       "production": 3162,
+       "published_143": 3162,
+       "delta": 0,
+       "within_tolerance": true
+      },
+      "final_equity_rub": {
+       "production": 110317.83,
+       "published_143": 110433.68,
+       "delta": -115.85,
+       "within_tolerance": false
+      },
+      "profit_factor": {
+       "production": 1.6,
+       "published_143": 1.6,
+       "delta": 0.0,
+       "within_tolerance": true
+      },
+      "win_rate_pct": {
+       "production": 42.6,
+       "published_143": 42.6,
+       "delta": 0.0,
+       "within_tolerance": true
+      },
+      "max_drawdown_daily_pct": {
+       "production": 3.08,
+       "published_143": 3.06,
+       "delta": 0.02,
+       "within_tolerance": true
+      },
+      "skipped_entries_no_slot": {
+       "production": 143,
+       "published_143": 143,
+       "delta": 0,
+       "within_tolerance": true
+      },
+      "exit_type_counts": {
+       "production": {
+        "initial_stop": 1790,
+        "take": 76,
+        "trailing": 1296
+       },
+       "published_143": {
+        "initial_stop": 1790,
+        "take": 76,
+        "trailing": 1296
+       },
+       "equal": true
+      }
+     },
+     "ok": false
+    },
+    "issue143_rounding_convention": {
+     "rows": {
+      "n_trades": {
+       "production": 3162,
+       "published_143": 3162,
+       "delta": 0,
+       "within_tolerance": true
+      },
+      "final_equity_rub": {
+       "production": 110433.66,
+       "published_143": 110433.68,
+       "delta": -0.02,
+       "within_tolerance": true
+      },
+      "profit_factor": {
+       "production": 1.6,
+       "published_143": 1.6,
+       "delta": 0.0,
+       "within_tolerance": true
+      },
+      "win_rate_pct": {
+       "production": 42.6,
+       "published_143": 42.6,
+       "delta": 0.0,
+       "within_tolerance": true
+      },
+      "max_drawdown_daily_pct": {
+       "production": 3.06,
+       "published_143": 3.06,
+       "delta": 0.0,
+       "within_tolerance": true
+      },
+      "skipped_entries_no_slot": {
+       "production": 143,
+       "published_143": 143,
+       "delta": 0,
+       "within_tolerance": true
+      },
+      "exit_type_counts": {
+       "production": {
+        "initial_stop": 1790,
+        "take": 76,
+        "trailing": 1296
+       },
+       "published_143": {
+        "initial_stop": 1790,
+        "take": 76,
+        "trailing": 1296
+       },
+       "equal": true
+      }
+     },
+     "ok": true
+    }
+   },
+   "ok": true
+  },
+  "ref139": {
+   "grid_id": "ref139",
+   "steps": [
+    {
+     "trigger": 2.0,
+     "stop": 1.5
+    },
+    {
+     "trigger": 2.5,
+     "stop": 2.0
+    }
+   ],
+   "per_trade": {
+    "compared": 3305,
+    "mismatches": 0,
+    "rounding_convention_only": 115,
+    "max_abs_exit_price_delta": 5.000000000032756e-05,
+    "max_abs_net_return_delta_pp": 0.0969,
+    "first_mismatches": []
+   },
+   "books": {
+    "production_precision": {
+     "n_trades": 3118,
+     "final_equity_rub": 103176.14,
+     "pnl_rub": 53176.14,
+     "profit_factor": 1.54,
+     "win_rate_pct": 42.3,
+     "max_drawdown_event_pct": 3.02,
+     "max_drawdown_daily_pct": 2.74,
+     "skipped_entries_no_slot": 187,
+     "game_over": false,
+     "exit_type_counts": {
+      "initial_stop": 1762,
+      "take": 205,
+      "trailing": 1151
+     }
+    },
+    "issue143_rounding_convention": {
+     "n_trades": 3118,
+     "final_equity_rub": 103216.16,
+     "pnl_rub": 53216.16,
+     "profit_factor": 1.55,
+     "win_rate_pct": 42.3,
+     "max_drawdown_event_pct": 3.0,
+     "max_drawdown_daily_pct": 2.72,
+     "skipped_entries_no_slot": 187,
+     "game_over": false,
+     "exit_type_counts": {
+      "initial_stop": 1762,
+      "take": 205,
+      "trailing": 1151
+     }
+    }
+   },
+   "books_vs_published": {
+    "production_precision": {
+     "rows": {
+      "n_trades": {
+       "production": 3118,
+       "published_143": 3118,
+       "delta": 0,
+       "within_tolerance": true
+      },
+      "final_equity_rub": {
+       "production": 103176.14,
+       "published_143": 103216.04,
+       "delta": -39.9,
+       "within_tolerance": false
+      },
+      "profit_factor": {
+       "production": 1.54,
+       "published_143": 1.55,
+       "delta": -0.01,
+       "within_tolerance": true
+      },
+      "win_rate_pct": {
+       "production": 42.3,
+       "published_143": 42.3,
+       "delta": 0.0,
+       "within_tolerance": true
+      },
+      "max_drawdown_daily_pct": {
+       "production": 2.74,
+       "published_143": 2.72,
+       "delta": 0.02,
+       "within_tolerance": true
+      },
+      "skipped_entries_no_slot": {
+       "production": 187,
+       "published_143": 187,
+       "delta": 0,
+       "within_tolerance": true
+      },
+      "exit_type_counts": {
+       "production": {
+        "initial_stop": 1762,
+        "take": 205,
+        "trailing": 1151
+       },
+       "published_143": {
+        "initial_stop": 1762,
+        "take": 205,
+        "trailing": 1151
+       },
+       "equal": true
+      }
+     },
+     "ok": false
+    },
+    "issue143_rounding_convention": {
+     "rows": {
+      "n_trades": {
+       "production": 3118,
+       "published_143": 3118,
+       "delta": 0,
+       "within_tolerance": true
+      },
+      "final_equity_rub": {
+       "production": 103216.16,
+       "published_143": 103216.04,
+       "delta": 0.12,
+       "within_tolerance": true
+      },
+      "profit_factor": {
+       "production": 1.55,
+       "published_143": 1.55,
+       "delta": 0.0,
+       "within_tolerance": true
+      },
+      "win_rate_pct": {
+       "production": 42.3,
+       "published_143": 42.3,
+       "delta": 0.0,
+       "within_tolerance": true
+      },
+      "max_drawdown_daily_pct": {
+       "production": 2.72,
+       "published_143": 2.72,
+       "delta": 0.0,
+       "within_tolerance": true
+      },
+      "skipped_entries_no_slot": {
+       "production": 187,
+       "published_143": 187,
+       "delta": 0,
+       "within_tolerance": true
+      },
+      "exit_type_counts": {
+       "production": {
+        "initial_stop": 1762,
+        "take": 205,
+        "trailing": 1151
+       },
+       "published_143": {
+        "initial_stop": 1762,
+        "take": 205,
+        "trailing": 1151
+       },
+       "equal": true
+      }
+     },
+     "ok": true
+    }
+   },
+   "ok": true
+  }
+ },
+ "grid_check_ok": true
+}

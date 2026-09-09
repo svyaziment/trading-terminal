@@ -1,7 +1,7 @@
 # Levels Reversal Strategy
 
 > Status: validated on SBER/GAZP/VTBR (2-year history). Production brain: `StrategyEvaluator.check_entry`. Prototype: `backend/app/analytics/levels_backtest.py`.
-> Last refreshed: 2026-09-08 (Issue #144 adds §15 — the `config.trailing_stop` contract: validated, default OFF, engine wiring is #145). Previously 2026-08-30 (Issue #130 50k levels_sr_support portfolio).
+> Last refreshed: 2026-09-09 (Issue #145 applied the §15 ladder in the production exit path — `backend/app/analytics/trailing_stop.py`, shared by `StrategyEvaluator`, the `levels_reversal` plugin, the portfolio simulator and walk-forward; `trailing` exits are real now). Previously 2026-09-08 (Issue #144 added §15 — the `config.trailing_stop` contract) and 2026-08-30 (Issue #130 50k levels_sr_support portfolio).
 
 ## 1. Overview
 
@@ -29,9 +29,10 @@ This is the first strategy in the project that is **profitable after commission 
 - **Stop:** nearest support level below entry; triggered by 1min **low** (conservative fill at stop).
 - **Take:** nearest resistance level above entry; triggered by 1min **high** (fill at take).
 - **Overnight/weekend:** position is held (no session-only exit). Blue chips, minimal gaps/slippage.
-- **Stepped trailing stop (`config.trailing_stop`):** contract and validation only (Issue #144, §15) — not
-  evaluated by the engine yet, so the three rules above are still the complete exit set in every backtest,
-  paper and live result.
+- **Stepped trailing stop (`config.trailing_stop`):** applied since Issue #145 whenever the config arms it
+  (§15). The ladder only tightens the stop above; the two rules above stay the exit set for every config
+  without the block, which is the shipped default — and for paper and live, which do not read it yet
+  (#148 / #151).
 
 ### 2.4 Costs
 - **Commission:** 0.03% per side (0.06% round-trip).
@@ -350,7 +351,7 @@ Slot replay of published C by Issue #44 rules (50k / 10k / max 5, volume-order #
 
 ## 15. Stepped trailing stop (Issue #144)
 
-**Rule (target semantics; the engine work is #145).** `R = entry − stop` from §2.3 is fixed at entry. When
+**Rule (live in the engine since Issue #145).** `R = entry_exec − stop` from §2.3 is fixed at entry. When
 floating profit reaches a step's `trigger × R`, the stop moves to `entry + stop × R` (the step's second
 number). Steps are evaluated in ascending order, the highest reached step wins, and the stop never moves down;
 an exit through that raised stop is reported with the `trailing` exit reason (`EXIT_TRAILING` in
@@ -378,12 +379,17 @@ has no `validate_config()` — so a malformed ladder still saves until #146 / #1
 PF 1.60 against 1.55, daily MaxDD 3.06 against 2.72 pp). `ref139` (`2.0→1.5 / 2.5→2.0`, Issue #139) is not a
 default; it stays the parity anchor that #147 injects explicitly.
 
-**Status.** Contract only — defaults plus validators, with no caller in any runtime path
-(`StrategyEvaluator.on_bar`, the paper plugin, the portfolio simulator, paper, live) reading the block yet, so
-every figure in §4–§14 is fixed-stop/take.
-Ladder application is #145, the Lab editor #146, the parity gate #147, paper #148, sandbox live #151, live
-acceptance #152. Until #145 lands, the executable reference for the semantics above stays the analytics
-implementation: `analytics/issue-139-trailing-stop-new-level/trailing.py` (`apply_trailing`) and
-`analytics/trailing_grid_lab.py` (same ladder, CLI `--grid` / `--grid-file`).
+**Status (Issue #145).** The ladder is live in the backtest path: `StrategyEvaluator.on_bar`, the
+`levels_reversal` plugin (`check_exit` / `manage_position`), `portfolio_backtest` → `portfolio_simulator` and
+walk-forward all evaluate it through `backend/app/analytics/trailing_stop.py`, and trades carry
+`step_reached`. Bar order is *stop → take → arm*: the rung armed by one bar bites on the next, the take never
+moves, the stop never loosens. Every figure in §4–§14 stays fixed-stop/take, because those runs used configs
+without the block (or `enabled=false`) — and it stays exact for them, which is the point of the shipped
+default.
+Still ahead: the Lab editor #146, the parity gate #147, paper #148, sandbox live #151, live acceptance #152.
+The analytics reference implementations remain available for comparison —
+`analytics/issue-139-trailing-stop-new-level/trailing.py` (`apply_trailing`) and
+`analytics/trailing_grid_lab.py` (same ladder, CLI `--grid` / `--grid-file`) — and #145 leaves that package
+untouched by design.
 
 

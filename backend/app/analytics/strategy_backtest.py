@@ -200,7 +200,11 @@ WALKFORWARD_PERIODS = [
 
 def run_walkforward(db, ticker: str, config: Dict, periods=None) -> Dict:
     """Walk-forward: backtest per half-year window. Returns PF per period + summary
-    (pf_gt1 count, min_pf, avg_pf) - matches the reference walk-forward report."""
+    (pf_gt1 count, min_pf, avg_pf) - matches the reference walk-forward report.
+
+    Issue #145: every window runs its own run_strategy_backtest, which opens a fresh
+    StrategyEvaluator - the trailing ladder is per-position state on that evaluator, so
+    armed highs and step_reached never leak from one window into the next."""
     if periods is None:
         periods = WALKFORWARD_PERIODS
     results = {}
