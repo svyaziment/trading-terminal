@@ -2,23 +2,23 @@
   "issue": 145,
   "epic": 142,
   "branch": "feature/issue-145-trailing-evaluator",
-  "commit": "1f77f7c",
+  "commit": "e327f29",
   "pr": null,
   "pr_url": null,
   "pr_base": "main",
   "status": "success",
   "started_at": "2026-09-09T00:10:00Z",
-  "finished_at": "2026-09-09T02:42:18Z",
+  "finished_at": "2026-09-09T02:52:07Z",
   "checks": {
     "py_compile_rc": 0,
     "acceptance_pytest_rc": 0,
-    "acceptance_pytest_summary": "180 passed, 1 deselected, 1 warning in 2.50s",
+    "acceptance_pytest_summary": "180 passed, 1 deselected, 1 warning in 2.24s",
     "new_tests_rc": 0,
-    "new_tests_summary": "52 passed in 1.04s",
+    "new_tests_summary": "52 passed in 0.95s",
     "collect_only_rc": 0,
-    "collect_only_summary": "376 tests collected in 2.01s",
+    "collect_only_summary": "376 tests collected in 1.98s",
     "full_suite_not_integration_rc": 0,
-    "full_suite_not_integration_summary": "375 passed, 1 deselected, 17 warnings in 4.95s",
+    "full_suite_not_integration_summary": "375 passed, 1 deselected, 17 warnings in 4.94s",
     "container_import_rc": null,
     "docker_rebuild_rc": null,
     "regression_match": true,
@@ -488,7 +488,18 @@
     "docs/strategy/levels-reversal-strategy.md",
     "docs/strategy/levels-reversal-strategy.ru.md",
     "docs/strategy/paper-trading.md",
-    "docs/strategy/paper-trading.ru.md"
+    "docs/strategy/paper-trading.ru.md",
+    "reports/Arctic/145_trailing-evaluator/grid_check.json",
+    "reports/Arctic/145_trailing-evaluator/grid_check.py",
+    "reports/Arctic/145_trailing-evaluator/path_book_after.json",
+    "reports/Arctic/145_trailing-evaluator/path_book_baseline.json",
+    "reports/Arctic/145_trailing-evaluator/path_regression.py",
+    "reports/Arctic/145_trailing-evaluator/portfolio_contour_check.json",
+    "reports/Arctic/145_trailing-evaluator/regression_run.py",
+    "reports/Arctic/145_trailing-evaluator/regression_verdict.json",
+    "reports/Arctic/145_trailing-evaluator/report.json",
+    "reports/Arctic/145_trailing-evaluator/walkforward_isolation_check.json",
+    "reports/Arctic/145_trailing-evaluator/walkforward_isolation_check.py"
   ],
   "diff_numstat": [
     {
@@ -595,6 +606,63 @@
       "path": "docs/strategy/paper-trading.ru.md",
       "added": "16",
       "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/grid_check.json",
+      "added": "360",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/grid_check.py",
+      "added": "344",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/path_book_after.json",
+      "added": "1",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/path_book_baseline.json",
+      "added": "1",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/path_regression.py",
+      "added": "295",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/portfolio_contour_check.json",
+      "added": "63",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/regression_run.py",
+      "added": "368",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/regression_verdict.json",
+      "added": "91",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/report.json",
+      "added": "600",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/walkforward_isolation_check.json",
+      "added": "39",
+      "removed": "0"
+    },
+    {
+      "path": "reports/Arctic/145_trailing-evaluator/walkforward_isolation_check.py",
+      "added": "70",
+      "removed": "0"
     }
   ],
-  "note": 
+  "note": "Issue #145 moves the stepped trailing stop from the #139 analytics overlay into the production exit path. One pure ladder (backend/app/analytics/trailing_stop.py) is called by StrategyEvaluator.on_bar, the levels_reversal plugin (check_exit mirror + ratchet in manage_position), portfolio_backtest/portfolio_simulator and walk-forward; the bar order stop -> take -> arm and \"armed by bar i, effective from bar i+1\" are copied from #139 on purpose. The policy stays shipped OFF (TRAILING_STOP.enabled=false) and the engine fails safe: an absent key, enabled=false, an empty ladder or a ladder refused by the #144 validator does not change a single exit. The write-path gate (require_valid_trailing_stop) is still uncalled - #146 / #149 own it - and paper/live do not read the block yet (#148 / #151). Verification: 52 new unit tests, the acceptance set green, full `pytest -m \"not integration\"` suite 323 -> 375 passed with 0 new failures between origin/main and this branch, a read-only DB regression of the locked configs 126 and 36 across two git trees (regression_verdict.json), and a DB-free per-trade check against the published #143 book (grid_check.json). The backend container was not rebuilt on this machine: the stack is stopped here, so `docker compose up -d --build backend` is left to CI / the dev box.",
+  "next_action": "Team Lead review + squash-merge (WORKFLOW section 8). #147 owns the formal parity gate; #146 / #149 must wire require_valid_trailing_stop() into the write paths; #148 / #151 reuse this module in paper and sandbox live."
+}
