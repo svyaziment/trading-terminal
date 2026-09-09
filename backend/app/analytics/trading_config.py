@@ -194,12 +194,55 @@ TRAILING_REASON_STEP_INVALID = 'trailing_step_invalid'      # shape / bounds / n
 TRAILING_REASON_NOT_MONOTONIC = 'trailing_not_monotonic'    # stop falls as trigger rises
 TRAILING_REASON_TOO_MANY_STEPS = 'trailing_too_many_steps'  # ladder longer than max_steps
 
+# The stable vocabulary the Lab editor (Issue #146) surfaces to the operator. Ordered
+# from "nothing to arm" to "too long" so a multi-code rejection reads as a narrative.
+TRAILING_REASON_CODES: List[str] = [
+    TRAILING_REASON_DISABLED,
+    TRAILING_REASON_STEP_INVALID,
+    TRAILING_REASON_NOT_MONOTONIC,
+    TRAILING_REASON_TOO_MANY_STEPS,
+]
+
+# Name of the approved ladder shipped in TRAILING_STOP['steps'] - the `ultra_late_tight`
+# grid of the 143-trailing-v3 lattice (Product Owner decision of 2026-09-08, Epic #142).
+# It is a LABEL, not a bound: the numbers themselves stay only in TRAILING_STOP. The Lab
+# prints it on the "apply default grid" button so the operator can cross-check the button
+# against #144/#142 without the frontend ever restating a step. backend/tests/
+# test_trailing_contract.py pins this name to the grid of the same id in
+# analytics/issue-143-trailing-robustness/grids.json, so the label cannot drift from it.
+TRAILING_STOP_DEFAULT_GRID: str = 'ultra_late_tight'
+
+# Keystroke resolution the editor must offer, in R. The approved default lives on a 0.1R
+# gap (1.9 / 2.4 / 2.9), so snapping an input to 0.5R or 1.0R would silently rewrite the
+# shipped ladder into something validate_trailing_steps() rejects. Served to the Lab
+# (Issue #146) for exactly that reason; a label, not a bound.
+TRAILING_INPUT_STEP: float = 0.1
+
 
 def get_trailing_stop_config() -> Dict[str, Any]:
     """Return an isolated copy of the trailing-stop contract (defaults + bounds)."""
     cfg = dict(TRAILING_STOP)
     cfg['steps'] = [dict(step) for step in TRAILING_STOP['steps']]
     return cfg
+
+
+def get_trailing_stop_schema() -> Dict[str, Any]:
+    """The whole trailing-stop contract for the schema-driven Lab editor (Issue #146).
+
+    `get_trailing_stop_config()` plus the two labels the editor needs to render honestly:
+    the name of the approved default grid (button caption) and the R keystroke resolution
+    an input must accept without snapping. Bounds and steps are the contract's own values
+    - this function is the only place the Lab is allowed to read them from, which is what
+    keeps `frontend/.../TrailingStopSection.tsx` free of trailing numbers.
+
+    Additive: TRAILING_STOP itself is untouched, so every existing consumer of
+    get_trailing_stop_config() sees exactly the keys it saw before.
+    """
+    schema = get_trailing_stop_config()
+    schema['default_grid'] = TRAILING_STOP_DEFAULT_GRID
+    schema['input_step'] = TRAILING_INPUT_STEP
+    schema['reason_codes'] = list(TRAILING_REASON_CODES)
+    return schema
 
 
 def _trailing_number(value: Any) -> Optional[float]:

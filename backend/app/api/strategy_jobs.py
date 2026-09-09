@@ -3,6 +3,7 @@ Strategy storage + backtest API.
 - POST /api/strategies              : save strategy (name + config JSONB); rejects overwrite of locked (paper-trading) strategies.
 - GET  /api/strategies              : list strategies (with in_paper_test / locked / description).
 - GET  /api/strategies/run/status   : backtest job status.
+- GET  /api/strategies/trailing-schema : config.trailing_stop contract for the Lab editor (#146).
 - POST /api/strategies/{id}/run     : run backtest; writes params to reports/strategy-lab/last_run.json, then starts job.
 - GET  /api/strategies/{id}/results : stored results.
 - GET  /api/tickers/big             : tickers with >= min_candles 1min rows.
@@ -20,6 +21,7 @@ from pydantic import BaseModel
 from app.api import jobs_state
 from app.db.db_manager import DBManager
 from app.analytics.pattern_registry import list_patterns, normalize_patterns
+from app.analytics.trading_config import get_trailing_stop_schema
 
 JOB = "strategy_backtest"
 NAME_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
@@ -202,6 +204,18 @@ def register_routes(app: FastAPI) -> None:
     @app.get("/api/patterns")
     def get_patterns():
         return {"patterns": list_patterns()}
+
+    @app.get("/api/strategies/trailing-schema")
+    def get_trailing_schema():
+        """Contract of `config.trailing_stop` for the schema-driven Lab editor (#146).
+
+        Read-only and dependency-free: defaults, bounds, the approved default grid's name
+        and the stable rejection codes, all straight out of trading_config - the single
+        source of truth. The Lab renders its trailing-stop section from this and must not
+        restate any of it. Issue #149 owns the write-side validation of the same block;
+        this endpoint exists so #146 has a schema to render against and #149 can extend it.
+        """
+        return {"trailing_stop": get_trailing_stop_schema()}
 
     @app.post("/api/patterns/preview")
     def preview_pattern(payload: PatternPreviewIn):
