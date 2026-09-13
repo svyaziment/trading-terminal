@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-09 (Issue #145 — the stepped trailing stop now runs in the **production** exit path: one pure ladder in `backend/app/analytics/trailing_stop.py`, called by `StrategyEvaluator.on_bar`, the `levels_reversal` plugin, `portfolio_simulator` and walk-forward; `EXIT_TRAILING` is emitted; the policy still ships **disabled**, §19 and handover §37). Previous refresh: 2026-09-08 (Product Owner decision recorded in §18: `ultra_late_tight` — the densest late ladder of the `143-trailing-v3` lattice — is the production default trailing-stop grid for #144; epic #142 / roadmap Block W; the #144 contract itself landed the same day — validation only, full field contract in section 6, tests `backend/tests/test_trailing_contract.py`). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-09-09 (Issue #146 — the Lab can now configure `config.trailing_stop`: a schema-driven toggle + rung table rendered from the new read-only `GET /api/strategies/trailing-schema`, whose payload `trading_config.get_trailing_stop_schema()` produces from `TRAILING_STOP` (handover §38). No trailing field or number is restated in TSX, an untouched strategy still saves without the key, and the trade table finally distinguishes a `trailing` exit from a plain `stop`. The write-path gate (`require_valid_trailing_stop()` on save) is still #149's. Previous refresh: same day, Issue #145 — the stepped trailing stop now runs in the **production** exit path: one pure ladder in `backend/app/analytics/trailing_stop.py`, called by `StrategyEvaluator.on_bar`, the `levels_reversal` plugin, `portfolio_simulator` and walk-forward; `EXIT_TRAILING` is emitted; the policy still ships **disabled**, §19 and handover §37). Previous refresh: 2026-09-08 (Product Owner decision recorded in §18: `ultra_late_tight` — the densest late ladder of the `143-trailing-v3` lattice — is the production default trailing-stop grid for #144; epic #142 / roadmap Block W; the #144 contract itself landed the same day — validation only, full field contract in section 6, tests `backend/tests/test_trailing_contract.py`). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -114,6 +114,9 @@ trading-terminal/
 │ │ ├── types.ts # TypeScript types (incl. LevelBreakoutRetestConfig, LevelsSrBreakoutConfig, LevelsSrSupportConfig)
 │ │ ├── patternLab.ts # Chip grouping + RU/EN labels + confirm_windows priority (#82/#109/#128)
 │ │ ├── patternValidation.ts # Schema min/max checks before Lab save/run (#109)
+│ │ ├── trailingStop.ts # Trailing ladder parse/validate/payload for the Lab editor (#146); pure, no numbers
+│ │ ├── exitReasons.ts # Exit-reason labels/tones incl. `trailing` for the Lab trade table (#146)
+
 │ │ └── index.css / main.tsx
 │ └── package.json / tailwind.config.js / vite.config.js
 ├── analytics/ # Git-tracked, published analytical results
@@ -201,6 +204,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | POST | /api/backtest/run | Background: legacy pattern matrix backtest |
 | POST | /api/levels-backtest/run | Levels backtest matrix |
 | GET | /api/patterns | Pattern registry schemas (Strategy Lab) |
+| GET | /api/strategies/trailing-schema | `config.trailing_stop` contract for the Lab editor: defaults, bounds, `max_steps`, input resolution, approved grid name, reason codes (#146; read-only, produced by `trading_config.get_trailing_stop_schema()`) |
 | POST | /api/patterns/preview | Pattern chart preview: candles + typed overlays (`ray`, `band`, `line`, `marker`); #88 implements `levels_reversal` |
 | POST | /api/strategies | Save strategy (rejects overwrite of locked) |
 | GET | /api/strategies | List strategies (with in_paper_test/locked/description) |
@@ -301,7 +305,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | T | Composite S/R pattern (Epic #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 Lab chip + #119 AFKS smoke + #124 Lab-universe A/B done |
 | U | Support with tracker (Epic #126) | #127 `levels_sr_support` backend + #128 Lab chip + #129 isolated Lab universe + #130 portfolio #44 done |
 | V | Stepped trailing-stop analytics (Issue #139) | Done — analytics-only A/B (fixed 1:3 vs stepped trailing) on locked `test_20260830_new_level` id=126, RR 1:3; trailing lives in `analytics/.../trailing.py`, not wired into the production exit path |
-| W | Stepped trailing stop in production (Epic #142) | In progress — #144 `config.trailing_stop` contract **done** (defaults + validators, shipped OFF — §6), #145 stepped trailing in the engine / plugin / portfolio simulator / walk-forward **done** (one ladder in `app.analytics.trailing_stop`, `EXIT_TRAILING` emitted, the policy still ships OFF — §19, handover §37), #146 Lab editor, #147 parity gate vs #139, #143 robustness analytics done (8-grid lattice `143-trailing-v3`, walk-forward, cost stress — §18; the lattice shape itself was re-delivered by #155; **the Product Owner approved the production default grid on 2026-09-08: `ultra_late_tight`**), #148 paper trader, #149 API + filters, #150 Paper/Live panels, #151 sandbox `LiveExecutor`, #152 live-period acceptance verdict. Ships **default OFF**; basis is the #139 result (A 95 180.01 -> B 103 176.00 RUB, PF 1.41 -> 1.54, daily MaxDD 6.49% -> 2.74%) and the #143 lattice (95 827 … 110 434 RUB); the #139 grid `ref139` stays the parity anchor that #147 injects explicitly |
+| W | Stepped trailing stop in production (Epic #142) | In progress — #144 `config.trailing_stop` contract **done** (defaults + validators, shipped OFF — §6), #145 stepped trailing in the engine / plugin / portfolio simulator / walk-forward **done** (one ladder in `app.analytics.trailing_stop`, `EXIT_TRAILING` emitted, the policy still ships OFF — §19, handover §37), #146 Lab editor **done** (schema-driven toggle + rung table off `GET /api/strategies/trailing-schema`, handover §38), #147 parity gate vs #139, #143 robustness analytics done (8-grid lattice `143-trailing-v3`, walk-forward, cost stress — §18; the lattice shape itself was re-delivered by #155; **the Product Owner approved the production default grid on 2026-09-08: `ultra_late_tight`**), #148 paper trader, #149 API + filters, #150 Paper/Live panels, #151 sandbox `LiveExecutor`, #152 live-period acceptance verdict. Ships **default OFF**; basis is the #139 result (A 95 180.01 -> B 103 176.00 RUB, PF 1.41 -> 1.54, daily MaxDD 6.49% -> 2.74%) and the #143 lattice (95 827 … 110 434 RUB); the #139 grid `ref139` stays the parity anchor that #147 injects explicitly |
 
 
 ## 9. Important Notes
@@ -563,4 +567,42 @@ Lab plugin replay, the portfolio simulator and walk-forward — and the same mod
 - **Out of scope for #145:** paper (#148), the Lab/API write gate (#146 / #149), the Paper/Live
   panels (#150), sandbox live (#151), the parity gate (#147) and the live-period acceptance
   verdict (#152).
+## 20. Trailing-stop editor in the Strategy Lab (Issue #146, Epic #142)
+
+- The Lab now writes `config.trailing_stop` itself: a toggle and a `trigger → stop` rung table in
+  the config rail (between «Risk / Reward» and «Тест»). It is a **top-level exit block**; making it
+  a `levels_reversal` parameter would break both the schema-driver and the #144 contract.
+- Fully schema-driven, with no frontend fallback. The section appears only once
+  `GET /api/strategies/trailing-schema` answers, and every default, bound, `max_steps`, the `0.1R`
+  input resolution, the approved grid's **name and its steps**, and the reason-code vocabulary come
+  from that payload — produced by `trading_config.get_trailing_stop_schema()` straight off
+  `TRAILING_STOP`, which it does not mutate. If the endpoint is down the section is simply absent,
+  so a stale bundle can never offer an unapproved ladder.
+  #149 owns the endpoint's long-term shape and **inherits this one** — extend the function, do not
+  fork a second schema object into a router.
+- `frontend/src/trailingStop.ts` holds all the logic (parse, `validateLadder`, payload building) as
+  pure functions; `TrailingStopFields.tsx` renders and contains no trailing number — that split is
+  what makes the «zero hardcode in TSX» acceptance criterion checkable. `validateLadder` mirrors
+  `validate_trailing_steps()` (#144) rung for rung, including exclusive `min_trigger`, collapsing
+  exact duplicates, and checking bounds even while the toggle is off.
+- Two behaviours worth knowing before editing:
+  - **Untouched means untouched.** The payload builder returns `null` until the operator touches the
+    block and the config memo spreads it conditionally, so a strategy that never carried
+    `trailing_stop` still saves without the key. Touching it and saving with the toggle off *does*
+    write an explicit `enabled: false` — an opt-out is an opinion, absence is not.
+  - **The ladder must be controlled string state at `step=0.1`.** The approved `ultra_late_tight`
+    grid is `2.0→1.9 / 2.5→2.4 / 3.0→2.9` on a 0.1R gap; a browser snap to 0.5R would silently turn
+    1.9 into 2.0 and the Lab would ship a ladder #144 rejects. Round-trip is covered by tests.
+- The trade table now renders the engine's full closed exit-reason set
+  (`stop, take, trailing, holding, signal, session`) from `frontend/src/exitReasons.ts`. Before
+  #146 the column was a binary take/stop, so every `trailing` exit was labelled «стоп» — the
+  ladder's own output was indistinguishable from being stopped out at the initial stop.
+- **Still not gated:** saving over the API does not call `require_valid_trailing_stop()`; the 422
+  write-path validation is #149's deliverable, so the client check can be bypassed by a non-Lab
+  client until then. The #145 engine remains the safety net (it never arms a rejected ladder).
+- **`config_hash` does not exist in this repository** — requirement 4's hash-change check is
+  unverifiable here; the saved JSONB `config` genuinely carries the block, which is the substance
+  of it. Operational detail: handover §38.
+
+
 

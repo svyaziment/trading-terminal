@@ -18,6 +18,7 @@ import {
   getStrategyDataRange,
   getPatterns,
   getStrategyPlugins,
+  getTrailingStopSchema,
 } from "../api";
 import type {
   Strategy,
@@ -26,6 +27,7 @@ import type {
   FullSampleMetrics,
   WalkforwardMetrics,
   PatternDef,
+  TrailingStopSchema,
 } from "../types";
 import {
   applyTopLevelConfirmWindows,
@@ -38,6 +40,19 @@ import {
   resolveLabLocale,
 } from "../patternLab";
 import { firstPatternValidationError } from "../patternValidation";
+import { exitReasonLabel, exitReasonTone, EXIT_REASON_ORDER } from "../exitReasons";
+import {
+  blankRow,
+  buildTrailingStopPayload,
+  defaultLadder,
+  describeLadder,
+  emptyLadder,
+  reasonText,
+  rowsFromLadder,
+  validateLadder,
+  type TrailingRow,
+} from "../trailingStop";
+import TrailingStopFields from "./TrailingStopFields";
 
 // issue-12 temporary compatibility helpers (UI modal is #15)
 export function patternsToArray(patterns: unknown): string[] {
@@ -163,6 +178,15 @@ export default function StrategyLab() {
   const [rrOn, setRrOn] = useState(true);
   const [rrRisk, setRrRisk] = useState("1");
   const [rrReward, setRrReward] = useState("2");
+  // Issue #146: config.trailing_stop — a top-level exit block, never a pattern param.
+  // `trailingSchema` is null until GET /api/strategies/trailing-schema answers; the section
+  // stays hidden rather than rendering numbers the frontend invented.
+  const [trailingSchema, setTrailingSchema] = useState<TrailingStopSchema | null>(null);
+  const [trailingOn, setTrailingOn] = useState(false);
+  const [trailingRows, setTrailingRows] = useState<TrailingRow[]>(() => emptyLadder());
+  const [trailingStored, setTrailingStored] = useState<StrategyConfig["trailing_stop"]>(undefined);
+  // "Did the operator touch this block?" — an untouched strategy must keep sending no key.
+  const [trailingTouched, setTrailingTouched] = useState(false);
   const [methods, setMethods] = useState<string[]>(["full_sample", "walkforward"]);
   const [depth, setDepth] = useState("express");
 const [dateFrom, setDateFrom] = useState("");
@@ -225,6 +249,26 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
     ? registry.find((d) => d.id === settingsTarget) ?? patternDefs.find((d) => d.id === settingsTarget) ?? null
     : null;
 
+  const trailingValidation = useMemo(
+    () =>
+      trailingSchema
+        ? validateLadder(trailingRows, trailingSchema, trailingOn)
+        : { reasons: [] as string[], rowCodes: trailingRows.map(() => undefined) },
+    [trailingSchema, trailingRows, trailingOn],
+  );
+
+  const trailingPayload = useMemo(
+    () =>
+      buildTrailingStopPayload({
+        touched: trailingTouched,
+        stored: trailingStored,
+        enabled: trailingOn,
+        rows: trailingRows,
+        schema: trailingSchema,
+      }),
+    [trailingTouched, trailingStored, trailingOn, trailingRows, trailingSchema],
+  );
+
   const config: StrategyConfig = useMemo(() => {
     const full: Record<string, Record<string, unknown>> = {};
     for (const id of Object.keys(patternConfigs)) full[id] = effectiveParams(id);
@@ -238,8 +282,11 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
         : null,
       n_runs: 1,
       strategy_name: strategyName,
+      // Spread, not assigned: an untouched block must leave the key absent entirely, so a
+      // strategy that never had trailing_stop saves byte-for-byte the config it loaded.
+      ...(trailingPayload ? { trailing_stop: trailingPayload } : {}),
     };
-  }, [patternConfigs, registry, windows, commission, slippage, rrOn, rrRisk, rrReward, strategyName]);
+  }, [patternConfigs, registry, windows, commission, slippage, rrOn, rrRisk, rrReward, strategyName, trailingPayload]);
 
   const selectedStrategy = strategies.find((s) => s.id === selectedId) ?? null;
   const isLocked = selectedStrategy?.locked === true;
@@ -267,6 +314,14 @@ const [dataRange, setDataRange] = useState<{ min_date: string | null; max_date: 
         const sp = await getStrategyPlugins();
         setAvailablePlugins(sp.plugins);
       } catch { /* transient */ }
+      try {
+        const ts = await getTrailingStopSchema();
+        setTrailingSchema(ts.trailing_stop);
+        // A brand-new strategy starts from the contract's own "off" state, not from a
+        // frontend guess, and stays untouched so no key is sent until the operator acts.
+        setTrailingOn(ts.trailing_stop.enabled);
+        setTrailingRows(defaultLadder(ts.trailing_stop));
+      } catch { /* transient: no schema, section stays hidden */ }
       try {
         const bt = await getBigTickers();
         setBigTickers(bt.tickers);
@@ -412,6 +467,24 @@ function toggleTicker(t: string) {
     setRrOn(c.risk_reward !== null && c.risk_reward !== undefined);
     setRrRisk(String(c.risk_reward?.risk ?? 1));
     setRrReward(String(c.risk_reward?.reward ?? 2));
+    // Issue #146: reseat the trailing block from what is actually stored. A config without
+    // the key is "never touched" — not "off", and certainly not the schema's default
+    // ladder, which would silently start shipping trailing_stop on every save.
+    const storedTrailing = c.trailing_stop;
+    const hasTrailing =
+      !!storedTrailing && typeof storedTrailing === "object" && Array.isArray(storedTrailing.steps);
+    setTrailingStored(hasTrailing ? storedTrailing : undefined);
+    setTrailingTouched(false);
+    if (hasTrailing && storedTrailing) {
+      setTrailingOn(storedTrailing.enabled === true);
+      setTrailingRows(rowsFromLadder(storedTrailing));
+    } else if (trailingSchema) {
+      setTrailingOn(trailingSchema.enabled);
+      setTrailingRows(defaultLadder(trailingSchema));
+    } else {
+      setTrailingOn(false);
+      setTrailingRows(emptyLadder());
+    }
     const rp = (c as StrategyConfig & { run_params?: { tickers?: string[]; test_types?: string[]; depth?: string; date_from?: string | null; date_to?: string | null } }).run_params;
     if (rp) {
       setPrefillFlash(true);
@@ -466,6 +539,15 @@ function toggleTicker(t: string) {
     if (patternErr) { setError(patternErr); return; }
     if (tickers.length === 0) { setError("Выберите хотя бы один тикер"); return; }
     if (methods.length === 0) { setError("Выберите хотя бы один метод теста"); return; }
+    // Issue #146: never send a ladder #144 would refuse. These are the server's own reason
+    // codes, so the operator sees the same vocabulary the API answers with (#149).
+    if (trailingValidation.reasons.length > 0) {
+      setError(
+        (locale === "en" ? "Trailing stop: " : "Трейлинг-стоп: ") +
+          trailingValidation.reasons.map((code) => reasonText(code, locale)).join("; "),
+      );
+      return;
+    }
 if (depth === "custom") {
   if (!dateFrom || !dateTo) { setError("Укажите период «с» и «до»"); return; }
   if (dateFrom > dateTo) { setError("Дата «с» не может быть позже даты «до»"); return; }
@@ -675,11 +757,15 @@ const progressPct =
       label: "Причина",
       accessor: (t) => t.exit_reason,
       render: (t) => (
-        <span className={"inline-block rounded px-1.5 py-0.5 font-mono text-[10px] " + (t.exit_reason === "take" ? "bg-emerald-500/15 text-emerald-300" : "bg-rose-500/15 text-rose-300")}>
-          {t.exit_reason === "take" ? "тейк" : "стоп"}
+        <span className={"inline-block rounded px-1.5 py-0.5 font-mono text-[10px] " + exitReasonTone(t.exit_reason)}>
+          {exitReasonLabel(t.exit_reason, locale)}
         </span>
       ),
-      filter: { kind: "select", options: ["take", "stop"], optionLabel: (v) => (v === "take" ? "тейк" : "стоп") },
+      filter: {
+        kind: "select",
+        options: [...EXIT_REASON_ORDER],
+        optionLabel: (v) => exitReasonLabel(v, locale),
+      },
     },
     {
       key: "bars_held",
@@ -700,7 +786,7 @@ const progressPct =
       ),
       filter: { kind: "range", presets: [{ label: "Прибыль > 0", min: 0.000001 }, { label: "Убыток < 0", max: -0.000001 }] },
     },
-  ], []);
+  ], [locale]);
 
   const handleTradesVisible = useCallback((rows: Trade[]) => {
     const wins = rows.filter((t) => t.net_return_pct > 0).length;
@@ -728,9 +814,9 @@ const progressPct =
   }), []);
 
   const filterChipValue = useCallback((key: string, v: FilterValue): string => {
-    if (key === "exit_reason" && v.kind === "select") return v.value === "take" ? "тейк" : "стоп";
+    if (key === "exit_reason" && v.kind === "select") return exitReasonLabel(v.value, locale);
     return formatFilterValue(v);
-  }, []);
+  }, [locale]);
   const wfColumns = useMemo<ColumnDef<BacktestResultRow>[]>(() => [
     {
       key: "ticker",
@@ -982,6 +1068,45 @@ const progressPct =
               </div>
             )}
           </Section>
+
+          {trailingSchema && (
+            <Section
+              title={locale === "en" ? "Trailing stop" : "Трейлинг-стоп"}
+              badge={trailingOn ? (describeLadder(trailingRows) || "—") : "off"}
+            >
+              <TrailingStopFields
+                schema={trailingSchema}
+                enabled={trailingOn}
+                rows={trailingRows}
+                validation={trailingValidation}
+                locked={isLocked}
+                riskReward={rrOn
+                  ? { risk: parseFloat(rrRisk) || 1, reward: parseFloat(rrReward) || 2 }
+                  : null}
+                locale={locale}
+                onToggle={(next) => { setTrailingTouched(true); setTrailingOn(next); }}
+                onEditRow={(index, field, value) => {
+                  setTrailingTouched(true);
+                  setTrailingRows((prev) => prev.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+                }}
+                onAddRow={() => {
+                  setTrailingTouched(true);
+                  setTrailingRows((prev) => (prev.length >= trailingSchema.max_steps ? prev : [...prev, blankRow()]));
+                }}
+                onRemoveRow={(index) => {
+                  setTrailingTouched(true);
+                  setTrailingRows((prev) => {
+                    const next = prev.filter((_, i) => i !== index);
+                    return next.length > 0 ? next : emptyLadder();
+                  });
+                }}
+                onApplyDefault={() => {
+                  setTrailingTouched(true);
+                  setTrailingRows(defaultLadder(trailingSchema));
+                }}
+              />
+            </Section>
+          )}
 
           <Section title="Тест" badge={prefillFlash ? "параметры восстановлены ✓" : undefined}>
             <div className={prefillFlash ? "-m-1.5 mb-0.5 rounded-md ring-2 ring-sky-500/60 transition-shadow duration-700" : "hidden"} style={{ animation: "sl-fade .2s ease-out" }} />

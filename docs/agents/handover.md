@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-09 (Issue #145 delivered the stepped trailing stop into the production exit path — one ladder in `backend/app/analytics/trailing_stop.py`, shared by `StrategyEvaluator`, the `levels_reversal` plugin, `portfolio_simulator` and walk-forward; `EXIT_TRAILING` is emitted; the policy still ships disabled. New §37; §36 reworded from «contract only, no consumer» to «applied since #145, still no write-path gate». Earlier: Product Owner decision in §35 — `ultra_late_tight` is the production default grid for #144, `enabled` stays `false`; the #144 `config.trailing_stop` contract is validation only, §36. Companion to project-context.md.
+Last refreshed: 2026-09-09 (Issue #146 added the schema-driven Lab editor for `config.trailing_stop` — toggle plus rung table, rendering entirely from the new `GET /api/strategies/trailing-schema`; no trailing number in TSX; the write-path gate is still #149's. New §38; §36 reworded to drop #146 from the «expected to call `require_valid_trailing_stop()`» list. Earlier: Issue #145 delivered the stepped trailing stop into the production exit path — one ladder in `backend/app/analytics/trailing_stop.py`, shared by `StrategyEvaluator`, the `levels_reversal` plugin, `portfolio_simulator` and walk-forward; `EXIT_TRAILING` is emitted; the policy still ships disabled. New §37; §36 reworded from «contract only, no consumer» to «applied since #145, still no write-path gate». Earlier: Product Owner decision in §35 — `ultra_late_tight` is the production default grid for #144, `enabled` stays `false`; the #144 `config.trailing_stop` contract is validation only, §36. Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -510,7 +510,9 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
 - **Applied since #145 — still no write-path gate.** `validate_config()` **does not exist in this
   repository**, so nothing refuses a malformed ladder on strategy create/update or on a Lab run: an
   `enabled=true` block with no usable steps still saves and simply reports `trailing_disabled`.
-  `require_valid_trailing_stop()` remains the gate #146 and #149 are expected to call. What changed in
+  `require_valid_trailing_stop()` remains the gate #149 is expected to call — #146 shipped the Lab
+  editor without it (§38): the editor validates client-side with these same codes, but POSTing a
+  malformed ladder still succeeds. What changed in
   #145 is the read path: `app.analytics.trailing_stop` resolves the block and
   `StrategyEvaluator.on_bar`, the `levels_reversal` plugin, `portfolio_backtest` /
   `portfolio_simulator` and walk-forward arm the ladder from it, and `EXIT_TRAILING` is now emitted by
@@ -570,5 +572,68 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
   always pass them by keyword; the evaluator keeps its ladder in `position['trailing_state']`, and
   `position['stop']` is the *next-bar* stop while `trailing_state.live_stop` is what the current bar
   was checked against. Metrics going into `backtest_results` still pass through `_json_safe` (#116).
+## 38. Operating the Lab trailing-stop editor (Issue #146)
+
+- The Lab now edits `config.trailing_stop`: a toggle plus a `trigger → stop` rung table, in the
+  config rail between «Risk / Reward» and «Тест». It is a **top-level exit block, not a pattern
+  parameter** — do not move it into `PATTERN_REGISTRY['levels_reversal']`; that would break both
+  the schema-driver and the #144 contract.
+- Schema-driven, honestly: the section renders only after `GET /api/strategies/trailing-schema`
+  answers, and reads defaults, `max_steps`, all four bounds, the `0.1R` input resolution, the
+  approved grid's **name and values** and the reason-code vocabulary from that payload.
+  `trading_config.get_trailing_stop_schema()` is the producer; `TRAILING_STOP` stays the single
+  source of truth and is **not** mutated by it (the two new keys, `default_grid` and `input_step`,
+  are labels added on the way out). There is no fallback ladder in the frontend: if the endpoint
+  is unreachable the section is absent, so a stale bundle can never offer a ladder nobody approved.
+  - #146 req. 1 said to *request* this endpoint rather than build it, and #149 owns its
+    long-term shape («endpoint схемы … для schema-driven UI #146»). It landed here so #146 is
+    demoable end-to-end; **#149 inherits it — extend `get_trailing_stop_schema()`, do not fork a
+    second schema object into the router.**
+- Files: `frontend/src/trailingStop.ts` (all logic — parse, validate, payload; pure, no React),
+  `frontend/src/components/TrailingStopFields.tsx` (renderer, zero trailing numbers),
+  `frontend/src/exitReasons.ts` (exit-reason labels/tones), wired in `StrategyLab.tsx`.
+  The issue named `pages/strategies/StrategyConfigPanel.tsx`, `lib/api.ts`, a `strategiesApi`
+  object, `components/ui/{Button,Input,Select}` and `lucide-react` — **none of those exist in this
+  repo**; the equivalents are `components/StrategyLab.tsx`, `src/api.ts` free functions, the
+  Lab-local `Section`/`numInput` primitives and inline SVG (`PatternIcon` precedent). Follow the
+  repo, not the issue's paths, when touching this.
+- `validateLadder()` mirrors `validate_trailing_steps()` rung for rung — exclusive `min_trigger`,
+  inclusive other bounds, `stop < trigger`, sort-then-check, exact duplicates collapsed silently,
+  two stops on one trigger and falling stops both `trailing_not_monotonic`, bounds enforced even
+  when the toggle is **off**. `src/trailingStop.test.ts` pins the two languages to the same
+  published `grids.json`. It is a pre-flight, not a gate: see the caveat below.
+- Untouched configs stay untouched (the requirement most likely to regress). `buildTrailingStopPayload()`
+  returns `null` unless the operator touched the block, and the `config` memo **spreads** it
+  conditionally, so a strategy that never carried `trailing_stop` saves without the key. Loading a
+  stored strategy sets `touched=false`; any edit flips it once, permanently. Note the deliberate
+  asymmetry: touching the block and saving with the toggle off *does* write an explicit
+  `enabled:false` — an opt-out is an opinion, absence is not.
+- Production default renders correctly: `ultra_late_tight` is three rungs on a 0.1R gap
+  (`2.0→1.9, 2.5→2.4, 3.0→2.9`), so `step={input_step}` must stay at 0.1 and the cells must be
+  **controlled string state** — an uncontrolled input or a `step="0.5"` snaps 1.9 to 2.0 in the
+  browser and the frontend then ships a ladder #144 rejects. Round-trip covered by tests.
+- Exit reasons: the trade table used to render a binary take/stop, which silently labelled every
+  `trailing` exit «стоп» — the ladder's own output was indistinguishable from being stopped out.
+  `EXIT_REASON_ORDER` now covers the closed set (`stop, take, trailing, holding, signal, session`)
+  with `trailing` in sky, distinct from the red of `stop`. When #147 or the engine adds a reason,
+  extend that array; unknown values fall through to a neutral chip rather than disappearing.
+- **Caveat / known gap: #146 does not gate the write path.** Saving a malformed ladder still
+  succeeds over the API, because the POST handler does not call `require_valid_trailing_stop()` —
+  that gate is #149's deliverable («валидация общей функцией #144; отказ = 422»). Until it lands,
+  the client-side check can be bypassed by any non-Lab client. The #145 engine remains the safety
+  net: it refuses to arm a ladder the validator rejects, so a bad config changes no exits.
+- **`config_hash` does not exist in this repository** (zero hits outside issue text). Requirement
+  4's «hash must change when trailing is enabled» is therefore unverifiable here; it is satisfied
+  only in the trivial sense that the saved `config` JSONB genuinely carries the block. If a hash is
+  wanted, it needs its own issue.
+- Tests: `cd backend && python -m pytest -q tests/test_trailing_schema_endpoint.py
+  tests/test_trailing_contract.py tests/test_trailing_stop.py` and
+  `cd frontend && npx tsc --noEmit && npx vitest run`.
+- Not done here, and not accidentally shippable: no screenshots (EN/RU) and no
+  `docker compose up -d --build frontend` — this was verified against a live uvicorn instance and
+  a production `vite build`, not a browser. #150 (Paper/Live panels) still has to surface trailing
+  state to the operator.
+
+
 
 

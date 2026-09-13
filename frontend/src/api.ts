@@ -6,6 +6,7 @@ import type {
   Signal,
   SignalStats,
   TopStock,
+  TrailingStopSchema,
 } from "./types";
 
 function toQuery(params: object): string {
@@ -255,4 +256,16 @@ export function postPatternPreview(payload: {
 
 export function getStrategyPlugins(): Promise<{ plugins: string[] }> {
   return getJson<{ plugins: string[] }>("/api/strategies/plugins");
+}
+
+/**
+ * The `config.trailing_stop` contract for the Lab editor (Issue #146).
+ *
+ * Defaults, bounds, input resolution, the approved grid name and the stable rejection
+ * codes all come from here — from `trading_config.TRAILING_STOP` on the server. The
+ * editor must not restate any of them; when this call fails the section is hidden rather
+ * than rendered from a frontend copy of the numbers.
+ */
+export function getTrailingStopSchema(): Promise<{ trailing_stop: TrailingStopSchema }> {
+  return getJson<{ trailing_stop: TrailingStopSchema }>("/api/strategies/trailing-schema");
 }

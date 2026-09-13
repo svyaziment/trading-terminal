@@ -1,4 +1,4 @@
-import type { PatternDef, PatternParam } from "../types";
+import type { PatternDef, PatternParam, TrailingStopSchema } from "../types";
 
 /** Shared levels_reversal fields (also the full levels_sr_support schema). */
 export const LEVELS_REVERSAL_PARAMS: PatternParam[] = [
@@ -258,3 +258,39 @@ export const LEVELS_SR_SUPPORT_DEFAULTS = {
   zone_atr_mult: 0.5,
   confirm_windows: [10],
 };
+
+
+/**
+ * Shape served by GET /api/strategies/trailing-schema (Issue #146).
+ *
+ * This is a TEST MIRROR of `trading_config.TRAILING_STOP`, not a second source of truth:
+ * `backend/tests/test_trailing_schema_endpoint.py` pins the live endpoint to the Python
+ * contract, and src/trailingStop.test.ts pins this object to that same published lattice so
+ * a drift between the two languages fails loudly instead of quietly reshaping the editor.
+ * The approved production ladder is `ultra_late_tight` (PO decision of 2026-09-08).
+ */
+export const TRAILING_STOP_SCHEMA: TrailingStopSchema = {
+  enabled: false,
+  steps: [
+    { trigger: 2.0, stop: 1.9 },
+    { trigger: 2.5, stop: 2.4 },
+    { trigger: 3.0, stop: 2.9 },
+  ],
+  max_steps: 6,
+  min_trigger: 0.0,
+  max_trigger: 3.5,
+  min_stop: 0.0,
+  max_stop: 3.0,
+  input_step: 0.1,
+  default_grid: "ultra_late_tight",
+  reason_codes: [
+    "trailing_disabled",
+    "trailing_step_invalid",
+    "trailing_not_monotonic",
+    "trailing_too_many_steps",
+  ],
+};
+
+/** A ladder typed as strings — the editor's working representation. */
+export const ladder = (...pairs: [string, string][]) =>
+  pairs.map(([trigger, stop]) => ({ trigger, stop }));

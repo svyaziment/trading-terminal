@@ -102,6 +102,44 @@ export interface SignalStats {
 }
 
 // ---- Strategy Lab (task-106) ----
+
+/** One rung of the stepped trailing ladder; both values are R multiples from entry. */
+export interface TrailingStopStep {
+  trigger: number;
+  stop: number;
+}
+
+/**
+ * `config.trailing_stop` as Issue #144 defines it: a top-level strategy-config block,
+ * deliberately NOT a pattern parameter. Optional on StrategyConfig — a config that never
+ * carried the key must keep not carrying it (#144 section 5, "no trailing" is the default).
+ */
+export interface TrailingStopConfig {
+  enabled: boolean;
+  steps: TrailingStopStep[];
+}
+
+/**
+ * The contract served by GET /api/strategies/trailing-schema and owned by
+ * `trading_config.TRAILING_STOP`. The Lab editor renders bounds, defaults, the input
+ * keystroke and the approved grid name from this object and restates none of them.
+ */
+export interface TrailingStopSchema {
+  enabled: boolean;
+  steps: TrailingStopStep[];
+  max_steps: number;
+  min_trigger: number;
+  max_trigger: number;
+  min_stop: number;
+  max_stop: number;
+  /** R resolution the inputs must accept without snapping (approved grid lives on 0.1R). */
+  input_step: number;
+  /** Label of the ladder in `steps`, e.g. the PO-approved production grid. */
+  default_grid: string;
+  /** Stable rejection codes #144 defines; the editor's messages name these. */
+  reason_codes: string[];
+}
+
 export interface StrategyConfig {
   patterns: Record<string, Record<string, unknown>>;
   confirm_windows: number[];
@@ -110,6 +148,7 @@ export interface StrategyConfig {
   risk_reward: { risk: number; reward: number } | null;
   n_runs: number;
   strategy_name?: string;
+  trailing_stop?: TrailingStopConfig;
 }
 export interface Strategy {
   id: number;
