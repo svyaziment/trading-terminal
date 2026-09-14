@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-09 (Issue #146 — the Lab can now configure `config.trailing_stop`: a schema-driven toggle + rung table rendered from the new read-only `GET /api/strategies/trailing-schema`, whose payload `trading_config.get_trailing_stop_schema()` produces from `TRAILING_STOP` (handover §38). No trailing field or number is restated in TSX, an untouched strategy still saves without the key, and the trade table finally distinguishes a `trailing` exit from a plain `stop`. The write-path gate (`require_valid_trailing_stop()` on save) is still #149's. Previous refresh: same day, Issue #145 — the stepped trailing stop now runs in the **production** exit path: one pure ladder in `backend/app/analytics/trailing_stop.py`, called by `StrategyEvaluator.on_bar`, the `levels_reversal` plugin, `portfolio_simulator` and walk-forward; `EXIT_TRAILING` is emitted; the policy still ships **disabled**, §19 and handover §37). Previous refresh: 2026-09-08 (Product Owner decision recorded in §18: `ultra_late_tight` — the densest late ladder of the `143-trailing-v3` lattice — is the production default trailing-stop grid for #144; epic #142 / roadmap Block W; the #144 contract itself landed the same day — validation only, full field contract in section 6, tests `backend/tests/test_trailing_contract.py`). Source: docs/refresh/context_collector.py + git ls-files.
+Last refreshed: 2026-09-14 (task-147); previously 2026-09-09 (Issue #146 — the Lab can now configure `config.trailing_stop`: a schema-driven toggle + rung table rendered from the new read-only `GET /api/strategies/trailing-schema`, whose payload `trading_config.get_trailing_stop_schema()` produces from `TRAILING_STOP` (handover §38). No trailing field or number is restated in TSX, an untouched strategy still saves without the key, and the trade table finally distinguishes a `trailing` exit from a plain `stop`. The write-path gate (`require_valid_trailing_stop()` on save) is still #149's. Previous refresh: same day, Issue #145 — the stepped trailing stop now runs in the **production** exit path: one pure ladder in `backend/app/analytics/trailing_stop.py`, called by `StrategyEvaluator.on_bar`, the `levels_reversal` plugin, `portfolio_simulator` and walk-forward; `EXIT_TRAILING` is emitted; the policy still ships **disabled**, §19 and handover §37). Previous refresh: 2026-09-08 (Product Owner decision recorded in §18: `ultra_late_tight` — the densest late ladder of the `143-trailing-v3` lattice — is the production default trailing-stop grid for #144; epic #142 / roadmap Block W; the #144 contract itself landed the same day — validation only, full field contract in section 6, tests `backend/tests/test_trailing_contract.py`). Source: docs/refresh/context_collector.py + git ls-files.
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -305,7 +305,7 @@ Strategy Lab patterns (config-driven, AND logic, same config for backtest / pape
 | T | Composite S/R pattern (Epic #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 Lab chip + #119 AFKS smoke + #124 Lab-universe A/B done |
 | U | Support with tracker (Epic #126) | #127 `levels_sr_support` backend + #128 Lab chip + #129 isolated Lab universe + #130 portfolio #44 done |
 | V | Stepped trailing-stop analytics (Issue #139) | Done — analytics-only A/B (fixed 1:3 vs stepped trailing) on locked `test_20260830_new_level` id=126, RR 1:3; trailing lives in `analytics/.../trailing.py`, not wired into the production exit path |
-| W | Stepped trailing stop in production (Epic #142) | In progress — #144 `config.trailing_stop` contract **done** (defaults + validators, shipped OFF — §6), #145 stepped trailing in the engine / plugin / portfolio simulator / walk-forward **done** (one ladder in `app.analytics.trailing_stop`, `EXIT_TRAILING` emitted, the policy still ships OFF — §19, handover §37), #146 Lab editor **done** (schema-driven toggle + rung table off `GET /api/strategies/trailing-schema`, handover §38), #147 parity gate vs #139, #143 robustness analytics done (8-grid lattice `143-trailing-v3`, walk-forward, cost stress — §18; the lattice shape itself was re-delivered by #155; **the Product Owner approved the production default grid on 2026-09-08: `ultra_late_tight`**), #148 paper trader, #149 API + filters, #150 Paper/Live panels, #151 sandbox `LiveExecutor`, #152 live-period acceptance verdict. Ships **default OFF**; basis is the #139 result (A 95 180.01 -> B 103 176.00 RUB, PF 1.41 -> 1.54, daily MaxDD 6.49% -> 2.74%) and the #143 lattice (95 827 … 110 434 RUB); the #139 grid `ref139` stays the parity anchor that #147 injects explicitly |
+| W | Stepped trailing stop in production (Epic #142) | In progress — #144 `config.trailing_stop` contract done, #145 engine/plugin/simulator/walk-forward done, #146 Lab editor done; #147 production-path parity gate: A_prod PASS (tight parity with the #139 book A), B_prod FAIL on the daily MaxDD band (structural live-loop feedback, escalated to TL/PO), B_default PASS against the published #143 `ultra_late_tight`; OVERALL FAIL; #148/#151/#152 blocked until the gate decision; figures and decomposition — §18, subsection «Production-path parity» |
 
 
 ## 9. Important Notes
@@ -510,6 +510,30 @@ it, and a config without the key behaves exactly as before. Full field contract:
   step and #152 owes the break-even slippage measured against 0.1R; the leave / tune / rollback verdict of #152 can
   move the default only back through the Product Owner.
 
+### Production-path parity of the stepped trailing stop (Issue #147, epic #142 gate)
+
+The package `analytics/issue-147-trailing-production-parity/` runs the production path
+(`StrategyEvaluator` → `portfolio_simulator`, bash-la shard processes without
+multiprocessing, per-ticker cache) on locked `test_20260830_new_level` (id=126, SHA
+`dfc855195ade…`), period `2024-08-01` … `timestamp < 2026-08-21`, 28 tickers,
+50 000 RUB / slot 10 000 RUB / max 5, and books three runs: A_prod (trailing off),
+B_prod (the `ref139` grid injected explicitly), B_default (steps imported from
+`trading_config.TRAILING_STOP` = `ultra_late_tight`). Gate verdict: A_prod=PASS
+(equity 95179.91 vs 95180.01 RUB, n 2649, PF 1.41,
+daily MaxDD 6.49 pp, exit reasons match, candidate-level entries
+0/0); B_prod=FAIL
+(equity 111458.96 RUB > A, PF 1.5, daily MaxDD 4.01 pp against
+2.74 pp of the #139 book B — the 1.0 pp band is not met: structural live-loop feedback,
+an early trailing exit frees the ticker and adds +789 candidates
+against the overlay's 3 305 with 15 missing; exit mechanics
+are bit-for-bit per #145 `grid_check`, 0/3305 on both grids); B_default=PASS
+(equity 120753.7 RUB, PF 1.56, daily MaxDD 3.96 pp against the
+published 3.06 pp of #143 `ultra_late_tight`, split stop>trailing>take).
+OVERALL=FAIL: the formal gate fails on the book-B daily MaxDD band only; the B/D criteria
+were restated in `run.md` v3 BEFORE the run, tolerances were not fitted to the result, and
+the verdict is escalated for TL/PO sign-off (draft comment in the package `report.md`).
+Protected rows 126/36/102/118 untouched; nothing written to `paper_positions` /
+`backtest_results`.
 ## 19. Stepped trailing stop in production (Issue #145, Epic #142)
 
 `backend/app/analytics/trailing_stop.py` is the only ladder. Every contour that closes a
