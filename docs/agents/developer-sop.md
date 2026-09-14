@@ -71,6 +71,8 @@ python docs/refresh/context_collector.py \
 - After file creation/modification: `wc -c path/to/file`.
 - After backend changes: `docker compose up -d --build backend`.
 - If script exceeds ~100 lines of logic, split into sequential steps.
+- **Script delivery — `.sh` file only**: create the bash script body as `scripts/<NNN>-<issue-name>.sh` via heredoc (`cat > scripts/<NNN>-<issue-name>.sh <<'TASK_EOF' … TASK_EOF`), then `chmod +x scripts/<NNN>-<issue-name>.sh` and run `bash scripts/<NNN>-<issue-name>.sh`. Pasting the script body directly into the interactive terminal is forbidden: large pastes crash the Git Bash session (lost blocks, session aborts). Verify results by reading files (`cat reports/<NNN>-<issue-name>/…`), not by watching the paste output.
+- **Logging files — `.txt` only**: all task and run logs are written with the `.txt` extension (`log.txt`, `run_v4.txt`, `shards.txt`); the `.log` extension is not used for logging files.
 
 ### Step 5. Update Documentation
 After completing the Issue, update project documentation in `docs/` per the Documentation Updates matrix above. Both EN and RU versions must be updated.
@@ -104,6 +106,8 @@ Reference implementation: `analytics/issue-147-trailing-production-parity/run.py
 - [ ] Context collected and analyzed (no guessing).
 - [ ] Script contains `MSYS_NO_PATHCONV=1` and `MSYS2_ARG_CONV_EXCL="*"`.
 - [ ] All code heredocs use quotes (`<<'EOF'`).
+- [ ] Bash script delivered as `scripts/<NNN>-<issue-name>.sh` and run via `bash scripts/<NNN>-<issue-name>.sh` (body not pasted into the terminal).
+- [ ] Logging files use the `.txt` extension (not `.log`).
 - [ ] Long run (>10 min) executed detached: `nohup` + `<reports-dir>/run.pid`, resumable cache and `--workers`; liveness and progress verified with the standard monitor block (log tail, cache counters, `kill -0` PID).
 - [ ] Regex patches verified (exactly 1 match) before write.
 - [ ] File size checked (`wc -c`) after heredoc.
