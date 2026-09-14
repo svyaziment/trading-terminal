@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX; гейт на записи по-прежнему за #149. Новый §38; §36 дополнен исключением #146 из списка «должны вызвать `require_valid_trailing_stop()`». Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейта на записи по-прежнему нет». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX; гейт на записи по-прежнему за #149. Новый §38; §36 дополнен исключением #146 из списка «должны вызвать `require_valid_trailing_stop()`». Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейта на записи по-прежнему нет». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -74,6 +74,8 @@
 - **Портфель поддержки 50k (задача #130)**: пакет `analytics/issue-130-sr-support-portfolio/`. Replay слотов published C (4380 кандидатов, SHA `3b7864c4…aedb1b`), не exclusive 3811/1.51 и не фильтр `source=` из #124 B-mix. n=3237 PF 1.33 equity 96 204.63 daily Max DD 6.08% без GAME OVER. Бар ALRS 19.80 отсутствует. Вердикт: не paper. Повтор: `python analytics/issue-130-sr-support-portfolio/analysis.py`. Unit: `cd backend && python -m pytest -q tests/test_issue130_analysis.py`.
 - **Ступенчатый трейлинг-стоп A/B (задача #139)**: пакет `analytics/issue-139-trailing-stop-new-level/`. Аналитический режим выхода только в `trailing.py` (ступени в R, по умолчанию +2R→+1.5R, +2.5R→+2R; в боевой путь не входит). A/B на locked `test_20260830_new_level` (id=126, RR 1:3), 28 тикеров, полный период. `extract_inputs.py` считает оба исхода на одном пути единого «мозга» (только чтение БД, возобновляемый кэш, `baseline_replay_mismatches` обязано быть 0); `analysis.py` делает слот-реплей и сравнение без БД. Точные цифры и вердикт — в `summary.json` / `report.md`. См. handover §34. Unit: `cd backend && python -m pytest -q tests/test_issue139_analysis.py`.
 
+
+Windows spawn vs shard-процессы (задача #147): на detached-родителе (nohup) воркеры `ProcessPoolExecutor` могут не стартовать на Windows (`multiprocessing/spawn.py → reduction.duplicate → _winapi.DuplicateHandle → PermissionError [WinError 5]`), родитель получает BrokenProcessPool по всем фьючерсам; триггер нестабилен (тот же nohup+spawn часами раньше работал). Для длительных аналитических прогонов не полагайтесь на multiprocessing: шардируйте тикеры обычными OS-процессами из bash (`--stage shard --book X --shard-index i --shard-count N`), собирайте книгу из версионированного кэша `cache/<book>-<sha8 конфига>/` (`--stage assemble`). Мониторинг живости: хвост лога, счётчики кэша по книгам, `kill -0 $(cat run.pid)`.
 
 ## 11. Протокол сотрудничества (агенты)
 
@@ -477,6 +479,28 @@ ORDER BY id DESC LIMIT 20;
   слиппедж или гэп на синтетическом стопе (market-заявка) съедают заметную долю зафиксированной прибыли —
   #151 обязана дать защитный шаг цены, #152 — break-even слиппедж относительно 0.1R; на этом строится
   вердикт leave / tune / rollback. Текст решения зафиксирован в телах #142 (раздел «Решение») и #144 (§1–§2).
+
+### Паритет боевого пути (задача #147, гейт эпика #142)
+
+Пакет `analytics/issue-147-trailing-production-parity/` прогоняет боевой путь
+(`StrategyEvaluator` → `portfolio_simulator`, shard-процессы без multiprocessing, кэш по
+тикерам) на запертой `test_20260830_new_level` (id=126, SHA `dfc855195ade…`), период
+`2024-08-01` … `timestamp < 2026-08-21`, 28 тикеров, 50 000 ₽ / слот 10 000 ₽ / макс 5, и
+снимает три книги: A_prod (трейлинг выключен), B_prod (сетка `ref139` инжектирована явно),
+B_default (ступени из `trading_config.TRAILING_STOP` = `ultra_late_tight`). Вердикт гейта:
+A_prod=PASS (плотный паритет с книгой A #139: equity 95179.91 против 95180.01 ₽, n 2649=2649,
+PF 1.41, WR 24.2%, daily MaxDD 6.49=6.49 п.п., причины выхода совпадают, входы на уровне
+кандидатов 0/0); B_prod=FAIL только по полосе daily MaxDD (4.01 против 2.74 п.п.,
+Δ1.27 > 1.0 п.п., заявленной до прогона в run.md v3): структурная обратная связь
+live-контура — ранний trailing-выход освобождает тикер, и движок берёт новые входы
+(+789/−15 кандидатов против 3305 оверлея), которые оверлей #139/#143 держит фиксированными
+по построению; механика выхода бит-в-бит по #145 grid_check (0/3305 на обеих сетках);
+B_default=PASS по направленным критериям против опубликованной `ultra_late_tight` #143
+(equity 120753.7 ₽ против 110433.68, PF 1.56 против 1.60, n 3794 против 3162, daily MaxDD
+3.96 против 3.06 п.п., сплит stop>trailing>take). OVERALL=FAIL: вердикт по критерию
+B_prod вынесен на подпись TL/PO (черновик комментария в report.md пакета); допуски
+постфактум не подгонялись. Защищённые строки 126/36/102/118 не тронуты; записей в
+`paper_positions` / `backtest_results` нет.
 
 ## 36. Эксплуатация контракта конфигурации трейлинг-стопа (задача #144)
 

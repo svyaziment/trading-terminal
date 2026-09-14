@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-09 (Issue #146 added the schema-driven Lab editor for `config.trailing_stop` — toggle plus rung table, rendering entirely from the new `GET /api/strategies/trailing-schema`; no trailing number in TSX; the write-path gate is still #149's. New §38; §36 reworded to drop #146 from the «expected to call `require_valid_trailing_stop()`» list. Earlier: Issue #145 delivered the stepped trailing stop into the production exit path — one ladder in `backend/app/analytics/trailing_stop.py`, shared by `StrategyEvaluator`, the `levels_reversal` plugin, `portfolio_simulator` and walk-forward; `EXIT_TRAILING` is emitted; the policy still ships disabled. New §37; §36 reworded from «contract only, no consumer» to «applied since #145, still no write-path gate». Earlier: Product Owner decision in §35 — `ultra_late_tight` is the production default grid for #144, `enabled` stays `false`; the #144 `config.trailing_stop` contract is validation only, §36. Companion to project-context.md.
+Last refreshed: 2026-09-14 (task-147); previously 2026-09-09 (Issue #146 added the schema-driven Lab editor for `config.trailing_stop` — toggle plus rung table, rendering entirely from the new `GET /api/strategies/trailing-schema`; no trailing number in TSX; the write-path gate is still #149's. New §38; §36 reworded to drop #146 from the «expected to call `require_valid_trailing_stop()`» list. Earlier: Issue #145 delivered the stepped trailing stop into the production exit path — one ladder in `backend/app/analytics/trailing_stop.py`, shared by `StrategyEvaluator`, the `levels_reversal` plugin, `portfolio_simulator` and walk-forward; `EXIT_TRAILING` is emitted; the policy still ships disabled. New §37; §36 reworded from «contract only, no consumer» to «applied since #145, still no write-path gate». Earlier: Product Owner decision in §35 — `ultra_late_tight` is the production default grid for #144, `enabled` stays `false`; the #144 `config.trailing_stop` contract is validation only, §36. Companion to project-context.md.
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -74,6 +74,8 @@ See project-context.md section 9.
 - **Support portfolio 50k (Issue #130)**: package `analytics/issue-130-sr-support-portfolio/`. Slot replay of published C (4380 candidates, SHA `3b7864c4…aedb1b`), not exclusive 3811/1.51 and not a `source=` filter of #124 B-mix. n=3237 PF 1.33 equity 96,204.63 daily Max DD 6.08% no GAME OVER. ALRS 19.80 absent. Verdict: not paper. Replay: `python analytics/issue-130-sr-support-portfolio/analysis.py`. Units: `cd backend && python -m pytest -q tests/test_issue130_analysis.py`.
 - **Stepped trailing-stop A/B (Issue #139)**: package `analytics/issue-139-trailing-stop-new-level/`. Analytics-only exit mode in `trailing.py` (configurable steps in R, default +2R→+1.5R, +2.5R→+2R; never touches the production exit path). A/B on locked `test_20260830_new_level` (id=126, RR 1:3), 28 names, full period. `extract_inputs.py` evaluates both exits on the same brain path (DB read-only, resumable, `baseline_replay_mismatches` must be 0); `analysis.py` runs the slot replay + comparison without a DB. Exact figures/verdict: `summary.json` / `report.md`. Units: `cd backend && python -m pytest -q tests/test_issue139_analysis.py`. See handover §34.
 
+
+- Windows spawn vs shard processes (Issue #147): under a detached (nohup) parent, `ProcessPoolExecutor` workers may fail to start on Windows (`multiprocessing/spawn.py → reduction.duplicate → _winapi.DuplicateHandle → PermissionError [WinError 5]`), and the parent sees BrokenProcessPool on every future; the trigger is unstable (the same nohup+spawn worked hours earlier). For long analytics runs do not rely on multiprocessing: shard tickers into plain OS processes launched from bash (`--stage shard --book X --shard-index i --shard-count N`) and assemble the book from the versioned cache `cache/<book>-<sha8 of config>/` (`--stage assemble`). Liveness monitor: log tail, per-book cache counters, `kill -0 $(cat run.pid)`.
 
 ## 11. Collaboration Protocol (agents)
 
@@ -473,6 +475,28 @@ PO override of the #130 «not paper» verdict for a **different** Lab row: `test
   a gap on a synthetic market order eats a visible share of the locked profit — #151 owes a defensive price
   step and #152 owes the break-even slippage measured against 0.1R, on which the leave / tune / rollback
   verdict is built. Decision text is recorded in the bodies of #142 (Decision section) and #144 (§1–§2).
+
+### Production-path parity (Issue #147, epic #142 gate)
+
+The package `analytics/issue-147-trailing-production-parity/` runs the production path
+(`StrategyEvaluator` → `portfolio_simulator`, bash-launched shard processes without
+multiprocessing, per-ticker cache) on locked `test_20260830_new_level` (id=126, SHA
+`dfc855195ade…`), period `2024-08-01` … `timestamp < 2026-08-21`, 28 tickers, 50 000 RUB /
+slot 10 000 RUB / max 5, and books three runs: A_prod (trailing off), B_prod (the `ref139`
+grid injected explicitly), B_default (steps from `trading_config.TRAILING_STOP` =
+`ultra_late_tight`). Gate verdict: A_prod=PASS (tight parity with the #139 book A: equity
+95179.91 vs 95180.01 RUB, n 2649=2649, PF 1.41, WR 24.2%, daily MaxDD 6.49=6.49 pp, exit
+reasons match, candidate-level entries 0/0); B_prod=FAIL on the daily MaxDD band only
+(4.01 vs 2.74 pp, Δ1.27 > the 1.0 pp band declared before the run in run.md v3):
+structural live-loop feedback — an early trailing exit frees the ticker and the engine takes
+new entries (+789/−15 candidates against the overlay's 3305), which the #139/#143 overlay
+holds fixed by construction; exit mechanics are bit-for-bit per #145 grid_check (0/3305 on
+both grids); B_default=PASS on the directional criteria against the published
+`ultra_late_tight` #143 (equity 120753.7 RUB vs 110433.68, PF 1.56 vs 1.60, n 3794 vs 3162,
+daily MaxDD 3.96 vs 3.06 pp, split stop>trailing>take). OVERALL=FAIL: the B_prod
+criterion verdict is escalated for TL/PO sign-off (draft comment in the package report.md);
+tolerances were not fitted post-hoc. Protected rows 126/36/102/118 untouched; nothing written
+to `paper_positions` / `backtest_results`.
 
 ## 36. Operating the trailing-stop configuration contract (Issue #144)
 
