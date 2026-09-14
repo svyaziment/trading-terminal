@@ -30,6 +30,7 @@ from app.notifications.telegram_notifier import TelegramNotifier
 logger = logging.getLogger(__name__)
 from app.analytics.trading_config import get_trading_universe
 from app.analytics.paper_strategy import get_active_paper_strategy
+from app.analytics.trailing_stop import trailing_from_config, evaluate_bar
 from app.core.config_manager import load_settings
 
 COMMISSION_PER_SIDE = 0.0003
@@ -328,32 +329,76 @@ def monitor_pending(db, notifier: TelegramNotifier | None = None):
                 break
 
 
-def monitor_open(db, notifier: TelegramNotifier | None = None):
-    """Check stop (market) / take (limit) for open positions."""
-    open_pos = db.select("""
-        SELECT id, ticker, entry_ts, entry_price, stop_price, take_price, lot_size, size_lots
-        FROM trading.paper_positions WHERE status='open' ORDER BY id
-    """).to_dataframe()
+def monitor_open(db, config, trailing_states: dict, notifier: TelegramNotifier | None = None):
+    """Check stop (market) / take (limit) for open positions, with trailing stop support."""
+    open_pos = db.select(
+        "SELECT id, ticker, entry_ts, entry_price, stop_price, take_price, lot_size, size_lots FROM trading.paper_positions WHERE status='open' ORDER BY id"
+    ).to_dataframe()
+    
+    open_ids = set(open_pos['id'].tolist()) if not open_pos.empty else set()
+    for pos_id in list(trailing_states.keys()):
+        if pos_id not in open_ids:
+            del trailing_states[pos_id]
+
     for _, p in open_pos.iterrows():
+        pos_id = int(p['id'])
         tk = p['ticker']
         entry_ts = p['entry_ts']
         entry_price = float(p['entry_price'])
-        stop = float(p['stop_price'])
-        take = float(p['take_price']) if p['take_price'] is not None else None
+        current_stop = float(p['stop_price'])
+        take = float(p['take_price']) if p['take_price'] is not None else (entry_price * 10.0)
+        
+        if pos_id not in trailing_states:
+            state = trailing_from_config(
+                config,
+                entry_exec=entry_price,
+                initial_stop=current_stop,
+                take=take
+            )
+            trailing_states[pos_id] = state
+        
+        state = trailing_states[pos_id]
         candles = get_candles_since(db, tk, entry_ts)
         if candles.empty:
             continue
-        for _, c in candles.iterrows():
-            if c['timestamp'] <= entry_ts:
-                continue
-            if float(c['low']) <= stop:
-                close_position(db, int(p['id']), tk, stop, 'stop', c['timestamp'],
-                               entry_price, int(p['lot_size']), int(p['size_lots']), notifier)
-                break
-            if take is not None and float(c['high']) >= take:
-                close_position(db, int(p['id']), tk, take, 'take', c['timestamp'],
-                               entry_price, int(p['lot_size']), int(p['size_lots']), notifier)
-                break
+            
+        if state is None:
+            for _, c in candles.iterrows():
+                if c['timestamp'] <= entry_ts:
+                    continue
+                if float(c['low']) <= current_stop:
+                    close_position(db, pos_id, tk, current_stop, 'stop', c['timestamp'],
+                                   entry_price, int(p['lot_size']), int(p['size_lots']), notifier)
+                    break
+                if take is not None and float(c['high']) >= take:
+                    close_position(db, pos_id, tk, take, 'take', c['timestamp'],
+                                   entry_price, int(p['lot_size']), int(p['size_lots']), notifier)
+                    break
+        else:
+            for _, c in candles.iterrows():
+                bar_ts = c['timestamp']
+                if bar_ts <= entry_ts:
+                    continue
+                
+                decision = evaluate_bar(
+                    state,
+                    high=float(c['high']),
+                    low=float(c['low']),
+                    bar_key=bar_ts
+                )
+                
+                if decision is not None and decision.exits:
+                    exit_reason = decision.exit_reason if decision.exit_reason else 'stop'
+                    close_position(db, pos_id, tk, float(decision.exit_price), exit_reason, bar_ts,
+                                   entry_price, int(p['lot_size']), int(p['size_lots']), notifier)
+                    break
+                
+                if decision is not None and not decision.exits and decision.stop > current_stop:
+                    db.execute(
+                        "UPDATE trading.paper_positions SET stop_price=%s, updated_at=now() WHERE id=%s",
+                        (float(decision.stop), pos_id)
+                    )
+                    current_stop = float(decision.stop)
 
 
 def write_equity(db, capital, notifier: TelegramNotifier | None = None,
@@ -433,13 +478,14 @@ def run_paper_trader(tickers=None, duration_minutes=60, check_interval_sec=30,
     start_time = time.time()
     last_check = 0
     last_equity_write = 0
+    trailing_states: dict = {}
     while (time.time() - start_time) < (duration_minutes * 60):
         now = time.time()
         if now - last_check >= check_interval_sec:
             process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, per_trade_rub,
                             strategy_name=strategy_name, config=config, notifier=notifier)
             monitor_pending(db, notifier)
-            monitor_open(db, notifier)
+            monitor_open(db, config, trailing_states, notifier)
             last_check = now
         if now - last_equity_write >= 60:
             write_equity(db, capital, notifier, settings.risk.max_daily_loss_pct)

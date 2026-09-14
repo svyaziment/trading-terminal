@@ -178,7 +178,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 
 **Paper trading** (`live_engine.py` + `paper_trader.py`, background):
 - live_engine: читает активную стратегию из БД (`paper_strategy.get_active_paper_strategy`), строит 4h контекст через `build_strategy_context`, передаёт живые 1min бары в per-ticker `StrategyEvaluator` (единая логика входа, та же что в бэктесте), генерирует сигналы в `trading.alerts`.
-- paper_trader: читает конфиг стратегии из БД (RR из `config.risk_reward`), alerts -> market positions (open по best_ask, один arm) -> мониторинг stop/take -> запись equity. Записывает `strategy_name` в `paper_positions` и в best-effort режиме отправляет Telegram alerts для открытий, закрытий, stop/take, пересечения порога drawdown и GAME OVER.
+- paper_trader: читает конфиг стратегии из БД (RR из `config.risk_reward`, трейлинг из `config.trailing_stop`), alerts -> market positions -> мониторинг stop/take/trailing (динамически обновляет `stop_price` через in-memory `TrailingState`, фиксирует причину выхода `trailing`) -> запись equity. Записывает `strategy_name` в `paper_positions` и в best-effort режиме отправляет Telegram alerts для открытий, закрытий, stop/take, пересечения порога drawdown и GAME OVER.
 - При старте `start_processes.sh` запускает `position_catchup.py` (разбор pending + проверка open по историческим 1min свечам).
 
 **Sandbox live execution** (`live_executor.py`, опциональный фоновый процесс): использует тот же `StrategyEvaluator` и live 1min контекст, затем требует окно входа MOEX [10:00, 19:00) МСК, свежий imbalance стакана, проверяет sandbox-баланс, рассчитывает целое число лотов, выставляет market BUY и записывает позицию в `trading.live_positions`. Overnight-запуск: `START_LIVE_EXECUTOR=1 ./start_processes.sh` (без `DURATION_MINUTES`) ждёт 10:00 МСК, входит только до 19:00 и держит стоп/тейк до закрытия позиции по цене. Обычный paper-запуск не выставляет брокерские ордера.
@@ -303,7 +303,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | T | Композитный S/R паттерн (эпик #115) | #116 Lab/plugin HTF + JSONB Infinity + #117 `levels_sr_breakout` + #118 чип Lab + #119 AFKS smoke + #124 Lab-вселенная A/B готово |
 | U | Поддержка с трекером (эпик #126) | #127 backend `levels_sr_support` + #128 чип Lab + #129 isolated Lab-вселенная + #130 портфель #44 готово |
 | V | Аналитика ступенчатого трейлинг-стопа (задача #139) | Готово — аналитический A/B (фикс. 1:3 против ступенчатого трейлинга) на locked `test_20260830_new_level` id=126, RR 1:3; трейлинг в `analytics/.../trailing.py`, в боевой путь выхода не входит |
-| W | Ступенчатый трейлинг-стоп в боевом пути (эпик #142) | В работе — #144 контракт `config.trailing_stop` готов, #145 движок/плагин/симулятор/walk-forward готовы, #146 редактор Lab готов; #147 гейт паритета боевого пути: A_prod PASS (плотный паритет с книгой A #139), B_prod FAIL по полосе daily MaxDD (структурная обратная связь live-контура, эскалация TL/PO), B_default PASS против опубликованной `ultra_late_tight` #143; OVERALL FAIL; #148/#151/#152 заблокированы до решения по гейту; цифры и разбор — §18, подраздел «Паритет боевого пути» |
+| W | Пошаговый трейлинг-стоп в продакшене (Эпик #142) | Контракт #144 готов, движок #145 готов, редактор Lab #146 готов, интеграция в paper trading #148 выполнена. Gate паритета #147 эскалирован, sandbox live #151 в ожидании. |
 
 
 ## 9. Важные замечания
