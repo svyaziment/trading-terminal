@@ -699,7 +699,13 @@ B_prod вынесен на подпись TL/PO (черновик коммент
 - **Тесты**: `cd backend && python -m pytest -q tests/test_trailing_api.py
   tests/test_trailing_contract.py tests/test_trailing_schema_endpoint.py
   tests/test_trailing_stop.py` — зелёные.
-- **Оговорка**: `test_paper_trailing_stop.py` (#148) содержит 4 pre-existing фейла —
-  `monitor_open()` в #148 получила обязательный параметр `trailing_states`, но тесты не
-  были обновлены. Это не регрессия #149.
+- **Оговорка (устранена)**: 4 красных теста в `test_paper_trailing_stop.py`, которые
+  сначала выглядели регрессией #149, оказались артефактом **устаревшего Docker-образа** —
+  контейнер был собран до того, как лёг `#148-fix` (`c93f39d`), поэтому внутри образа
+  `monitor_open()` ещё не содержал проводки трейлинга. После `docker compose build backend
+  && docker compose up -d backend` код на хосте актуален, и весь paper-trailing-набор
+  (`test_trailing_api.py`, `test_trailing_contract.py`, `test_trailing_schema_endpoint.py`,
+  `test_trailing_stop.py`, `test_paper_trailing_stop.py`) — зелёный. 126 / 36 / 102 / 118
+  остаются нетронутыми — блока там нет, и #145 не должен использоваться как повод их
+  править. Редактирование Lab — это #146, валидация API — #149.
 

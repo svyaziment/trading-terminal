@@ -26,19 +26,53 @@
 
 ## Правило выхода и ступенчатый трейлинг-стоп (статус)
 
-Paper закрывает позицию по **фиксированным** стопу/тейку, записанным на входе: `closed_stop`, если
-минутная свеча печатает `low <= stop_price`, и `closed_take`, если `high >= take_price`; стоп
-проверяется первым. Этот контур **ещё не читает** `config.trailing_stop` — его проводка за задачей
-#148.
+Paper закрывает позицию согласно активному `config.trailing_stop` залоченной стратегии
+(закреплено задачей #148):
 
-Что уже верно с задачи #145: сама лестница — одна чистая функция в
-`backend/app/analytics/trailing_stop.py` (порядок в баре *стоп → тейк → вооружение*, ступень,
-вооружённая баром *i*, кусается с бара *i+1*; неподжатый стоп сохраняет причину `stop`, поджатый
-даёт `trailing`), и она боевая в движке бэктеста, плагине `levels_reversal`, портфельном симуляторе
-и walk-forward. Поэтому бэктест конфига с `trailing_stop.enabled=true` и валидной лестницей — это
-результат с трейлинг-стопом, а **paper-позиция из того же конфига — нет**: до #148 она держит
-фиксированный стоп. Не сравнивайте эти две книги так, будто у них общее правило выхода, и не
-включайте блок в paper-стратегии раньше времени.
+- **Без трейлинга / `enabled=false`**: фиксированные стоп/тейк, записанные на входе.
+  `closed_stop`, если минутная свеча печатает `low <= stop_price`, и `closed_take`, если
+  `high >= take_price`; стоп проверяется первым.
+- **Трейлинг `enabled=true` с валидной лестницей**: `monitor_open` читает лестницу из БД
+  в in-memory-карту `trailing_states` по позиции, продвигает её бар за баром (порядок
+  в лестнице *стоп → тейк → вооружение*; ступень, вооружённая баром *i*, кусается с бара *i+1*),
+  и пишет текущий поджатый стоп обратно в `paper_positions.current_stop_price` / `step_reached` /
+  `risk_r` / `trailing_enabled` / `trailing_steps`, чтобы состояние переживало рестарт.
+  Нетронутый стоп оставляет `exit_reason='stop'`, поджатый — `exit_reason='trailing'`, исполнение
+  по тейку — `exit_reason='take'`. Коды статусов на выходе: `closed_stop`, `closed_take`,
+  `closed_trailing`.
+
+Сама лестница — одна чистая функция в `backend/app/analytics/trailing_stop.py`, общая с движком
+бэктеста, плагином `levels_reversal`, портфельным симулятором и walk-forward (задача #145). Paper,
+бэктест и walk-forward теперь читают **одно и то же** правило выхода, как только трейлинг включён
+в конфиге — книги можно сравнивать напрямую.
+
+## API мониторинга (задача #149)
+
+`app/api/paper_trading_jobs.py` отдаёт три read-only эндпоинта для дашборда:
+
+- `GET /api/paper-trading/overview` — метаданные стратегии, опции по факторам, сводная
+  статистика. `summary` теперь содержит четыре trailing-поля: `trailing_closed` (количество
+  закрытых позиций с выходом `trailing`), `trailing_closed_pnl_rub` (их суммарный PnL),
+  `trailing_open` (открытые позиции с `trailing_enabled=true`), `active_stop_count` (открытые
+  позиции с конечным стопом — как trailing, так и обычные).
+- `GET /api/paper-trading/positions` — постраничный список. Каждая строка отдаёт
+  trailing-колонки из `paper_positions`: `trailing_enabled`, `current_stop_price`,
+  `step_reached`, `risk_r`, плюс существующий `exit_reason` (`stop` / `take` / `trailing`).
+  Значения `Decimal` уходят строками, таймштампы — ISO-8601, `NaN`/`NaT`/`None` схлопываются в
+  JSON `null`. `sort_by`/`sort_dir` по белому списку; `limit` не больше 1000.
+- `GET /api/paper-trading/dynamics` — кумулятивный PnL по бакетам 1h/1d/1w. Win считается как
+  `status='closed_take' OR (status='closed_trailing' AND pnl_rub > 0)` — конвенция Live.
+
+Семантика фильтра `status` — та же, что в Live-эндпоинтах:
+
+| значение | раскрывается в |
+|---|---|
+| `closed` | `closed_stop OR closed_take OR closed_trailing` |
+| `closed_stop` / `closed_take` / `closed_trailing` | точное совпадение |
+| `open` / `pending` / `cancelled` | точное совпадение |
+
+Поэтому `status=closed_trailing` — это способ выбрать позиции с трейлинг-выходом отдельно от
+обычных стопов и тейков.
 
 ## А/Б факторы (на позицию)
 

@@ -131,7 +131,7 @@ trading-terminal/
 │ └── issue-130-sr-support-portfolio/ # 50k slot replay of levels_sr_support (#130)
 ├── docs/
 │ ├── agents/ # project-context.md, handover.md (+ .ru versions), documentation-policy.md
-│ ├── strategy/ # levels-reversal-strategy.md, paper-trading.md, testing-rules.md, backtest-report.md (+ .ru)
+│ ├── strategy/ # levels-reversal-strategy.md, paper-trading.md, live-trading.md, testing-rules.md, backtest-report.md (+ .ru)
 │ └── refresh/context_collector.py # Context collector for agent tasks
 ├── scripts/ # Task scripts (gitignored) + refresh scanners
 ├── start_processes.sh # Start paper trading processes (catch-up + 4 processes)
@@ -369,7 +369,7 @@ Delivery is serialized and limited to one attempt per second. Network/API errors
 
 `frontend/src/components/LiveTradingPanel.tsx` is available from the `Live Trading` tab. It polls `trading.live_positions` through the live monitoring API every 10 seconds and shows open positions with the latest best bid (best ask fallback), unrealized RUB/% PnL, paginated and sortable trade history, cumulative realized PnL, and Telegram connectivity. Both tables use the shared `ui/DataTable` and `FilterChips`; date filters use the shared `ui/DatePicker` extracted from Strategy Lab.
 
-`/api/live-trading/positions` and `/api/live-trading/dynamics` keep sandbox execution data separate from paper trading. They support ticker/date/status filters; the special `status=closed` value selects stop, take, and trailing closures (#149). `/api/notifications/status` performs a read-only Telegram `getMe` probe and caches the result for 30 seconds. It never returns credentials.
+`/api/live-trading/positions` and `/api/live-trading/dynamics` keep sandbox execution data separate from paper trading. They support ticker/date/status filters; the special `status=closed` value selects stop, take, and trailing closures (#149). `/api/notifications/status` performs a read-only Telegram `getMe` probe and caches the result for 30 seconds. It never returns credentials. See `docs/strategy/live-trading.md` for the full contour (safety contract, synthetic stop, schema-ready trailing columns).
 
 ## 16. SignalEngine AND-filters in StrategyEvaluator
 
