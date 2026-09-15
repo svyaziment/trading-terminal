@@ -44,6 +44,8 @@ class TelegramNotifier:
         self._sleeper = sleeper
         self._last_attempt_at: float | None = None
         self._send_lock = threading.Lock()
+        # Dedup: (position_id, step_reached) for trailing step alerts
+        self._trailing_step_alerted: set[tuple[int, int]] = set()
 
     @property
     def enabled(self) -> bool:
@@ -132,7 +134,14 @@ class TelegramNotifier:
         reason: str,
     ) -> bool:
         units = size_lots * lot_size
-        icon = "🛑" if reason == "stop" else "✅" if reason == "take" else "📉"
+        if reason == "stop":
+            icon = "🛑"
+        elif reason == "take":
+            icon = "✅"
+        elif reason == "trailing":
+            icon = "🪜"
+        else:
+            icon = "📉"
         return self.send_message(
             f"{icon} *Закрыта paper-позиция*\n"
             f"*Тикер:* `{_escape_markdown(ticker)}`\n"
@@ -141,6 +150,26 @@ class TelegramNotifier:
             f"*Размер:* `{size_lots} лот. / {units} шт.`\n"
             f"*PnL:* `{pnl_rub:+.2f} RUB ({pnl_pct:+.2f}%)`\n"
             f"*Причина:* `{_escape_markdown(reason)}`"
+        )
+
+    def notify_trailing_step(
+        self,
+        *,
+        position_id: int,
+        ticker: str,
+        step_reached: int,
+        new_stop: float,
+    ) -> bool:
+        """Alert on trailing step armed. Dedup by (position_id, step_reached)."""
+        key = (position_id, step_reached)
+        if key in self._trailing_step_alerted:
+            return False
+        self._trailing_step_alerted.add(key)
+        return self.send_message(
+            "📈 *Трейлинг: шаг вооружён*\n"
+            f"*Тикер:* `{_escape_markdown(ticker)}`\n"
+            f"*Ступень:* `{step_reached}`\n"
+            f"*Новый стоп:* `{new_stop:.4f} RUB`"
         )
 
     def notify_critical(self, *, event: str, details: str) -> bool:

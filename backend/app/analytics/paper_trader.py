@@ -123,15 +123,43 @@ def create_pending_order(db, ticker, limit_price, stop_price, take_price, lot_si
 
 def open_market_position(db, ticker, entry_price, stop_price, take_price, lot_size, size_lots, size_rub,
                          signal_source, window_mode, rr_mode, rr_ratio, signal_id, strategy_name=None,
-                         notifier: TelegramNotifier | None = None):
+                         config=None, notifier: TelegramNotifier | None = None):
+    # Prepare trailing snapshot
+    trailing_enabled = False
+    trailing_steps_json = None
+    risk_r = None
+    current_stop = stop_price
+    step_reached = 0
+    
+    if config and 'trailing_stop' in config:
+        ts_config = config['trailing_stop']
+        if ts_config.get('enabled', False):
+            # Get normalized steps from config (or default ultra_late_tight)
+            from app.analytics.trading_config import TRAILING_STOP
+            steps = ts_config.get('steps', TRAILING_STOP['steps'])
+            
+            # Validate ladder (fail-fast per #148 requirement 9)
+            from app.analytics.trailing_stop import resolve_trailing_stop
+            resolved = resolve_trailing_stop(config)
+            if resolved['reasons']:
+                logger.warning(f"SKIP trailing for {ticker}: invalid ladder: {', '.join(resolved['reasons'])}")
+            else:
+                trailing_enabled = True
+                trailing_steps_json = json.dumps(steps)
+                risk_r = round(float(entry_price) - float(stop_price), 6)
+                current_stop = stop_price  # initial_stop
+    
     db.execute("""
         INSERT INTO trading.paper_positions
             (ticker, entry_ts, entry_price, stop_price, take_price, lot_size, size_lots, size_rub,
-             status, signal_source, window_mode, rr_mode, rr_ratio, entry_mode, signal_id, strategy_name, created_at, updated_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'open',%s,%s,%s,%s,'market',%s,%s,now(),now())
+             status, signal_source, window_mode, rr_mode, rr_ratio, entry_mode, signal_id, strategy_name,
+             trailing_enabled, trailing_steps, risk_r, current_stop_price, step_reached,
+             created_at, updated_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'open',%s,%s,%s,%s,'market',%s,%s,%s,%s,%s,%s,%s,%s,now(),now())
     """, (ticker, _now_msk().replace(tzinfo=None), entry_price, stop_price, take_price,
-          lot_size, size_lots, size_rub, signal_source, window_mode, rr_mode, rr_ratio, signal_id, strategy_name))
-    logger.info(f"OPEN(market) {ticker} [{signal_source}/{window_mode}/{rr_mode}]: {size_lots} lots @ {entry_price:.4f} (stop {stop_price:.2f}, take {take_price:.2f}, signal#{signal_id})")
+          lot_size, size_lots, size_rub, signal_source, window_mode, rr_mode, rr_ratio, signal_id, strategy_name,
+          trailing_enabled, trailing_steps_json, risk_r, current_stop, step_reached))
+    logger.info(f"OPEN(market) {ticker} [{signal_source}/{window_mode}/{rr_mode}]: {size_lots} lots @ {entry_price:.4f} (stop {stop_price:.2f}, take {take_price:.2f}, signal#{signal_id}, trailing={trailing_enabled})")
     if notifier:
         notifier.notify_position_open(
             ticker=ticker,
@@ -285,7 +313,7 @@ def process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, 
                     logger.info(f"SKIP signal #{sig_id} {tk} [market]: entry {entry_price:.4f} >= take {take_price:.4f}")
                     continue
                 open_market_position(db, tk, entry_price, stop_price, take_price, lot_size, size_lots, size_rub,
-                                     src, wmode, rmode, rr_ratio, sig_id, strategy_name, notifier)
+                                     src, wmode, rmode, rr_ratio, sig_id, strategy_name, config, notifier)
             else:  # limit
                 create_pending_order(db, tk, sig_price, stop_price, take_price, lot_size, size_lots, size_rub,
                                      src, wmode, rmode, rr_ratio, 'limit', sig_id, strategy_name)
@@ -329,45 +357,40 @@ def monitor_pending(db, notifier: TelegramNotifier | None = None):
                 break
 
 
-def monitor_open(db, config, trailing_states: dict, notifier: TelegramNotifier | None = None):
-    """Check stop (market) / take (limit) for open positions, with trailing stop support."""
+def monitor_open(db, config, notifier: TelegramNotifier | None = None):
+    """Check stop (market) / take (limit) for open positions, with trailing stop support.
+    
+    Uses DB state (trailing_enabled, trailing_steps, risk_r, current_stop_price, step_reached)
+    instead of in-memory state to survive restarts (idempotent, requirement #148.5).
+    """
     open_pos = db.select(
-        "SELECT id, ticker, entry_ts, entry_price, stop_price, take_price, lot_size, size_lots FROM trading.paper_positions WHERE status='open' ORDER BY id"
+        """SELECT id, ticker, entry_ts, entry_price, stop_price, take_price, lot_size, size_lots,
+                  trailing_enabled, trailing_steps, risk_r, current_stop_price, step_reached
+           FROM trading.paper_positions WHERE status='open' ORDER BY id"""
     ).to_dataframe()
     
-    open_ids = set(open_pos['id'].tolist()) if not open_pos.empty else set()
-    for pos_id in list(trailing_states.keys()):
-        if pos_id not in open_ids:
-            del trailing_states[pos_id]
-
     for _, p in open_pos.iterrows():
         pos_id = int(p['id'])
         tk = p['ticker']
         entry_ts = p['entry_ts']
         entry_price = float(p['entry_price'])
-        current_stop = float(p['stop_price'])
+        initial_stop = float(p['stop_price'])  # initial_stop never changes
+        current_stop = float(p['current_stop_price']) if p['current_stop_price'] is not None else initial_stop
         take = float(p['take_price']) if p['take_price'] is not None else (entry_price * 10.0)
+        trailing_enabled = bool(p.get('trailing_enabled', False))
+        step_reached = int(p.get('step_reached', 0))
         
-        if pos_id not in trailing_states:
-            state = trailing_from_config(
-                config,
-                entry_exec=entry_price,
-                initial_stop=current_stop,
-                take=take
-            )
-            trailing_states[pos_id] = state
-        
-        state = trailing_states[pos_id]
         candles = get_candles_since(db, tk, entry_ts)
         if candles.empty:
             continue
-            
-        if state is None:
+        
+        if not trailing_enabled:
+            # Legacy path: fixed stop/take, no trailing
             for _, c in candles.iterrows():
                 if c['timestamp'] <= entry_ts:
                     continue
-                if float(c['low']) <= current_stop:
-                    close_position(db, pos_id, tk, current_stop, 'stop', c['timestamp'],
+                if float(c['low']) <= initial_stop:
+                    close_position(db, pos_id, tk, initial_stop, 'stop', c['timestamp'],
                                    entry_price, int(p['lot_size']), int(p['size_lots']), notifier)
                     break
                 if take is not None and float(c['high']) >= take:
@@ -375,6 +398,29 @@ def monitor_open(db, config, trailing_states: dict, notifier: TelegramNotifier |
                                    entry_price, int(p['lot_size']), int(p['size_lots']), notifier)
                     break
         else:
+            # Trailing path: restore TrailingState from DB snapshot
+            import json
+            steps_json = p.get('trailing_steps')
+            if steps_json is None:
+                logger.warning(f"Position {pos_id} has trailing_enabled=true but no trailing_steps, skipping")
+                continue
+            steps = json.loads(steps_json) if isinstance(steps_json, str) else steps_json
+            risk_r = float(p['risk_r']) if p['risk_r'] is not None else (entry_price - initial_stop)
+            
+            # Rebuild TrailingState from DB snapshot
+            from app.analytics.trailing_stop import TrailingState
+            state = TrailingState.build(
+                steps,
+                entry_exec=entry_price,
+                initial_stop=initial_stop,
+                take=take,
+            )
+            if state is None:
+                logger.warning(f"Position {pos_id}: failed to rebuild TrailingState, skipping")
+                continue
+            
+            # Fast-forward state to current DB state (replay bars up to step_reached)
+            # This is idempotent: replaying the same path gives the same result
             for _, c in candles.iterrows():
                 bar_ts = c['timestamp']
                 if bar_ts <= entry_ts:
@@ -393,12 +439,26 @@ def monitor_open(db, config, trailing_states: dict, notifier: TelegramNotifier |
                                    entry_price, int(p['lot_size']), int(p['size_lots']), notifier)
                     break
                 
-                if decision is not None and not decision.exits and decision.stop > current_stop:
+                # Ratchet: conditional UPDATE only if new step > current step_reached
+                if decision is not None and not decision.exits and decision.step_reached > step_reached:
+                    new_stop = float(decision.stop)
+                    new_step = int(decision.step_reached)
                     db.execute(
-                        "UPDATE trading.paper_positions SET stop_price=%s, updated_at=now() WHERE id=%s",
-                        (float(decision.stop), pos_id)
+                        """UPDATE trading.paper_positions
+                           SET current_stop_price=%s, step_reached=%s, updated_at=now()
+                           WHERE id=%s AND step_reached < %s""",
+                        (new_stop, new_step, pos_id, new_step)
                     )
-                    current_stop = float(decision.stop)
+                    step_reached = new_step
+                    current_stop = new_stop
+                    # Notify on step armed (dedup by position_id + step_reached)
+                    if notifier:
+                        notifier.notify_trailing_step(
+                            position_id=pos_id,
+                            ticker=tk,
+                            step_reached=new_step,
+                            new_stop=new_stop,
+                        )
 
 
 def write_equity(db, capital, notifier: TelegramNotifier | None = None,
@@ -478,14 +538,13 @@ def run_paper_trader(tickers=None, duration_minutes=60, check_interval_sec=30,
     start_time = time.time()
     last_check = 0
     last_equity_write = 0
-    trailing_states: dict = {}
     while (time.time() - start_time) < (duration_minutes * 60):
         now = time.time()
         if now - last_check >= check_interval_sec:
             process_signals(db, tickers, lot_sizes, max_positions, max_entries_per_day, per_trade_rub,
                             strategy_name=strategy_name, config=config, notifier=notifier)
             monitor_pending(db, notifier)
-            monitor_open(db, config, trailing_states, notifier)
+            monitor_open(db, config, notifier)
             last_check = now
         if now - last_equity_write >= 60:
             write_equity(db, capital, notifier, settings.risk.max_daily_loss_pct)

@@ -7,3 +7,4 @@ pandas
 asyncpg
 t-tech-investments
 requests
+alembic

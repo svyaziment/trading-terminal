@@ -61,7 +61,8 @@ def test_open_and_close_emit_trade_notifications_after_db_write() -> None:
         2.0,
         42,
         "strategy",
-        notifier,
+        config={},
+        notifier=notifier,
     )
     pnl_rub = close_position(
         db,

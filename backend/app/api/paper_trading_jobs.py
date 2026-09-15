@@ -55,7 +55,7 @@ def _build_where(signal_source=None, window_mode=None, rr_mode=None, entry_mode=
     if entry_mode:
         clauses.append("entry_mode = %(entry_mode)s"); params['entry_mode'] = entry_mode
     if status == 'closed':
-        clauses.append("status IN ('closed_stop','closed_take')")
+        clauses.append("status IN ('closed_stop','closed_take','closed_trailing')")
     elif status:
         clauses.append("status = %(status)s"); params['status'] = status
     if date_from:
@@ -95,10 +95,10 @@ def register_routes(app: FastAPI) -> None:
               COUNT(*) AS total,
               COUNT(*) FILTER (WHERE status='open') AS open_count,
               COUNT(*) FILTER (WHERE status='pending') AS pending_count,
-              COUNT(*) FILTER (WHERE status IN ('closed_stop','closed_take')) AS closed_count,
-              COALESCE(SUM(pnl_rub) FILTER (WHERE status IN ('closed_stop','closed_take')), 0) AS realized_pnl_rub,
-              COUNT(*) FILTER (WHERE status='closed_take') AS wins,
-              COUNT(*) FILTER (WHERE status='closed_stop') AS losses
+              COUNT(*) FILTER (WHERE status IN ('closed_stop','closed_take','closed_trailing')) AS closed_count,
+              COALESCE(SUM(pnl_rub) FILTER (WHERE status IN ('closed_stop','closed_take','closed_trailing')), 0) AS realized_pnl_rub,
+              COUNT(*) FILTER (WHERE status='closed_take' OR (status='closed_trailing' AND pnl_rub > 0)) AS wins,
+              COUNT(*) FILTER (WHERE status='closed_stop' OR (status='closed_trailing' AND pnl_rub < 0)) AS losses
             FROM trading.paper_positions {where}
         """, params).to_dataframe()
         r = sdf.iloc[0]
@@ -209,12 +209,12 @@ def register_routes(app: FastAPI) -> None:
             date_from=date_from, date_to=date_to, ticker=ticker
         )
         base_where = where + (" AND " if where else " WHERE ") + \
-            "status IN ('closed_stop','closed_take') AND exit_ts IS NOT NULL"
+            "status IN ('closed_stop','closed_take','closed_trailing') AND exit_ts IS NOT NULL"
         df = db.select(f"""
             SELECT date_trunc('{trunc}', exit_ts) AS bucket,
                    SUM(pnl_rub) AS pnl_rub,
                    COUNT(*) AS closed,
-                   COUNT(*) FILTER (WHERE status='closed_take') AS wins
+                   COUNT(*) FILTER (WHERE status='closed_take' OR (status='closed_trailing' AND pnl_rub > 0)) AS wins
             FROM trading.paper_positions {base_where}
             GROUP BY bucket ORDER BY bucket
         """, params).to_dataframe()
