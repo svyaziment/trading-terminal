@@ -25,7 +25,7 @@
 1. `data_refresher` - MOEX 1min + агрегация + индикаторы + сигналы (каждые 15 минут, top-15 ∪ LIVE_UNIVERSE).
 2. `online_data` - стриминг 1min свечей + стакана.
 3. `live_engine` - читает активную стратегию из БД (`paper_strategy.get_active_paper_strategy`), строит 4h контекст через `build_strategy_context`, передаёт живые 1min бары в per-ticker `StrategyEvaluator` (единая логика входа, та же что в бэктесте), генерирует сигналы в `trading.alerts`.
-4. `paper_trader` - читает конфиг стратегии из БД (RR из `config.risk_reward`), alerts -> market позиции (open по best_ask, один arm) -> мониторинг stop/take -> запись equity и best-effort Telegram-уведомления. Записывает `strategy_name` в `paper_positions`.
+`paper_trader` - читает конфигурацию стратегии из БД (RR из `config.risk_reward`, трейлинг из `config.trailing_stop`), алерты -> рыночные позиции -> мониторинг стоп/тейк/трейлинг (динамически обновляет `stop_price` через in-memory `TrailingState`, фиксирует причину выхода `trailing`) -> запись equity и best-effort Telegram уведомления. Записывает `strategy_name` в `paper_positions`.
 - Опционально: `LiveExecutor` выполняет sandbox-ордера через брокера и запускается только с `START_LIVE_EXECUTOR=1`.
 При старте: `position_catchup` разбирает pending/open позиции по историческим свечам.
 

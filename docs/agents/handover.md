@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-14 (task-147); previously 2026-09-09 (Issue #146 added the schema-driven Lab editor for `config.trailing_stop` — toggle plus rung table, rendering entirely from the new `GET /api/strategies/trailing-schema`; no trailing number in TSX; the write-path gate is still #149's. New §38; §36 reworded to drop #146 from the «expected to call `require_valid_trailing_stop()`» list. Earlier: Issue #145 delivered the stepped trailing stop into the production exit path — one ladder in `backend/app/analytics/trailing_stop.py`, shared by `StrategyEvaluator`, the `levels_reversal` plugin, `portfolio_simulator` and walk-forward; `EXIT_TRAILING` is emitted; the policy still ships disabled. New §37; §36 reworded from «contract only, no consumer» to «applied since #145, still no write-path gate». Earlier: Product Owner decision in §35 — `ultra_late_tight` is the production default grid for #144, `enabled` stays `false`; the #144 `config.trailing_stop` contract is validation only, §36. Companion to project-context.md.
+Last refreshed: 2026-09-15 (task-148); previously 2026-09-14 (task-147)
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -25,7 +25,7 @@ See project-context.md section 4. Four paper processes are started by default:
 1. `data_refresher` - MOEX 1min + aggregation + indicators + signals (every 15 min, top-15 ∪ LIVE_UNIVERSE).
 2. `online_data` - streaming 1min candles + order book.
 3. `live_engine` - reads active strategy from DB (`paper_strategy.get_active_paper_strategy`), builds 4h context via `build_strategy_context`, feeds live 1min bars into per-ticker `StrategyEvaluator` instances (unified entry logic, same as backtest), emits signals to `trading.alerts`.
-4. `paper_trader` - reads strategy config from DB (RR from `config.risk_reward`), alerts -> market positions (open at best_ask, single arm) -> monitor stop/take -> write equity and best-effort Telegram notifications. Records `strategy_name` in `paper_positions`.
+4. `paper_trader` - reads strategy config from DB (RR from `config.risk_reward`, trailing from `config.trailing_stop`), alerts -> market positions -> monitor stop/take/trailing (dynamically updates `stop_price` via in-memory `TrailingState`, emits `trailing` exit reason) -> write equity and best-effort Telegram notifications. Records `strategy_name` in `paper_positions`.
 - Optional: `LiveExecutor` provides sandbox broker execution and starts only with `START_LIVE_EXECUTOR=1`.
 On startup: `position_catchup` resolves pending/open positions against historical candles.
 
