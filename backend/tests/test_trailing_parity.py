@@ -108,7 +108,10 @@ def run_analytics(path, steps=None):
 
 def run_production(path, steps=None):
     return apply_trailing_path(
-        ENTRY, STOP, TAKE, path,
+        entry_exec=ENTRY,
+        initial_stop=STOP,
+        take=TAKE,
+        path=path,
         steps=steps if steps is not None else REF139_STEPS,
         commission_pct=COMMISSION,
     )
