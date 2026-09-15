@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX; гейт на записи по-прежнему за #149. Новый §38; §36 дополнен исключением #146 из списка «должны вызвать `require_valid_trailing_stop()`». Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейта на записи по-прежнему нет». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -670,4 +670,36 @@ B_prod вынесен на подпись TL/PO (черновик коммент
 
 
   по-прежнему идут через `_json_safe` (#116).
+## 39. API-интеграция трейлинг-стопа (задача #149)
+
+- **Гейт на записи**: `POST /api/strategies` теперь вызывает `require_valid_trailing_stop()`
+  перед сохранением. Битая лестница возвращает `422` с телом `{"detail": {"message": ...,
+  "reason_codes": [...]}}` — стабильные строковые коды из `TRAILING_REASON_CODES`
+  (`trailing_step_invalid`, `trailing_not_monotonic`, `trailing_too_many_steps`).
+  Клиентская проверка #146 больше не единственная линия обороны.
+- **Метаданные в списке**: `GET /api/strategies` каждому элементу добавляет `trailing_stop`:
+  `{"enabled": bool, "steps": [...], "reasons": [...]}` — результат `resolve_trailing_stop()`.
+  UI видит валидность без повторного прогона валидатора.
+- **Результат бэктеста**: `_run_job` в `strategy_jobs.py` сохраняет `exit_reasons` в метриках
+  (`backtest_results.metrics.exit_reasons`) — разбивку закрытий по причинам
+  (`stop`/`take`/`trailing`/и т.д.).
+- **Paper API**:
+  - `GET /api/paper-trading/overview` — четыре новых поля в `summary`: `trailing_closed`,
+    `trailing_closed_pnl_rub`, `trailing_open`, `active_stop_count`.
+  - `GET /api/paper-trading/positions` — SELECT включает `trailing_enabled`,
+    `current_stop_price`, `step_reached`, `risk_r`.
+  - Фильтр `status=closed` уже включал `closed_trailing` (из #148); регрессии нет.
+- **Live API**:
+  - `GET /api/live-trading/positions` — SELECT включает те же trailing-поля.
+  - `_build_where` расширен: `status=closed` теперь включает `closed_trailing`.
+  - `dynamics` считает wins как `closed_take OR (closed_trailing AND pnl_rub > 0)` —
+    конвенция paper.
+- **Миграция**: `20260915_002_live_trailing.py` — те же колонки, что и в #148, но для
+  `trading.live_positions`. Миграция идемпотентна (`ADD COLUMN IF NOT EXISTS` + backfill).
+- **Тесты**: `cd backend && python -m pytest -q tests/test_trailing_api.py
+  tests/test_trailing_contract.py tests/test_trailing_schema_endpoint.py
+  tests/test_trailing_stop.py` — зелёные.
+- **Оговорка**: `test_paper_trailing_stop.py` (#148) содержит 4 pre-existing фейла —
+  `monitor_open()` в #148 получила обязательный параметр `trailing_states`, но тесты не
+  были обновлены. Это не регрессия #149.
 

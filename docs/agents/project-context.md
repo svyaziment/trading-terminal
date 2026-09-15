@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-15 (task-148); previously 2026-09-14 (task-147)
+Last refreshed: 2026-09-15 (task-149); previously 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -206,18 +206,18 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/patterns | Pattern registry schemas (Strategy Lab) |
 | GET | /api/strategies/trailing-schema | `config.trailing_stop` contract for the Lab editor: defaults, bounds, `max_steps`, input resolution, approved grid name, reason codes (#146; read-only, produced by `trading_config.get_trailing_stop_schema()`) |
 | POST | /api/patterns/preview | Pattern chart preview: candles + typed overlays (`ray`, `band`, `line`, `marker`); #88 implements `levels_reversal` |
-| POST | /api/strategies | Save strategy (rejects overwrite of locked) |
-| GET | /api/strategies | List strategies (with in_paper_test/locked/description) |
+| POST | /api/strategies | Save strategy (rejects overwrite of locked; #149: validates `trailing_stop` → 422 with `reason_codes`) |
+| GET | /api/strategies | List strategies (with in_paper_test/locked/description; #149: + `trailing_stop` metadata) |
 | GET | /api/strategies/run/status | Strategy backtest job status |
 | GET | /api/strategies/data-range | Min/max date of candles_1min_raw (for date pickers) |
 | POST | /api/strategies/{id}/run | Run backtest (full_sample/walkforward, depth or custom date_from/date_to) |
 | GET | /api/strategies/{id}/results | Backtest results (per-ticker metrics) |
 | GET | /api/tickers/big | Tickers with >= N 1min candles (selectable universe) |
-| GET | /api/paper-trading/overview | Strategy name + factor options + summary stats (factor filters) |
-| GET | /api/paper-trading/positions | Positions list (filters + pagination + sort); open rows include current price and unrealized PnL |
+| GET | /api/paper-trading/overview | Strategy name + factor options + summary stats (factor filters; #149: + `trailing_closed`, `trailing_closed_pnl_rub`, `trailing_open`, `active_stop_count`) |
+| GET | /api/paper-trading/positions | Positions list (filters + pagination + sort); open rows include current price and unrealized PnL; #149: + `trailing_enabled`, `current_stop_price`, `step_reached`, `risk_r`; `status=closed` includes `closed_trailing` |
 | GET | /api/paper-trading/dynamics | Cumulative realized PnL series by 1h/1d/1w (factor/ticker/date filters) |
 | GET | /api/notifications/status | Cached Telegram configuration and Bot API connectivity status |
-| GET | /api/live-trading/positions | Sandbox live positions with current price, PnL, filters, sorting, and pagination |
+| GET | /api/live-trading/positions | Sandbox live positions with current price, PnL, filters, sorting, and pagination; #149: + `trailing_enabled`, `current_stop_price`, `step_reached`, `risk_r`; `status=closed` includes `closed_trailing` |
 | GET | /api/live-trading/dynamics | Cumulative realized sandbox PnL by 1h/1d/1w |
 
 Shared lock: jobs_state.py (in-process). Only one heavy job runs at a time; others return 409.
@@ -369,7 +369,7 @@ Delivery is serialized and limited to one attempt per second. Network/API errors
 
 `frontend/src/components/LiveTradingPanel.tsx` is available from the `Live Trading` tab. It polls `trading.live_positions` through the live monitoring API every 10 seconds and shows open positions with the latest best bid (best ask fallback), unrealized RUB/% PnL, paginated and sortable trade history, cumulative realized PnL, and Telegram connectivity. Both tables use the shared `ui/DataTable` and `FilterChips`; date filters use the shared `ui/DatePicker` extracted from Strategy Lab.
 
-`/api/live-trading/positions` and `/api/live-trading/dynamics` keep sandbox execution data separate from paper trading. They support ticker/date/status filters; the special `status=closed` value selects both stop and take closures. `/api/notifications/status` performs a read-only Telegram `getMe` probe and caches the result for 30 seconds. It never returns credentials.
+`/api/live-trading/positions` and `/api/live-trading/dynamics` keep sandbox execution data separate from paper trading. They support ticker/date/status filters; the special `status=closed` value selects stop, take, and trailing closures (#149). `/api/notifications/status` performs a read-only Telegram `getMe` probe and caches the result for 30 seconds. It never returns credentials.
 
 ## 16. SignalEngine AND-filters in StrategyEvaluator
 

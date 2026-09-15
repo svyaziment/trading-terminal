@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-15 (task-148); previously 2026-09-14 (task-147)
+Last refreshed: 2026-09-15 (task-149); previously 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -566,6 +566,43 @@ to `paper_positions` / `backtest_results`.
 - Turning it on is a config decision, not a code change: add
   `{"trailing_stop": {"enabled": true, "steps": [...]}}` to a strategy's `strategies.config`
   (R multiples from the entry; the shipped default ladder is `ultra_late_tight`, §35). Locked
+  configs 126 / 36 / 102 / 118 are untouched — none of them carry the block, and #145 is no
+  reason to edit them.
+- Tests: `cd backend && python -m pytest -q tests/test_trailing_contract.py
+  tests/test_trailing_stop.py`.
+
+## 39. Trailing stop API integration (Issue #149)
+
+- **Write gate**: `POST /api/strategies` now calls `require_valid_trailing_stop()` before
+  saving. A bad ladder returns `422` with body `{"detail": {"message": ...,
+  "reason_codes": [...]}}` — stable string codes from `TRAILING_REASON_CODES`
+  (`trailing_step_invalid`, `trailing_not_monotonic`, `trailing_too_many_steps`).
+  The client-side check from #146 is no longer the only line of defence.
+- **List metadata**: `GET /api/strategies` attaches `trailing_stop` to every item:
+  `{"enabled": bool, "steps": [...], "reasons": [...]}` — the output of
+  `resolve_trailing_stop()`. The UI sees validity without re-running the validator.
+- **Backtest results**: `_run_job` in `strategy_jobs.py` stores `exit_reasons` in
+  `backtest_results.metrics.exit_reasons` — a breakdown of closes by reason
+  (`stop`/`take`/`trailing`/etc.).
+- **Paper API**:
+  - `GET /api/paper-trading/overview` — four new fields in `summary`: `trailing_closed`,
+    `trailing_closed_pnl_rub`, `trailing_open`, `active_stop_count`.
+  - `GET /api/paper-trading/positions` — SELECT includes `trailing_enabled`,
+    `current_stop_price`, `step_reached`, `risk_r`.
+  - `status=closed` filter already included `closed_trailing` (from #148); no regression.
+- **Live API**:
+  - `GET /api/live-trading/positions` — SELECT includes the same trailing fields.
+  - `_build_where` extended: `status=closed` now includes `closed_trailing`.
+  - `dynamics` counts wins as `closed_take OR (closed_trailing AND pnl_rub > 0)` —
+    matching the paper convention.
+- **Migration**: `20260915_002_live_trailing.py` — same columns as #148, but for
+  `trading.live_positions`. Idempotent (`ADD COLUMN IF NOT EXISTS` + backfill).
+- **Tests**: `cd backend && python -m pytest -q tests/test_trailing_api.py
+  tests/test_trailing_contract.py tests/test_trailing_schema_endpoint.py
+  tests/test_trailing_stop.py` — green.
+- **Caveat**: `test_paper_trailing_stop.py` (#148) has 4 pre-existing failures —
+  `monitor_open()` gained a required `trailing_states` parameter in #148 but the tests
+  were never updated. This is not a regression from #149.
   126 / 36 / 102 / 118 stay untouched — the block is not present there, and #145 must not be used
   as a reason to edit them. Lab editing is #146, API validation is #149.
 - Reading a run: backtest trades carry `step_reached` only when a ladder was armed (no key = the

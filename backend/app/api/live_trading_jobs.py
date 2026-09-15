@@ -28,7 +28,8 @@ def _build_where(
     clauses = []
     params = {}
     if status == "closed":
-        clauses.append("status IN ('closed_stop','closed_take')")
+        # Issue #149: closed includes closed_trailing for trailing stop exits
+        clauses.append("status IN ('closed_stop','closed_take','closed_trailing')")
     elif status:
         clauses.append("status = %(status)s")
         params["status"] = status
@@ -111,12 +112,14 @@ def register_routes(app: FastAPI) -> None:
             params,
         ).to_dataframe()
         total = int(count_frame.iloc[0]["c"]) if not count_frame.empty else 0
+        # Issue #149: trailing fields added (columns from migration 20260915_002)
         frame = db.select(
             f"""
             SELECT id, ticker, signal_ts AS entry_ts, entry_price, exit_ts,
                    exit_price, stop_price, take_price, status, exit_reason,
                    pnl_rub, size_lots, lot_size, strategy_name,
-                   created_at, updated_at
+                   created_at, updated_at,
+                   trailing_enabled, current_stop_price, step_reached, risk_r
             FROM trading.live_positions {where}
             ORDER BY {order_column} {direction}, id {direction}
             LIMIT %(limit)s OFFSET %(offset)s
@@ -181,11 +184,12 @@ def register_routes(app: FastAPI) -> None:
             date_from=date_from,
             date_to=date_to,
         )
+        # Issue #149: wins include closed_trailing with positive PnL (matches paper convention)
         frame = _get_db().select(
             f"""
             SELECT date_trunc('{TF_MAP[timeframe]}', exit_ts) AS bucket,
                    SUM(pnl_rub) AS pnl_rub, COUNT(*) AS closed,
-                   COUNT(*) FILTER (WHERE status='closed_take') AS wins
+                   COUNT(*) FILTER (WHERE status='closed_take' OR (status='closed_trailing' AND pnl_rub > 0)) AS wins
             FROM trading.live_positions {where}
               AND exit_ts IS NOT NULL
             GROUP BY bucket ORDER BY bucket

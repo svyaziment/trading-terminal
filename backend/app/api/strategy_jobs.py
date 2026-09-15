@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from app.api import jobs_state
 from app.db.db_manager import DBManager
 from app.analytics.pattern_registry import list_patterns, normalize_patterns
-from app.analytics.trading_config import get_trailing_stop_schema
+from app.analytics.trading_config import get_trailing_stop_schema, resolve_trailing_stop, require_valid_trailing_stop
 
 JOB = "strategy_backtest"
 NAME_RE = re.compile(r"^[A-Za-z0-9_\-]{1,64}$")
@@ -170,6 +170,8 @@ def _run_job(strategy_id: int, tickers: List[str], test_types: List[str], depth:
                 if r.get('status') == 'success':
                     m = dict(r.get('metrics') or {})
                     m['trades'] = r.get('trades', [])
+                    # Issue #149: store exit_reasons breakdown for backtest UI
+                    m['exit_reasons'] = r.get('exit_reasons', {})
                 else:
                     m = {'error': r.get('error')}
                 db.execute(
@@ -250,6 +252,16 @@ def register_routes(app: FastAPI) -> None:
     def save_strategy(payload: StrategyIn):
         payload.config = normalize_patterns(payload.config)
         _validate_name(payload.name)
+        # Issue #149: validate trailing_stop config before saving (422 with stable reason codes)
+        try:
+            require_valid_trailing_stop(payload.config)
+        except ValueError as exc:
+            from app.analytics.trading_config import resolve_trailing_stop as _r
+            resolved = _r(payload.config)
+            raise HTTPException(status_code=422, detail={
+                'message': str(exc),
+                'reason_codes': resolved['reasons'],
+            })
         db = _get_db()
         # Reject overwrite of a paper-trading (locked) strategy
         existing = db.select("SELECT id, locked FROM trading.strategies WHERE name=%s", (payload.name,)).to_dataframe()
@@ -263,7 +275,10 @@ def register_routes(app: FastAPI) -> None:
             (payload.name, _json_dumps(payload.config)))
         df = db.select("SELECT id FROM trading.strategies WHERE name=%s", (payload.name,)).to_dataframe()
         sid = int(df.iloc[0]['id'])
-        return {"id": sid, "name": payload.name, "config": payload.config}
+        # Attach trailing metadata for immediate UI feedback
+        trailing = resolve_trailing_stop(payload.config)
+        return {"id": sid, "name": payload.name, "config": payload.config,
+                "trailing_stop": trailing}
 
     @app.get("/api/strategies")
     def list_strategies():
@@ -276,6 +291,9 @@ def register_routes(app: FastAPI) -> None:
             r['config'] = _to_dict(r.get('config'))
             r['in_paper_test'] = bool(r.get('in_paper_test'))
             r['locked'] = bool(r.get('locked'))
+            # Issue #149: attach trailing stop metadata for each strategy
+            trailing = resolve_trailing_stop(r.get('config'))
+            r['trailing_stop'] = trailing
         return {"strategies": [_json_safe(r) for r in rows]}
 
     # NOTE: registered before the {strategy_id} routes so 'run' is never parsed as an id.
