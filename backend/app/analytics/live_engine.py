@@ -153,7 +153,7 @@ def _can_emit_signal(db: DBManager, ticker: str, config: Dict) -> bool:
     df_last = db.select(
         "SELECT COALESCE(exit_ts, updated_at, created_at) AS close_ts "
         "FROM trading.paper_positions "
-        "WHERE ticker = %s AND status IN ('closed_stop', 'closed_take', 'cancelled') "
+        "WHERE ticker = %s AND status IN ('closed_stop', 'closed_take', 'closed_trailing', 'cancelled') "
         "ORDER BY close_ts DESC LIMIT 1",
         (ticker,)
     ).to_dataframe()
