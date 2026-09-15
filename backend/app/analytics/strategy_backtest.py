@@ -187,8 +187,13 @@ def run_strategy_backtest(db, ticker: str, config: Dict, date_from=None, date_to
             trades.append(decision['trade'])
 
     m = _bootstrap_metrics(trades, n_runs)
+    # Count exit reasons (Issue #149: backtest must report trailing/stop/take breakdown)
+    exit_reasons = {}
+    for t in trades:
+        reason = t.get('exit_reason', 'unknown')
+        exit_reasons[reason] = exit_reasons.get(reason, 0) + 1
     return {'status': 'success', 'ticker': ticker, 'config': config,
-            'bars_1min': len(df_1m), 'metrics': m, 'trades': trades}
+            'bars_1min': len(df_1m), 'metrics': m, 'trades': trades, 'exit_reasons': exit_reasons}
 
 WALKFORWARD_PERIODS = [
     ('2024-H2', '2024-07-01', '2025-01-01'),

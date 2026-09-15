@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 — Lab умеет настраивать `config.trailing_stop`: переключатель и таблица ступеней, отрисованные из нового read-only `GET /api/strategies/trailing-schema`; ответ собирает `trading_config.get_trailing_stop_schema()` на основе `TRAILING_STOP` (handover §38). Ни одно поле или число трейлинга не продублировано в TSX, нетронутая стратегия по-прежнему сохраняется без ключа, а таблица сделок наконец отличает выход `trailing` от простого `stop`; гейт на пути записи (`require_valid_trailing_stop()` при сохранении) остаётся за #149). Предыдущее обновление: 2026-09-08 (в §18 зафиксировано решение Product Owner: `ultra_late_tight` — самая поздняя и плотная лестница решётки `143-trailing-v3` — становится боевым дефолтом сетки трейлинг-стопа для #144; эпик #142 / roadmap Block W; контракт `config.trailing_stop` из #144 уже в коде — только валидация, полный контракт полей в §6, тесты `backend/tests/test_trailing_contract.py`). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-09-15 (task-149); ранее 2026-09-14 (task-147); 2026-09-09 (задача #146 — Lab умеет настраивать `config.trailing_stop`: переключатель и таблица ступеней, отрисованные из нового read-only `GET /api/strategies/trailing-schema`; ответ собирает `trading_config.get_trailing_stop_schema()` на основе `TRAILING_STOP` (handover §38). Ни одно поле или число трейлинга не продублировано в TSX, нетронутая стратегия по-прежнему сохраняется без ключа, а таблица сделок наконец отличает выход `trailing` от простого `stop`). Предыдущее обновление: 2026-09-08 (в §18 зафиксировано решение Product Owner: `ultra_late_tight` — самая поздняя и плотная лестница решётки `143-trailing-v3` — становится боевым дефолтом сетки трейлинг-стопа для #144; эпик #142 / roadmap Block W; контракт `config.trailing_stop` из #144 уже в коде — только валидация, полный контракт полей в §6, тесты `backend/tests/test_trailing_contract.py`). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -203,18 +203,18 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/patterns | Схемы реестра паттернов (Strategy Lab) |
 | GET | /api/strategies/trailing-schema | Контракт `config.trailing_stop` для редактора Lab: дефолты, границы, `max_steps`, разрешение ввода, имя утверждённой сетки, коды причин (#146; только чтение, отдаёт `trading_config.get_trailing_stop_schema()`) |
 | POST | /api/patterns/preview | Превью паттерна на графике: свечи + overlays (`ray`, `band`, `line`, `marker`); #88 — `levels_reversal` |
-| POST | /api/strategies | Сохранить стратегию (отклоняет перезапись locked) |
-| GET | /api/strategies | Список стратегий (with in_paper_test/locked/description) |
+| POST | /api/strategies | Сохранить стратегию (отклоняет перезапись locked; #149: валидация `trailing_stop` → 422 с `reason_codes`) |
+| GET | /api/strategies | Список стратегий (with in_paper_test/locked/description; #149: + `trailing_stop` metadata) |
 | GET | /api/strategies/run/status | Статус задачи backtest стратегии |
 | GET | /api/strategies/data-range | Мин./макс. дата candles_1min_raw (для date pickers) |
 | POST | /api/strategies/{id}/run | Запустить backtest (full_sample/walkforward, depth или кастомные date_from/date_to) |
 | GET | /api/strategies/{id}/results | Результаты backtest (метрики по тикерам) |
 | GET | /api/tickers/big | Тикеры с >= N 1min свечей (выбираемая вселенная) |
-| GET | /api/paper-trading/overview | Имя стратегии + опции факторов + сводная статистика (фильтры факторов) |
-| GET | /api/paper-trading/positions | Список позиций (фильтры + пагинация + сортировка); открытые строки содержат текущую цену и нереализованный PnL |
+| GET | /api/paper-trading/overview | Имя стратегии + опции факторов + сводная статистика (фильтры факторов; #149: + `trailing_closed`, `trailing_closed_pnl_rub`, `trailing_open`, `active_stop_count`) |
+| GET | /api/paper-trading/positions | Список позиций (фильтры + пагинация + сортировка); открытые строки содержат текущую цену и нереализованный PnL; #149: + `trailing_enabled`, `current_stop_price`, `step_reached`, `risk_r`; `status=closed` включает `closed_trailing` |
 | GET | /api/paper-trading/dynamics | Кумулятивный ряд реализованного PnL с шагом 1h/1d/1w (фильтры факторов/тикера/дат) |
 | GET | /api/notifications/status | Кешированный статус конфигурации и подключения Telegram Bot API |
-| GET | /api/live-trading/positions | Sandbox live-позиции с текущей ценой, PnL, фильтрами, сортировкой и пагинацией |
+| GET | /api/live-trading/positions | Sandbox live-позиции с текущей ценой, PnL, фильтрами, сортировкой и пагинацией; #149: + `trailing_enabled`, `current_stop_price`, `step_reached`, `risk_r`; `status=closed` включает `closed_trailing` |
 | GET | /api/live-trading/dynamics | Кумулятивный sandbox PnL с шагом 1h/1d/1w |
 
 Общий lock: jobs_state.py (in-process). Одновременно выполняется только одна тяжёлая задача; остальные возвращают 409.
@@ -367,7 +367,7 @@ Take-profit сразу выставляется как ожидающий sell-l
 
 `frontend/src/components/LiveTradingPanel.tsx` доступна во вкладке `Live Trading`. Панель каждые 10 секунд читает `trading.live_positions` через live monitoring API и показывает открытые позиции с последним best bid (fallback на best ask), нереализованный PnL в RUB/%, пагинируемую и сортируемую историю сделок, накопленный realized PnL и подключение Telegram. Обе таблицы построены на общем `ui/DataTable`, разделяют `FilterChips`, а фильтры дат используют вынесенный из Strategy Lab общий `ui/DatePicker`.
 
-`/api/live-trading/positions` и `/api/live-trading/dynamics` отделяют данные sandbox-исполнения от paper trading. Эндпоинты поддерживают фильтры тикера, дат и статуса; специальное значение `status=closed` выбирает закрытия по stop и take. `/api/notifications/status` выполняет read-only проверку Telegram `getMe` и кеширует результат на 30 секунд. Реквизиты в ответ не попадают.
+`/api/live-trading/positions` и `/api/live-trading/dynamics` отделяют данные sandbox-исполнения от paper trading. Эндпоинты поддерживают фильтры тикера, дат и статуса; специальное значение `status=closed` выбирает закрытия по stop, take и trailing (#149). `/api/notifications/status` выполняет read-only проверку Telegram `getMe` и кеширует результат на 30 секунд. Реквизиты в ответ не попадают.
 
 ## 16. AND-фильтры SignalEngine в StrategyEvaluator
 

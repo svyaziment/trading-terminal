@@ -1,4 +1,11 @@
-"""Alembic environment for raw SQL migrations (no ORM models)."""
+"""Alembic environment for raw SQL migrations (no ORM models).
+
+Import paths: this file runs from ``backend/alembic/``, so we add ``backend/``
+(not ``backend/alembic/``) to ``sys.path`` so ``app.core.config`` resolves.
+The DB URL comes from :func:`app.core.config.get_app_database_url`, the same
+function the rest of the application uses (single source of truth, no duplicate
+env parsing).
+"""
 import os
 import sys
 from logging.config import fileConfig
@@ -6,10 +13,12 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-# Add backend to path so we can import config
-sys.path.insert(0, os.path.dirname(__file__))
+# Add backend/ (parent of alembic/) to sys.path so app.* imports resolve.
+_backend_dir = os.path.dirname(os.path.dirname(__file__))
+if _backend_dir not in sys.path:
+    sys.path.insert(0, _backend_dir)
 
-from app.config import get_settings
+from app.core.config import get_app_database_url  # noqa: E402
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -20,10 +29,8 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Get database URL from settings
-settings = get_settings()
-database_url = f"postgresql+psycopg2://{settings.POSTGRES_USER}:{settings.PSTGRS_PWD}@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
-
+# Get database URL from the single source of truth (same as the app).
+database_url = get_app_database_url()
 config.set_main_option("sqlalchemy.url", database_url)
 
 # add your model's MetaData object here

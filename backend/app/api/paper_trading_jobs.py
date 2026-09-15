@@ -89,7 +89,7 @@ def register_routes(app: FastAPI) -> None:
                 f"SELECT DISTINCT {col} FROM trading.paper_positions "
                 f"WHERE {col} IS NOT NULL ORDER BY {col}").to_dataframe()
             factors[col] = [str(v) for v in fdf[col].tolist()] if not fdf.empty else []
-        # summary (filtered)
+        # summary (filtered) — Issue #149: trailing statistics added
         sdf = db.select(f"""
             SELECT
               COUNT(*) AS total,
@@ -98,7 +98,11 @@ def register_routes(app: FastAPI) -> None:
               COUNT(*) FILTER (WHERE status IN ('closed_stop','closed_take','closed_trailing')) AS closed_count,
               COALESCE(SUM(pnl_rub) FILTER (WHERE status IN ('closed_stop','closed_take','closed_trailing')), 0) AS realized_pnl_rub,
               COUNT(*) FILTER (WHERE status='closed_take' OR (status='closed_trailing' AND pnl_rub > 0)) AS wins,
-              COUNT(*) FILTER (WHERE status='closed_stop' OR (status='closed_trailing' AND pnl_rub < 0)) AS losses
+              COUNT(*) FILTER (WHERE status='closed_stop' OR (status='closed_trailing' AND pnl_rub < 0)) AS losses,
+              COUNT(*) FILTER (WHERE status='closed_trailing') AS trailing_closed_count,
+              COALESCE(SUM(pnl_rub) FILTER (WHERE status='closed_trailing'), 0) AS trailing_closed_pnl_rub,
+              COUNT(*) FILTER (WHERE status='open' AND trailing_enabled=true) AS trailing_open_count,
+              COUNT(*) FILTER (WHERE status='open' AND current_stop_price IS NOT NULL) AS active_stop_count
             FROM trading.paper_positions {where}
         """, params).to_dataframe()
         r = sdf.iloc[0]
@@ -113,6 +117,10 @@ def register_routes(app: FastAPI) -> None:
             'win_rate': round(wins / closed * 100, 1) if closed else None,
             'wins': wins,
             'losses': losses,
+            'trailing_closed': int(r['trailing_closed_count'] or 0),
+            'trailing_closed_pnl_rub': round(float(r['trailing_closed_pnl_rub'] or 0), 2),
+            'trailing_open': int(r['trailing_open_count'] or 0),
+            'active_stop_count': int(r['active_stop_count'] or 0),
         }
         return _json_safe({'strategy_name': strategy_name, 'strategy_description': strategy_desc,
                            'factors': factors, 'summary': summary})
@@ -140,7 +148,8 @@ def register_routes(app: FastAPI) -> None:
         df = db.select(f"""
             SELECT id, ticker, entry_ts, entry_price, exit_ts, exit_price, stop_price, take_price,
                    status, exit_reason, signal_source, window_mode, rr_mode, entry_mode,
-                   pnl_rub, pnl_pct, size_lots, lot_size, created_at, updated_at
+                   pnl_rub, pnl_pct, size_lots, lot_size, created_at, updated_at,
+                   trailing_enabled, current_stop_price, step_reached, risk_r
             FROM trading.paper_positions {where}
             ORDER BY {sort_by} {sort_dir}, id {sort_dir}
             LIMIT %(limit)s OFFSET %(offset)s
