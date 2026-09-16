@@ -340,6 +340,41 @@ class LiveExecutor:
         if not self.evaluators:
             raise RuntimeError("No live strategy evaluators could be initialized")
 
+        # Issue #151: Acquire advisory lock to prevent multiple executor instances
+        # Lock key: 151001 (arbitrary constant for Issue #151)
+        lock_result = self.db.select(
+            "SELECT pg_try_advisory_lock(151001) AS acquired"
+        ).to_dataframe()
+        if not lock_result.empty and not bool(lock_result.iloc[0]["acquired"]):
+            logger.critical(
+                "Failed to acquire advisory lock (151001): "
+                "another LiveExecutor instance is already running"
+            )
+            raise RuntimeError(
+                "Another LiveExecutor instance is already running "
+                "(advisory lock 151001 is held)"
+            )
+        self._advisory_lock_acquired = True
+        logger.info("Advisory lock 151001 acquired")
+
+        # Issue #151: Log restored trailing positions for observability
+        active = self._active_positions()
+        if not active.empty and "trailing_enabled" in active.columns:
+            trailing_positions = active[active["trailing_enabled"] == True]
+            if not trailing_positions.empty:
+                logger.info(
+                    "Restored %d trailing position(s) from DB:",
+                    len(trailing_positions),
+                )
+                for _, row in trailing_positions.iterrows():
+                    logger.info(
+                        "  position_id=%s ticker=%s step_reached=%s current_stop=%.6f",
+                        int(row["id"]),
+                        row["ticker"],
+                        row.get("step_reached"),
+                        float(row.get("current_stop_price") or row["stop_price"]),
+                    )
+
     def _load_instruments(self) -> None:
         frame = self.db.select(
             """
@@ -370,6 +405,42 @@ class LiveExecutor:
             **self.strategy_config,
             "imbalance_threshold": self.config["imbalance_threshold"],
         }
+
+    def _refresh_kill_switch(self) -> None:
+        """Read trailing_kill_switch from trading.app_settings (Issue #151).
+
+        Updates self.config['trailing_kill_switch'] from DB.
+        On error: sets kill switch ON (fail-safe) and logs warning.
+        """
+        try:
+            result = self.db.select(
+                """
+                SELECT value FROM trading.app_settings
+                WHERE key = 'trailing_kill_switch'
+                """
+            ).to_dataframe()
+            if result.empty:
+                logger.warning(
+                    "trailing_kill_switch not found in trading.app_settings; "
+                    "defaulting to False"
+                )
+                self.config["trailing_kill_switch"] = False
+            else:
+                value = result.iloc[0]["value"]
+                # value is JSONB, may be bool or string
+                if isinstance(value, bool):
+                    self.config["trailing_kill_switch"] = value
+                elif isinstance(value, str):
+                    self.config["trailing_kill_switch"] = value.lower() == "true"
+                else:
+                    self.config["trailing_kill_switch"] = bool(value)
+        except Exception as exc:
+            logger.warning(
+                "Failed to read trailing_kill_switch from DB: %s; "
+                "defaulting to True (fail-safe)",
+                exc,
+            )
+            self.config["trailing_kill_switch"] = True
 
     def _active_positions(self) -> pd.DataFrame:
         return self.db.select(
@@ -1216,6 +1287,14 @@ class LiveExecutor:
                     (int(row["id"]),),
                 )
 
+        # Issue #151: Release advisory lock
+        if getattr(self, "_advisory_lock_acquired", False):
+            try:
+                self.db.execute("SELECT pg_advisory_unlock(151001)")
+                logger.info("Advisory lock 151001 released")
+            except Exception as exc:
+                logger.warning("Failed to release advisory lock: %s", exc)
+
     def wait_for_session_open(self) -> None:
         """Sleep until the MOEX entry window, logging progress, honoring SIGTERM."""
         session = get_moex_session_config()
@@ -1295,6 +1374,8 @@ class LiveExecutor:
                     self.refresh_contexts()
                     last_context_refresh = now
                 if now - last_check >= check_interval:
+                    # Issue #151: Refresh kill switch from DB before monitoring
+                    self._refresh_kill_switch()
                     self.monitor_positions()
                     if is_entry_window(now_msk):
                         self.process_latest_bars()
