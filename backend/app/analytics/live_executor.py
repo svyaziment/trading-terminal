@@ -8,6 +8,7 @@ a sell limit below the market would execute immediately and is not a stop order.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import signal
@@ -36,6 +37,7 @@ from app.analytics.orderbook_imbalance import (
 )
 from app.analytics.position_sizer import calculate_position_size
 from app.analytics.strategy_engine import StrategyEvaluator
+from app.analytics.trailing_stop import resolve_trailing_stop
 from app.analytics.trading_config import (
     get_live_trading_config,
     get_live_trading_universe,
@@ -537,6 +539,38 @@ class LiveExecutor:
             float(executed_price) if executed_price is not None else entry_price
         )
         status = "open" if executed_lots > 0 else "pending"
+
+        # Issue #151: Prepare trailing snapshot (0 broker calls).
+        trailing_enabled = False
+        trailing_steps_json = None
+        risk_r = None
+        current_stop = stop_price
+        step_reached = 0
+
+        if (
+            self.config.get("live_trailing_enabled", True)
+            and not self.config.get("trailing_kill_switch", False)
+            and self.strategy_config.get("trailing_stop", {}).get("enabled", False)
+        ):
+            resolved = resolve_trailing_stop(self.strategy_config)
+            if resolved["reasons"]:
+                logger.warning(
+                    "Live trailing SKIP: ticker=%s reasons=%s",
+                    ticker,
+                    ", ".join(resolved["reasons"]),
+                )
+            else:
+                trailing_enabled = True
+                trailing_steps_json = json.dumps(resolved["steps"])
+                risk_r = round(float(stored_entry_price) - float(stop_price), 6)
+                current_stop = stop_price
+                logger.info(
+                    "Live trailing ARMED: ticker=%s steps=%d risk_r=%.6f",
+                    ticker,
+                    len(resolved["steps"]),
+                    risk_r,
+                )
+
         position_id = self._insert_position(
             ticker=ticker,
             instrument_id=instrument["instrument_id"],
@@ -548,6 +582,11 @@ class LiveExecutor:
             take_price=take_price,
             broker_order_id=str(entry_order.order_id),
             status=status,
+            trailing_enabled=trailing_enabled,
+            trailing_steps=trailing_steps_json,
+            risk_r=risk_r,
+            current_stop_price=current_stop,
+            step_reached=step_reached,
         )
 
         if status == "open":
@@ -592,12 +631,17 @@ class LiveExecutor:
             INSERT INTO trading.live_positions (
                 ticker, instrument_id, signal_ts, entry_price, lot_size,
                 size_lots, stop_price, take_price, broker_order_id,
-                status, strategy_name, created_at, updated_at
+                status, strategy_name,
+                trailing_enabled, trailing_steps, risk_r,
+                current_stop_price, step_reached,
+                created_at, updated_at
             )
             VALUES (
                 %s, %s, %s, %s, %s,
                 %s, %s, %s, %s,
-                %s, %s, now(), now()
+                %s, %s,
+                %s, %s, %s, %s, %s,
+                now(), now()
             )
             """,
             (
@@ -612,6 +656,11 @@ class LiveExecutor:
                 position["broker_order_id"],
                 position["status"],
                 self.strategy_name,
+                position.get("trailing_enabled", False),
+                position.get("trailing_steps"),
+                position.get("risk_r"),
+                position.get("current_stop_price", position["stop_price"]),
+                position.get("step_reached", 0),
             ),
         )
         frame = self.db.select(

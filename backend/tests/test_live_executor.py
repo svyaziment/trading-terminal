@@ -868,3 +868,127 @@ def test_tick_align_returns_original_on_invalid_increment():
     assert tick_align(100.5, float("nan")) == 100.5
     assert tick_align(100.5, float("inf")) == 100.5
 
+
+
+# --- Issue #151: trailing arming on open --------------------------------------
+
+
+def _find_insert_call(db):
+    """Find the INSERT INTO trading.live_positions call in execute_calls."""
+    for query, params in db.execute_calls:
+        if "INSERT INTO trading.live_positions" in query:
+            return query, params
+    return None, None
+
+
+def test_open_position_arms_trailing_when_enabled():
+    """When trailing is enabled in strategy_config, INSERT includes trailing columns."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    # Set trailing_stop in strategy_config (as if loaded from DB)
+    executor.strategy_config = {
+        "patterns": ["levels_reversal"],
+        "trailing_stop": {
+            "enabled": True,
+            "steps": [
+                {"trigger": 2.0, "stop": 1.0},
+                {"trigger": 3.0, "stop": 2.0},
+            ],
+        },
+    }
+
+    executor.process_signal(
+        "SBER",
+        {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
+        imbalance=1.5,
+    )
+
+    query, params = _find_insert_call(db)
+    assert query is not None, "INSERT not found in execute_calls"
+    # Params: ticker, instrument_id, signal_ts, entry_price, lot_size,
+    #         size_lots, stop_price, take_price, broker_order_id, status,
+    #         strategy_name, trailing_enabled, trailing_steps, risk_r,
+    #         current_stop_price, step_reached
+    assert params[11] is True  # trailing_enabled
+    assert params[12] is not None  # trailing_steps (JSON string)
+    assert params[13] == pytest.approx(5.0, abs=0.01)  # risk_r = 100 - 95
+    assert params[14] == pytest.approx(95.0)  # current_stop_price
+    assert params[15] == 0  # step_reached
+    # Verify JSON is valid
+    import json
+    steps = json.loads(params[12])
+    assert len(steps) == 2
+
+
+def test_open_position_skips_trailing_when_disabled_in_config():
+    """When live_trailing_enabled=False, INSERT has trailing_enabled=False."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(
+        db=db, broker=broker, live_trailing_enabled=False
+    )
+    executor.strategy_config = {
+        "patterns": ["levels_reversal"],
+        "trailing_stop": {
+            "enabled": True,
+            "steps": [{"trigger": 2.0, "stop": 1.0}],
+        },
+    }
+
+    executor.process_signal(
+        "SBER",
+        {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
+        imbalance=1.5,
+    )
+
+    query, params = _find_insert_call(db)
+    assert query is not None
+    assert params[11] is False  # trailing_enabled
+
+
+def test_open_position_skips_trailing_when_kill_switch_on():
+    """When trailing_kill_switch=True, INSERT has trailing_enabled=False."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(
+        db=db, broker=broker, trailing_kill_switch=True
+    )
+    executor.strategy_config = {
+        "patterns": ["levels_reversal"],
+        "trailing_stop": {
+            "enabled": True,
+            "steps": [{"trigger": 2.0, "stop": 1.0}],
+        },
+    }
+
+    executor.process_signal(
+        "SBER",
+        {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
+        imbalance=1.5,
+    )
+
+    query, params = _find_insert_call(db)
+    assert query is not None
+    assert params[11] is False  # trailing_enabled
+
+
+def test_open_position_no_trailing_without_strategy_config():
+    """When strategy_config has no trailing_stop, INSERT has trailing_enabled=False."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    executor.strategy_config = {"patterns": ["levels_reversal"]}
+
+    executor.process_signal(
+        "SBER",
+        {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
+        imbalance=1.5,
+    )
+
+    query, params = _find_insert_call(db)
+    assert query is not None
+    assert params[11] is False  # trailing_enabled
+    assert params[12] is None  # trailing_steps
+    assert params[13] is None  # risk_r
+
