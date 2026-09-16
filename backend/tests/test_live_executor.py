@@ -779,3 +779,45 @@ def test_duration_minutes_does_not_wait_for_session_open():
 
     assert events["init"] == [datetime(2026, 8, 30, 23, 0)]
     assert fake.wall < datetime(2026, 8, 31, 10, 0, 0)
+
+
+# --- Issue #151: trailing config validation -----------------------------------
+
+
+def test_trailing_config_defaults_are_accepted():
+    """Executor accepts config with default trailing switches."""
+    executor = make_executor()
+    # Should not raise during construction or validation
+    assert executor.config.get("trailing_kill_switch") is False
+    assert executor.config.get("live_trailing_enabled") is True
+
+
+@pytest.mark.parametrize(
+    "key,bad_value,error_fragment",
+    [
+        ("trailing_kill_switch", "yes", "must be a boolean"),
+        ("trailing_kill_switch", 1, "must be a boolean"),
+        ("live_trailing_enabled", None, "must be a boolean"),
+        ("trailing_protective_ticks", -1, "non-negative integer"),
+        ("trailing_protective_ticks", 2.5, "non-negative integer"),
+        ("trailing_ticker_allowlist", "SBER", "must be a list"),
+        ("trailing_ticker_allowlist", [123], "must contain only strings"),
+    ],
+)
+def test_trailing_config_rejects_bad_values(key, bad_value, error_fragment):
+    with pytest.raises(ValueError, match=error_fragment):
+        make_executor(**{key: bad_value})
+
+
+def test_trailing_config_explicit_values_are_accepted():
+    executor = make_executor(
+        trailing_kill_switch=True,
+        live_trailing_enabled=False,
+        trailing_protective_ticks=10,
+        trailing_ticker_allowlist=["SBER", "LKOH"],
+    )
+    assert executor.config["trailing_kill_switch"] is True
+    assert executor.config["live_trailing_enabled"] is False
+    assert executor.config["trailing_protective_ticks"] == 10
+    assert executor.config["trailing_ticker_allowlist"] == ["SBER", "LKOH"]
+

@@ -199,6 +199,20 @@ class LiveExecutor:
         for key in ("risk_per_trade_pct", "max_position_pct"):
             if float(self.config[key]) < 0:
                 raise ValueError(f"{key} cannot be negative")
+        # Issue #151: validate trailing runtime switches.
+        for key in ("trailing_kill_switch", "live_trailing_enabled"):
+            val = self.config.get(key, False)
+            if not isinstance(val, bool):
+                raise ValueError(f"{key} must be a boolean")
+        ticks = self.config.get("trailing_protective_ticks", 5)
+        if not isinstance(ticks, int) or ticks < 0:
+            raise ValueError("trailing_protective_ticks must be a non-negative integer")
+        allowlist = self.config.get("trailing_ticker_allowlist", [])
+        if not isinstance(allowlist, list):
+            raise ValueError("trailing_ticker_allowlist must be a list of strings")
+        for item in allowlist:
+            if not isinstance(item, str):
+                raise ValueError("trailing_ticker_allowlist must contain only strings")
 
     def _broker_call(self, method: str, *args: Any, **kwargs: Any) -> Any:
         if not self._broker_limits_attempts:
