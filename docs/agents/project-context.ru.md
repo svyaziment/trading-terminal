@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-09-16 (task-150); ранее 2026-09-15 (task-149); 2026-09-14 (task-147); 2026-09-09 (задача #146 — Lab умеет настраивать `config.trailing_stop`: переключатель и таблица ступеней, отрисованные из нового read-only `GET /api/strategies/trailing-schema`; ответ собирает `trading_config.get_trailing_stop_schema()` на основе `TRAILING_STOP` (handover §38). Ни одно поле или число трейлинга не продублировано в TSX, нетронутая стратегия по-прежнему сохраняется без ключа, а таблица сделок наконец отличает выход `trailing` от простого `stop`). Предыдущее обновление: 2026-09-08 (в §18 зафиксировано решение Product Owner: `ultra_late_tight` — самая поздняя и плотная лестница решётки `143-trailing-v3` — становится боевым дефолтом сетки трейлинг-стопа для #144; эпик #142 / roadmap Block W; контракт `config.trailing_stop` из #144 уже в коде — только валидация, полный контракт полей в §6, тесты `backend/tests/test_trailing_contract.py`). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-14 (task-147); 2026-09-09 (задача #146 — Lab умеет настраивать `config.trailing_stop`: переключатель и таблица ступеней, отрисованные из нового read-only `GET /api/strategies/trailing-schema`; ответ собирает `trading_config.get_trailing_stop_schema()` на основе `TRAILING_STOP` (handover §38). Ни одно поле или число трейлинга не продублировано в TSX, нетронутая стратегия по-прежнему сохраняется без ключа, а таблица сделок наконец отличает выход `trailing` от простого `stop`). Предыдущее обновление: 2026-09-08 (в §18 зафиксировано решение Product Owner: `ultra_late_tight` — самая поздняя и плотная лестница решётки `143-trailing-v3` — становится боевым дефолтом сетки трейлинг-стопа для #144; эпик #142 / roadmap Block W; контракт `config.trailing_stop` из #144 уже в коде — только валидация, полный контракт полей в §6, тесты `backend/tests/test_trailing_contract.py`). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -353,9 +353,11 @@ Live-проверка 2026-08-16: оператор открыл sandbox-счёт
 
 `backend/app/analytics/live_executor.py` реализует `LiveExecutor` без изменений `StrategyEvaluator`. При инициализации он пересекает тикеры locked paper-стратегии с `get_live_trading_universe()` (PO-список: ROSN, IRAO, AFKS, NVTK, SBER, MTSS, PHOR, MOEX, FLOT, FEES, GAZP, PLZL), чтобы sandbox-ордера оставались на настроенных live-именах. Для каждого тикера он загружает активную заблокированную стратегию и 4h-контекст, передаёт последнюю закрытую строку из `online_candles_1min` в `check_entry` и до любого обращения к брокеру применяет обязательный фильтр свежего imbalance. Прошедший BUY проверяет свободные RUB, рассчитывает размер через `calculate_position_size`, отправляет sandbox market-ордер и сохраняет broker IDs и состояние в `trading.live_positions`. Каждый отказ BUY пишется одной структурированной строкой с тикером, стабильным кодом `reason` и релевантными числами; тишина в `executor.log` означает, что `StrategyEvaluator` не дал BUY, а не то, что фильтр мёртв. Read-only preflight — в `live_executor_preflight.py`; overnight runbook — handover §15 / §33 (историческая canary: §19). Задача #137: `until_session_end=True` ждёт 10:00 МСК (часы компьютера → UTC+3) до `initialize()`, отклоняет новые входы вне [10:00, 19:00) с `reason=outside_entry_window` и держит стоп/тейк до закрытия позиции по цене (в том числе после 19:00). Границы сессии — в `MOEX_SESSION` / `moex_session.py`.
 
+**Задача #151 (завершена 2026-09-16)**: Live trailing-stop с храповиком, рестартом и kill-switch. При открытии позиции, если `trailing_enabled=true` в конфиге стратегии и kill switch выключен, executor армит трейлинг (0 брокерских вызовов). `monitor_positions()` вызывает `_apply_trailing()` для продвижения лестницы бар за баром через условный UPDATE (`WHERE step_reached < new_step` для монотонности). При выходе записывает `exit_price_model` vs `exit_price_actual` со слиппеджем в б.п. и R. Kill switch (`trading.app_settings.trailing_kill_switch`) приостанавливает арминг/храповик без остановки executor. Advisory lock `pg_try_advisory_lock(151001)` предотвращает запуск нескольких экземпляров. Полный контракт — в §21.
+
 Take-profit сразу выставляется как ожидающий sell-limit. Stop-loss намеренно реализован как синтетический триггер: sell-limit ниже текущего рынка исполнился бы сразу, поэтому executor ждёт, когда текущая цена брокера достигнет stop, отменяет take и только затем выставляет stop sell-limit по наблюдаемой цене. Сверка позиций опрашивает `get_positions()`; исчезновение позиции после take или сработавшего stop закрывает строку БД и рассчитывает PnL. Внешний SELL отменяет защитные заявки и закрывает позицию sandbox market-ордером.
 
-Каждая попытка обращения к broker API, включая внутренние retry и обнаружение счёта, проходит через token bucket с потолком 10 запросов/сек. SIGTERM/SIGINT только устанавливает флаг остановки; финальная очистка отменяет ожидающие entry/protection заявки, обновляет состояние БД, при включённом `close_positions_on_shutdown` закрывает открытые sandbox-позиции и закрывает DB pool standalone-процесса. Полную политику возвращает `get_live_trading_config()` из `trading_config.py`.
+Каждая попытка обращения к broker API, включая внутренние retry и обнаружение счёта, проходит через token bucket с потолком 10 запросов/сек. SIGTERM/SIGINT только устанавливает флаг остановки; финальная очистка отменяет ожидающие entry/protection заявки, обновляет состояние БД, при включённом `close_positions_on_shutdown` закрывает открытые sandbox-позиции, освобождает advisory lock и закрывает DB pool standalone-процесса. Полную политику возвращает `get_live_trading_config()` из `trading_config.py`.
 
 ## 14. Telegram alerting
 
@@ -618,6 +620,33 @@ paper (#148) и песочница live (#151).
 - **`config_hash` в этом репозитории не существует** — проверка «хеш меняется после включения» из
   требования 4 здесь непроверяема; по сути ей соответствует то, что сохраняемый JSONB `config`
   действительно несёт блок. Операционные детали: handover §38.
+
+
+## 21. Live trailing stop (Задача #151)
+
+Завершена 2026-09-16. Live/sandbox trailing-stop с храповиком, безопасностью рестарта и kill-switch.
+
+**Архитектура**:
+- **Армирование**: При открытии позиции (`process_signal`), если `strategy_config.trailing_stop.enabled=true` и kill switch выключен, executor армит трейлинг с 0 брокерских вызовов. Параметры: `trailing_enabled=true`, `trailing_steps` (JSON), `risk_r=entry-stop`, `current_stop_price=stop_price`, `step_reached=0`.
+- **Храповик**: `monitor_positions()` вызывает `_apply_trailing(row, current_price)` для каждой активной позиции. Восстанавливает `TrailingState` из колонок БД, вычисляет текущую цену как одиночный бар, условный UPDATE `WHERE id=%s AND step_reached < %s` обеспечивает монотонность.
+- **Выход**: Когда `current_price <= current_stop_price`, отменяет take, выставляет sell-limit по текущей цене. Записывает `exit_price_model` (цена стопа), `exit_price_actual` (цена исполнения), `slippage_bp`, `slippage_r`, `lots_executed`. Статус `closed_trailing`, причина `trailing`.
+- **Kill switch**: `_refresh_kill_switch()` читает `trading.app_settings.trailing_kill_switch` перед каждым циклом мониторинга. ON приостанавливает арминг/храповик; armed-позиции сохраняют состояние. Fail-safe: ошибка БД → kill switch ON.
+- **Advisory lock**: `pg_try_advisory_lock(151001)` в `initialize()`, освобождение в `shutdown()`. Предотвращает запуск нескольких экземпляров.
+- **Безопасность рестарта**: Состояние восстанавливается из колонок БД; in-memory состояния нет. Идемпотентный replay.
+
+**База данных**:
+- Миграция `20260916_001_live_trailing_runtime.py`: расширяет `live_positions.status` CHECK до `closed_trailing`, `closed_broker`; добавляет `exit_price_model`, `exit_price_actual`, `slippage_bp`, `slippage_r`, `lots_executed`; создаёт таблицу `trading.app_settings`.
+- Колонки `trailing_enabled`, `trailing_steps`, `risk_r`, `current_stop_price`, `step_reached` уже существуют (миграция `20260915_002`).
+
+**Конфигурация**:
+- `LIVE_TRADING.trailing_kill_switch`: по умолчанию `false`, runtime-override через `trading.app_settings`.
+- `LIVE_TRADING.live_trailing_enabled`: по умолчанию `true`, глобальный переключатель.
+- `LIVE_TRADING.trailing_protective_ticks`: по умолчанию `5`, защитный отступ для исполнения стопа.
+- `LIVE_TRADING.trailing_ticker_allowlist`: по умолчанию `[]`, опциональный фильтр тикеров.
+
+**Тестирование**: 68 тестов в `test_live_executor.py` (43 новых для #151). Покрытие: арминг, храповик, монотонность, kill switch, факты исполнения, слиппедж, rate limiter, валидация конфига.
+
+**Эксплуатация**: См. `docs/strategy/live-trading.ru.md` для пользовательской документации, handover §41 для операционных деталей.
 
 
 
