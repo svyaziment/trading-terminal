@@ -25,18 +25,53 @@ Four background processes (started via `start_processes.sh`; default duration is
 
 ## Exit rule and the stepped trailing stop (status)
 
-Paper closes a position on the **fixed** stop / take recorded at entry: `closed_stop` when a 1min
-candle prints `low <= stop_price`, `closed_take` when it prints `high >= take_price`, stop checked
-first. This contour does **not** read `config.trailing_stop` yet — Issue #148 owns that wiring.
+Paper closes a position according to the active `config.trailing_stop` of the locked strategy
+(grounded by Issue #148):
 
-What is already true since Issue #145: the ladder itself is a single pure function in
-`backend/app/analytics/trailing_stop.py` (bar order *stop → take → arm*, a rung armed by bar *i*
-bites from bar *i+1*, an untouched stop keeps the `stop` reason, a raised one reports `trailing`),
-and it is live in the backtest engine, the `levels_reversal` plugin, the portfolio simulator and
-walk-forward. So a backtest of a config with `trailing_stop.enabled=true` and a valid ladder is a
-trailing-stop result, while a **paper position opened from the same config is not**: it keeps the
-fixed stop until #148 lands. Do not compare the two books as if they used the same exit rule, and
-do not switch the block on in a paper strategy before then.
+- **No trailing / `enabled=false`**: fixed stop/take recorded at entry. `closed_stop` when a 1min
+  candle prints `low <= stop_price`, `closed_take` when it prints `high >= take_price`; stop is
+  checked first.
+- **Trailing `enabled=true` with a valid ladder**: `monitor_open` reads the ladder from the DB
+  into an in-memory `trailing_states` map per position, advances it bar-by-bar (ladder order
+  *stop → take → arm*; a rung armed by bar *i* bites from bar *i+1*), and persists the current
+  ratcheted stop back to `paper_positions.current_stop_price` / `step_reached` / `risk_r` /
+  `trailing_enabled` / `trailing_steps` so the state survives a restart. An untouched stop keeps
+  `exit_reason='stop'`, a raised one reports `exit_reason='trailing'`, a take fill keeps
+  `exit_reason='take'`. Status codes on exit: `closed_stop`, `closed_take`, `closed_trailing`.
+
+The ladder itself is a single pure function in `backend/app/analytics/trailing_stop.py`, shared
+with the backtest engine, the `levels_reversal` plugin, the portfolio simulator and walk-forward
+(Issue #145). Paper, backtest and walk-forward now read the **same** exit rule whenever the
+config enables trailing — so the books are directly comparable.
+
+## Monitoring API (Issue #149)
+
+`app/api/paper_trading_jobs.py` exposes three read-only endpoints used by the dashboard:
+
+- `GET /api/paper-trading/overview` — strategy metadata, per-factor options, summary stats.
+  `summary` now carries four trailing-aware fields: `trailing_closed` (count of closed positions
+  whose exit was `trailing`), `trailing_closed_pnl_rub` (their summed PnL), `trailing_open`
+  (open positions with `trailing_enabled=true`), `active_stop_count` (open positions with a
+  finite stop — trailing or not).
+- `GET /api/paper-trading/positions` — paginated list. Each row exposes the trailing columns on
+  `paper_positions`: `trailing_enabled`, `current_stop_price`, `step_reached`, `risk_r`, plus
+  the existing `exit_reason` (`stop` / `take` / `trailing`). `Decimal` values go out as strings,
+  timestamps as ISO-8601, `NaN`/`NaT`/`None` collapse to JSON `null`. `sort_by`/`sort_dir`
+  whitelisted; `limit` capped at 1000.
+- `GET /api/paper-trading/dynamics` — cumulative PnL series (1h/1d/1w buckets). Wins are
+  `status='closed_take' OR (status='closed_trailing' AND pnl_rub > 0)`, matching the Live
+  convention.
+
+`status` filter semantics, same as in the Live endpoints:
+
+| value | expands to |
+|---|---|
+| `closed` | `closed_stop OR closed_take OR closed_trailing` |
+| `closed_stop` / `closed_take` / `closed_trailing` | exact match |
+| `open` / `pending` / `cancelled` | exact match |
+
+`status=closed_trailing` alone is therefore the way to isolate trailing-exit positions without
+the plain stops and takes.
 
 ## A/B factors (per position)
 

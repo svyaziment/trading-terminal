@@ -600,11 +600,15 @@ to `paper_positions` / `backtest_results`.
 - **Tests**: `cd backend && python -m pytest -q tests/test_trailing_api.py
   tests/test_trailing_contract.py tests/test_trailing_schema_endpoint.py
   tests/test_trailing_stop.py` — green.
-- **Caveat**: `test_paper_trailing_stop.py` (#148) has 4 pre-existing failures —
-  `monitor_open()` gained a required `trailing_states` parameter in #148 but the tests
-  were never updated. This is not a regression from #149.
-  126 / 36 / 102 / 118 stay untouched — the block is not present there, and #145 must not be used
-  as a reason to edit them. Lab editing is #146, API validation is #149.
+- **Caveat (resolved)**: the 4 red tests in `test_paper_trailing_stop.py` that initially
+  looked like #149 regressions were a **stale Docker image** artefact — the container had been
+  built before `#148-fix` (`c93f39d`) landed, so `monitor_open()` inside the image still lacked
+  the trailing-wiring fix. After `docker compose build backend && docker compose up -d backend`
+  the host code is current and the whole paper-trailing suite (`test_trailing_api.py`,
+  `test_trailing_contract.py`, `test_trailing_schema_endpoint.py`, `test_trailing_stop.py`,
+  `test_paper_trailing_stop.py`) is green. 126 / 36 / 102 / 118 stay untouched — the block is
+  not present there, and #145 must not be used as a reason to edit them. Lab editing is #146,
+  API validation is #149.
 - Reading a run: backtest trades carry `step_reached` only when a ladder was armed (no key = the
   pre-#145 shape); `portfolio_simulator.metrics` now carries `exit_reason_counts`,
   `trailing_exits`, `take_exits`, `initial_stop_exits`, `trailing_exit_share_pct`. A ladder that
