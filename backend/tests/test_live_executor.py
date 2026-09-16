@@ -10,6 +10,7 @@ from app.analytics.live_executor import (
     LiveExecutor,
     TokenBucket,
     ensure_live_positions_table,
+    tick_align,
 )
 from app.broker.tinkoff_sandbox import SandboxAPIError
 
@@ -104,6 +105,11 @@ def make_executor(*, db=None, broker=None, now_fn=None, clock=None, sleep_fn=Non
             "imbalance_threshold": 1.0,
             "risk_per_trade_pct": 1.0,
             "max_position_pct": 20.0,
+            # Issue #151: trailing defaults for tests
+            "trailing_kill_switch": False,
+            "live_trailing_enabled": True,
+            "trailing_protective_ticks": 5,
+            "trailing_ticker_allowlist": [],
             **config,
         },
         now_fn=now_fn or (lambda: IN_SESSION_NOW),
@@ -112,7 +118,11 @@ def make_executor(*, db=None, broker=None, now_fn=None, clock=None, sleep_fn=Non
     executor.strategy_name = "active-strategy"
     executor.strategy_config = {"patterns": ["levels_reversal"]}
     executor.instruments = {
-        "SBER": {"instrument_id": "figi-sber", "lot_size": 10}
+        "SBER": {
+            "instrument_id": "figi-sber",
+            "lot_size": 10,
+            "min_price_increment": 0.01,
+        }
     }
     return executor
 
@@ -820,4 +830,41 @@ def test_trailing_config_explicit_values_are_accepted():
     assert executor.config["live_trailing_enabled"] is False
     assert executor.config["trailing_protective_ticks"] == 10
     assert executor.config["trailing_ticker_allowlist"] == ["SBER", "LKOH"]
+
+
+
+# --- Issue #151: tick_align tests -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "price,increment,direction,expected",
+    [
+        # Down: floor to nearest tick
+        (100.37, 0.05, "down", 100.35),
+        (100.35, 0.05, "down", 100.35),  # already aligned
+        (95.123, 0.01, "down", 95.12),
+        (95.129, 0.01, "down", 95.12),
+        (100.007, 0.01, "down", 100.00),
+        # Up: ceil to nearest tick
+        (100.37, 0.05, "up", 100.40),
+        (100.35, 0.05, "up", 100.35),  # already aligned
+        (95.121, 0.01, "up", 95.13),
+        (95.120, 0.01, "up", 95.12),  # already aligned
+        # Real-world increments
+        (15234.5, 0.5, "down", 15234.5),  # LKOH-style
+        (15234.3, 0.5, "down", 15234.0),
+        (15234.3, 0.5, "up", 15234.5),
+    ],
+)
+def test_tick_align_rounds_correctly(price, increment, direction, expected):
+    result = tick_align(price, increment, direction)
+    assert result == pytest.approx(expected, abs=1e-9)
+
+
+def test_tick_align_returns_original_on_invalid_increment():
+    """tick_align is a no-op when increment is zero, negative, or non-finite."""
+    assert tick_align(100.5, 0.0) == 100.5
+    assert tick_align(100.5, -0.01) == 100.5
+    assert tick_align(100.5, float("nan")) == 100.5
+    assert tick_align(100.5, float("inf")) == 100.5
 

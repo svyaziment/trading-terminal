@@ -9,6 +9,7 @@ a sell limit below the market would execute immediately and is not a stop order.
 from __future__ import annotations
 
 import logging
+import math
 import signal
 import threading
 import time
@@ -66,6 +67,49 @@ def _filter_live_tickers(strategy_tickers: list[str], live_universe: list[str]) 
         live_universe,
     )
     return list(live_universe)
+
+
+def tick_align(
+    price: float, increment: float, direction: str = "down"
+) -> float:
+    """Round price to the nearest valid tick according to min_price_increment.
+
+    Args:
+        price: The price to align.
+        increment: The minimum price step (min_price_increment from trading.instruments).
+        direction: 'down' rounds toward zero (for stop prices), 'up' rounds away from zero
+                   (for take prices). Defaults to 'down'.
+
+    Returns:
+        The aligned price, or the original price if increment is invalid (<=0 or NaN).
+
+    Examples:
+        >>> tick_align(100.37, 0.05, 'down')
+        100.35
+        >>> tick_align(100.37, 0.05, 'up')
+        100.40
+        >>> tick_align(95.123, 0.01, 'down')
+        95.12
+    """
+    if increment <= 0 or not math.isfinite(increment):
+        return price
+    # Use Decimal for precise arithmetic to avoid floating-point drift
+    from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
+    
+    price_d = Decimal(str(price))
+    incr_d = Decimal(str(increment))
+    
+    if direction == "up":
+        # Round up: divide, ceil, multiply back
+        ticks = (price_d / incr_d).to_integral_value(rounding=ROUND_HALF_UP)
+        # Check if we need to round up further
+        if ticks * incr_d < price_d:
+            ticks += 1
+    else:
+        # Round down: divide, floor, multiply back
+        ticks = (price_d / incr_d).to_integral_value(rounding=ROUND_DOWN)
+    
+    return float(ticks * incr_d)
 
 
 def _now_msk_naive() -> datetime:
@@ -259,7 +303,7 @@ class LiveExecutor:
     def _load_instruments(self) -> None:
         frame = self.db.select(
             """
-            SELECT ticker, figi, lot_size
+            SELECT ticker, figi, lot_size, min_price_increment
             FROM trading.instruments
             WHERE ticker = ANY(%s)
               AND figi IS NOT NULL
@@ -271,6 +315,11 @@ class LiveExecutor:
             str(row["ticker"]): {
                 "instrument_id": str(row["figi"]),
                 "lot_size": int(row["lot_size"]),
+                # Issue #151: load min_price_increment for tick-aligned stop prices.
+                # Falls back to 0.01 if NULL (safe default for most MOEX equities).
+                "min_price_increment": float(row["min_price_increment"])
+                if pd.notna(row.get("min_price_increment")) and float(row["min_price_increment"]) > 0
+                else 0.01,
             }
             for _, row in frame.iterrows()
             if int(row["lot_size"]) > 0 and str(row["figi"]).strip()
