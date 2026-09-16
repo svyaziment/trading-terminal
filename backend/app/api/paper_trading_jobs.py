@@ -44,7 +44,8 @@ def _json_safe(obj: Any) -> Any:
 
 
 def _build_where(signal_source=None, window_mode=None, rr_mode=None, entry_mode=None,
-                 status=None, date_from=None, date_to=None, ticker=None):
+                 status=None, date_from=None, date_to=None, ticker=None,
+                 exit_reason=None):
     clauses, params = [], {}
     if signal_source:
         clauses.append("signal_source = %(signal_source)s"); params['signal_source'] = signal_source
@@ -58,6 +59,8 @@ def _build_where(signal_source=None, window_mode=None, rr_mode=None, entry_mode=
         clauses.append("status IN ('closed_stop','closed_take','closed_trailing')")
     elif status:
         clauses.append("status = %(status)s"); params['status'] = status
+    if exit_reason:
+        clauses.append("exit_reason = %(exit_reason)s"); params['exit_reason'] = exit_reason
     if date_from:
         clauses.append("COALESCE(entry_ts, created_at)::date >= %(date_from)s")
         params['date_from'] = date_from
@@ -130,12 +133,13 @@ def register_routes(app: FastAPI) -> None:
                   rr_mode: Optional[str] = None, entry_mode: Optional[str] = None,
                   status: Optional[str] = None, ticker: Optional[str] = None,
                   date_from: Optional[date] = None, date_to: Optional[date] = None,
+                  exit_reason: Optional[str] = None,
                   limit: int = Query(100, ge=1, le=1000), offset: int = Query(0, ge=0),
                   sort_by: str = Query("entry_ts"), sort_dir: str = Query("desc")):
         db = _get_db()
         where, params = _build_where(
             signal_source, window_mode, rr_mode, entry_mode, status, date_from, date_to,
-            ticker
+            ticker, exit_reason
         )
         allowed = {'entry_ts', 'exit_ts', 'pnl_rub', 'pnl_pct', 'ticker', 'status',
                    'created_at', 'entry_price', 'exit_price', 'id'}

@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-15 (task-149); previously 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-16 (task-150); previously 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview

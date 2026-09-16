@@ -24,6 +24,7 @@ def _build_where(
     ticker: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
+    exit_reason: Optional[str] = None,
 ) -> tuple[str, dict]:
     clauses = []
     params = {}
@@ -33,6 +34,9 @@ def _build_where(
     elif status:
         clauses.append("status = %(status)s")
         params["status"] = status
+    if exit_reason:
+        clauses.append("exit_reason = %(exit_reason)s")
+        params["exit_reason"] = exit_reason
     if ticker:
         clauses.append("ticker = %(ticker)s")
         params["ticker"] = ticker
@@ -79,6 +83,7 @@ def register_routes(app: FastAPI) -> None:
         ticker: Optional[str] = None,
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
+        exit_reason: Optional[str] = None,
         limit: int = Query(100, ge=1, le=1000),
         offset: int = Query(0, ge=0),
         sort_by: str = Query("signal_ts"),
@@ -90,6 +95,7 @@ def register_routes(app: FastAPI) -> None:
             ticker=ticker,
             date_from=date_from,
             date_to=date_to,
+            exit_reason=exit_reason,
         )
         sort_columns = {
             "entry_ts": "signal_ts",

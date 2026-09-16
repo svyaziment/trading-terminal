@@ -34,7 +34,8 @@ export const TRAILING_REASON = {
   tooManySteps: "trailing_too_many_steps",
 } as const;
 
-export type LabLocale = "ru" | "en";
+import type { LabLocale } from "./i18n/config";
+export type { LabLocale };
 
 export function blankRow(): TrailingRow {
   return { trigger: "", stop: "" };

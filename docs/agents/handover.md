@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-15 (task-149); previously 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-16 (task-150); previously 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -701,4 +701,34 @@ to `paper_positions` / `backtest_results`.
 
 
 
+
+
+## 40. Trailing metrics in Paper / Live panels (Issue #150)
+
+### What was done
+- **Backend**: `_build_where` in `paper_trading_jobs.py` and `live_trading_jobs.py` now accepts `exit_reason` (query filter on `exit_reason` in positions). Endpoints `GET /api/paper-trading/positions` and `GET /api/live-trading/positions` accept `?exit_reason=...`.
+- **Backend**: `PaperOverview.summary` already includes `trailing_closed`, `trailing_closed_pnl_rub`, `trailing_open`, `active_stop_count` (added in #149).
+- **Frontend i18n**: new module `frontend/src/i18n/config.ts` — single source of `AppLocale` (`"ru" | "en"`) and `resolveAppLocale()`. `LabLocale` in `patternLab.ts` and `trailingStop.ts` is now an alias of `AppLocale`.
+- **Frontend trailingStatus.ts**: new pure module (`frontend/src/trailingStatus.ts`) — labels, tone classes, formatting, and summary cards for trailing metrics. No trailing label or number hardcoded in TSX.
+- **PaperTradingPanel.tsx**: added columns `exit_reason` (with funnel filter), `trailing_enabled`, `current_stop_price`, `step_reached`, `risk_r`. Added trailing summary cards block above factor filters.
+- **LiveTradingPanel.tsx**: added columns `exit_reason` (with funnel filter), `trailing_enabled`, `current_stop_price`, `step_reached`, `risk_r` in both tables (open + history). Trailing cards computed from data (no dedicated summary endpoint for Live).
+- **types.ts**: `PaperSummary` extended with trailing fields; `PaperPosition` and `LivePosition` gained `trailing_enabled`, `current_stop_price`, `step_reached`, `risk_r`.
+- **api.ts**: `getPaperPositions` and `getLivePositions` accept `exit_reason`.
+
+### Tests
+- `backend/tests/test_issue150_exit_reason_filter.py` — 6 tests for `_build_where` (paper + live).
+- `frontend/src/trailingStatus.test.ts` — 25 tests for pure functions.
+- All existing tests (91 vitest + 126+ pytest) remain green.
+
+### Deviations from issue description
+- Issue #150 description references non-existent file paths and enum values (`eod`, `error`); actual code uses `EXIT_REASON_ORDER` from `exitReasons.ts` and `_build_where` from existing modules.
+- Acceptance criterion `docker compose up frontend` is inapplicable — frontend is not Dockerized (only `npm run build`).
+- Full i18n migration not performed — only new labels use the i18n layer; existing Russian strings in TSX left as-is.
+
+### Verification commands
+```bash
+cd backend && python -m pytest tests/test_issue150_exit_reason_filter.py -v
+cd frontend && npx vitest run src/trailingStatus.test.ts
+cd frontend && npx tsc --noEmit
+```
 
