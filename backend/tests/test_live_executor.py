@@ -1118,3 +1118,100 @@ def test_open_position_no_trailing_without_strategy_config():
     assert params[12] is None  # trailing_steps
     assert params[13] is None  # risk_r
 
+
+
+# --- Issue #151: close position with execution facts --------------------------
+
+
+def test_close_position_records_model_and_actual_price():
+    """_close_db_position writes exit_price_model, exit_price_actual, slippage metrics."""
+    db = FakeDB()
+    executor = make_executor(db=db)
+    row = {
+        "id": 1,
+        "ticker": "SBER",
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "size_lots": 10,
+        "lot_size": 10,
+        "risk_r": 5.0,
+    }
+    executor._close_db_position(
+        row,
+        reason="stop",
+        exit_price=95.0,  # model price
+        exit_price_actual=94.8,  # actual fill (slippage)
+        lots_executed=10,
+    )
+    query, params = db.execute_calls[0]
+    assert "exit_price_model=%s" in query
+    assert "exit_price_actual=%s" in query
+    assert "slippage_bp=%s" in query
+    assert "slippage_r=%s" in query
+    assert "lots_executed=%s" in query
+    # Params: status, exit_ts, exit_price, exit_reason, pnl_rub,
+    #         exit_price_model, exit_price_actual, slippage_bp, slippage_r,
+    #         lots_executed, id
+    assert params[2] == pytest.approx(94.8)  # exit_price = actual (Variant A)
+    assert params[5] == pytest.approx(95.0)  # exit_price_model
+    assert params[6] == pytest.approx(94.8)  # exit_price_actual
+    assert params[7] == pytest.approx(-21.0526, abs=0.01)  # slippage_bp = (94.8/95 - 1) * 1e4
+    assert params[8] is not None  # slippage_r
+    assert params[9] == 10  # lots_executed
+
+
+def test_close_position_handles_missing_actual_price():
+    """_close_db_position works when exit_price_actual is None."""
+    db = FakeDB()
+    executor = make_executor(db=db)
+    row = {
+        "id": 1,
+        "ticker": "SBER",
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "size_lots": 10,
+        "lot_size": 10,
+        "risk_r": 5.0,
+    }
+    executor._close_db_position(
+        row,
+        reason="stop",
+        exit_price=95.0,
+        exit_price_actual=None,
+        lots_executed=None,
+    )
+    query, params = db.execute_calls[0]
+    assert params[2] == pytest.approx(95.0)  # exit_price = model (fallback)
+    assert params[5] == pytest.approx(95.0)  # exit_price_model
+    assert params[6] is None  # exit_price_actual
+    assert params[7] is None  # slippage_bp
+    assert params[8] is None  # slippage_r
+    assert params[9] is None  # lots_executed
+
+
+def test_close_position_trailing_uses_closed_trailing_status():
+    """_close_db_position with reason='trailing' sets status='closed_trailing'."""
+    db = FakeDB()
+    executor = make_executor(db=db)
+    row = {
+        "id": 1,
+        "ticker": "SBER",
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "current_stop_price": 105.0,
+        "step_reached": 1,
+        "risk_r": 5.0,
+        "size_lots": 10,
+        "lot_size": 10,
+    }
+    executor._close_db_position(
+        row,
+        reason="trailing",
+        exit_price=105.0,
+        exit_price_actual=104.9,
+        lots_executed=10,
+    )
+    query, params = db.execute_calls[0]
+    assert params[0] == "closed_trailing"  # status
+    assert params[3] == "trailing"  # exit_reason
+

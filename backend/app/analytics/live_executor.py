@@ -971,26 +971,95 @@ class LiveExecutor:
         exit_price: float,
         *,
         status: Optional[str] = None,
+        exit_price_actual: Optional[float] = None,
+        lots_executed: Optional[int] = None,
     ) -> None:
+        """Close a position and record execution facts (Issue #151).
+
+        Args:
+            row: Position row from _active_positions().
+            reason: Exit reason ('stop', 'take', 'trailing', 'sell_signal', 'shutdown').
+            exit_price: Model price (the price the executor expected at exit time).
+            status: Override status (default: 'closed_{reason}').
+            exit_price_actual: Actual fill price from broker (may be None if not yet known).
+            lots_executed: Actual lots filled (may be None if not yet known).
+
+        Records:
+            - exit_price_model = exit_price (model price)
+            - exit_price_actual = exit_price_actual (actual fill, or NULL)
+            - exit_price = exit_price_actual if available, else exit_price (Variant A)
+            - slippage_bp = (actual/model - 1) * 1e4 (positive = adverse for long)
+            - slippage_r = (model - actual) / risk_r
+            - lots_executed = lots_executed (or NULL)
+        """
+        # Determine effective exit price (Variant A: actual if available, else model)
+        effective_exit = (
+            exit_price_actual if exit_price_actual is not None else exit_price
+        )
         pnl_rub = (
-            exit_price - float(row["entry_price"])
+            effective_exit - float(row["entry_price"])
         ) * int(row["size_lots"]) * int(row["lot_size"])
+
+        # Compute slippage metrics
+        slippage_bp = None
+        slippage_r = None
+        if exit_price_actual is not None and exit_price > 0:
+            slippage_bp = round((exit_price_actual / exit_price - 1.0) * 1e4, 4)
+            risk_r = float(row.get("risk_r") or 0.0)
+            if risk_r > 0:
+                slippage_r = round((exit_price - exit_price_actual) / risk_r, 6)
+
+        # Determine status
+        final_status = status or f"closed_{reason}"
+        if reason == "trailing":
+            final_status = status or "closed_trailing"
+
         self.db.execute(
             """
             UPDATE trading.live_positions
             SET status=%s, exit_ts=%s, exit_price=%s, exit_reason=%s,
-                pnl_rub=%s, updated_at=now()
+                pnl_rub=%s,
+                exit_price_model=%s, exit_price_actual=%s,
+                slippage_bp=%s, slippage_r=%s, lots_executed=%s,
+                updated_at=now()
             WHERE id=%s
             """,
             (
-                status or f"closed_{reason}",
+                final_status,
                 _now_msk_naive(),
-                exit_price,
+                effective_exit,
                 reason,
                 round(pnl_rub, 2),
+                exit_price,
+                exit_price_actual,
+                slippage_bp,
+                slippage_r,
+                lots_executed,
                 int(row["id"]),
             ),
         )
+
+        # Structured log for trailing exits (Issue #151 requirement 9)
+        if reason == "trailing":
+            logger.info(
+                "trailing_exit ticker=%s entry=%.6f initial_stop=%.6f final_stop=%.6f "
+                "step_reached=%s risk_r=%s model_price=%.6f actual_price=%s "
+                "slippage_bp=%s slippage_r=%s lots_requested=%d lots_executed=%s "
+                "position_id=%s",
+                row["ticker"],
+                float(row["entry_price"]),
+                float(row["stop_price"]),
+                float(row.get("current_stop_price") or row["stop_price"]),
+                row.get("step_reached"),
+                row.get("risk_r"),
+                exit_price,
+                exit_price_actual,
+                slippage_bp,
+                slippage_r,
+                int(row["size_lots"]),
+                lots_executed,
+                int(row["id"]),
+            )
 
     def _safe_cancel(self, order_id: Any) -> None:
         if order_id is None or pd.isna(order_id) or not str(order_id).strip():
