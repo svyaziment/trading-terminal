@@ -155,6 +155,27 @@ class TokenBucket:
                 wait_seconds = (1 - self.tokens) / self.rate
             self.sleep_fn(wait_seconds)
 
+    def try_acquire(self) -> bool:
+        """Non-blocking attempt to acquire one token.
+
+        Returns:
+            True if token was acquired, False otherwise.
+
+        Used by trailing exit logic to defer broker calls when bucket is exhausted.
+        """
+        with self._lock:
+            now = self.clock()
+            elapsed = max(0.0, now - self.updated_at)
+            self.tokens = min(
+                self.capacity,
+                self.tokens + elapsed * self.rate,
+            )
+            self.updated_at = now
+            if self.tokens >= 1:
+                self.tokens -= 1
+                return True
+            return False
+
 
 def ensure_live_positions_table(db: Any) -> None:
     """Apply the idempotent runtime form of the live-positions migration."""
@@ -260,9 +281,26 @@ class LiveExecutor:
             if not isinstance(item, str):
                 raise ValueError("trailing_ticker_allowlist must contain only strings")
 
-    def _broker_call(self, method: str, *args: Any, **kwargs: Any) -> Any:
+    def _broker_call(self, method: str, *args: Any, blocking: bool = True, **kwargs: Any) -> Any:
+        """Execute a broker method with rate limiting.
+
+        Args:
+            method: Name of the broker method to call.
+            *args: Positional arguments for the method.
+            blocking: If True (default), wait for rate limit token.
+                      If False, return None immediately if no token available.
+            **kwargs: Keyword arguments for the method.
+
+        Returns:
+            Result of the broker method call, or None if blocking=False and
+            no rate limit token was available.
+        """
         if not self._broker_limits_attempts:
-            self.rate_limiter.acquire()
+            if blocking:
+                self.rate_limiter.acquire()
+            else:
+                if not self.rate_limiter.try_acquire():
+                    return None
         return getattr(self.broker, method)(*args, **kwargs)
 
     def initialize(self) -> None:
@@ -847,6 +885,8 @@ class LiveExecutor:
                 and pd.isna(row.get("broker_stop_id"))
             ):
                 self._safe_cancel(row.get("broker_take_id"))
+                # Issue #151: Use non-blocking broker call for trailing exits.
+                # If rate limit exhausted, defer to next iteration (state already in DB).
                 stop_order = self._broker_call(
                     "execute_order",
                     instrument_id=str(row["instrument_id"]),
@@ -854,7 +894,19 @@ class LiveExecutor:
                     direction="sell",
                     order_type="limit",
                     price=float(current_price),
+                    blocking=False,
                 )
+                if stop_order is None:
+                    # Deferred: no rate limit token available
+                    logger.warning(
+                        "Trailing exit deferred (rate limit): position=%s ticker=%s "
+                        "effective_stop=%.6f current_price=%.6f",
+                        position_id,
+                        row["ticker"],
+                        effective_stop,
+                        float(current_price),
+                    )
+                    continue
                 self.db.execute(
                     """
                     UPDATE trading.live_positions

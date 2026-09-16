@@ -1215,3 +1215,59 @@ def test_close_position_trailing_uses_closed_trailing_status():
     assert params[0] == "closed_trailing"  # status
     assert params[3] == "trailing"  # exit_reason
 
+
+# --- Issue #151: TokenBucket.try_acquire() tests ------------------------------
+
+
+def test_token_bucket_try_acquire_returns_true_when_token_available():
+    """try_acquire() returns True when bucket has tokens."""
+    bucket = TokenBucket(rate_per_second=2.0)
+    assert bucket.try_acquire() is True
+
+
+def test_token_bucket_try_acquire_returns_false_when_exhausted():
+    """try_acquire() returns False when bucket is empty."""
+    bucket = TokenBucket(rate_per_second=1.0)
+    bucket.try_acquire()  # consume the only token
+    assert bucket.try_acquire() is False
+
+
+def test_token_bucket_try_acquire_recovers_over_time():
+    """try_acquire() returns True after enough time passes."""
+    now = [0.0]
+    bucket = TokenBucket(
+        rate_per_second=1.0,
+        clock=lambda: now[0],
+    )
+    bucket.try_acquire()  # consume initial token
+    assert bucket.try_acquire() is False  # no tokens left
+    now[0] = 1.0  # advance 1 second
+    assert bucket.try_acquire() is True  # token recovered
+
+
+def test_broker_call_nonblocking_returns_none_when_exhausted():
+    """_broker_call(blocking=False) returns None when rate limit exhausted."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    # Consume all tokens
+    executor.rate_limiter.tokens = 0
+    executor.rate_limiter.updated_at = executor.rate_limiter.clock()
+    # Non-blocking call should return None
+    result = executor._broker_call("check_balance", blocking=False)
+    assert result is None
+    # Broker method should not have been called
+    assert len(broker.calls) == 0
+
+
+def test_broker_call_blocking_still_works():
+    """_broker_call(blocking=True) still works as before (default behavior)."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    # Blocking call should work
+    result = executor._broker_call("check_balance")
+    assert result == broker.balance
+    assert len(broker.calls) == 1
+
+
