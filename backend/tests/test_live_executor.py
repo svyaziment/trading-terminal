@@ -28,11 +28,12 @@ class Result:
 
 
 class FakeDB:
-    def __init__(self, active=None, instruments=None):
+    def __init__(self, active=None, instruments=None, app_settings=None):
         self.active = active if active is not None else pd.DataFrame()
         self.instruments = (
             instruments if instruments is not None else pd.DataFrame()
         )
+        self.app_settings = app_settings if app_settings is not None else {}
         self.select_calls = []
         self.execute_calls = []
 
@@ -51,6 +52,17 @@ class FakeDB:
             if params and "ticker=%s" in normalized and not frame.empty:
                 frame = frame[frame["ticker"] == params[0]]
             return Result(frame)
+        if "FROM trading.app_settings" in normalized:
+            # Return app_settings as DataFrame
+            if params and len(params) > 0:
+                key = params[0]
+                if key in self.app_settings:
+                    return Result(pd.DataFrame([{"key": key, "value": self.app_settings[key]}]))
+            elif self.app_settings:
+                return Result(pd.DataFrame([
+                    {"key": k, "value": v} for k, v in self.app_settings.items()
+                ]))
+            return Result()
         return Result()
 
     def execute(self, query, params=None):
@@ -1269,5 +1281,91 @@ def test_broker_call_blocking_still_works():
     result = executor._broker_call("check_balance")
     assert result == broker.balance
     assert len(broker.calls) == 1
+
+
+# --- Issue #151: Kill switch integration tests --------------------------------
+
+
+def test_kill_switch_prevents_trailing_arming():
+    """When kill switch is ON, new positions are not armed with trailing."""
+    db = FakeDB(app_settings={"trailing_kill_switch": True})
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    # Refresh kill switch from DB
+    executor._refresh_kill_switch()
+    
+    # Set trailing config in strategy
+    executor.strategy_config = {
+        "patterns": ["levels_reversal"],
+        "trailing_stop": {
+            "enabled": True,
+            "steps": [{"trigger": 2.0, "stop": 1.0}],
+        },
+    }
+    
+    # Open position
+    executor.process_signal(
+        "SBER",
+        {"action": "enter", "entry_price": 100.0, "stop": 95.0, "take": 110.0},
+        imbalance=1.5,
+    )
+    
+    # Check INSERT params
+    query, params = _find_insert_call(db)
+    assert query is not None
+    assert params[11] is False  # trailing_enabled=False due to kill switch
+
+
+def test_kill_switch_preserves_armed_positions():
+    """When kill switch is ON, already armed positions keep their state."""
+    db = FakeDB(app_settings={"trailing_kill_switch": True})
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    
+    # Position already armed with trailing
+    active_pos = active_position(
+        trailing_enabled=True,
+        trailing_steps=json.dumps([{"trigger": 2.0, "stop": 1.0}]),
+        risk_r=5.0,
+        current_stop_price=105.0,
+        step_reached=1,
+    )
+    db.active = active_pos
+    
+    # Kill switch ON
+    executor._refresh_kill_switch()
+    
+    # Apply trailing should be skipped
+    row = active_pos.iloc[0].to_dict()
+    result = executor._apply_trailing(row, current_price=115.0)
+    assert result is None  # No ratchet due to kill switch
+
+
+def test_invalid_trailing_config_disables_arming():
+    """When trailing config is invalid, trailing_enabled=False."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    
+    # Invalid trailing config (trigger < stop)
+    executor.strategy_config = {
+        "patterns": ["levels_reversal"],
+        "trailing_stop": {
+            "enabled": True,
+            "steps": [{"trigger": 1.0, "stop": 2.0}],  # Invalid: stop > trigger
+        },
+    }
+    
+    executor.process_signal(
+        "SBER",
+        {"action": "enter", "entry_price": 100.0, "stop": 95.0, "take": 110.0},
+        imbalance=1.5,
+    )
+    
+    query, params = _find_insert_call(db)
+    assert query is not None
+    assert params[11] is False  # trailing_enabled=False due to invalid config
+    assert params[12] is None  # trailing_steps=None
+
 
 
