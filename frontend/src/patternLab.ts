@@ -1,6 +1,8 @@
 import type { PatternDef, PatternParam } from "./types";
 
-export type LabLocale = "ru" | "en";
+import type { AppLocale, LabLocale } from "./i18n/config";
+export type { AppLocale, LabLocale };
+export { resolveAppLocale as resolveLabLocale } from "./i18n/config";
 
 export const PATTERN_CATEGORY_ORDER = [
   "levels",
@@ -35,14 +37,6 @@ export const PATTERN_CATEGORY_LABELS_EN: Record<string, string> = {
 };
 
 export type PatternGroup = { category: string; label: string; patterns: PatternDef[] };
-
-export function resolveLabLocale(lang?: string): LabLocale {
-  const raw =
-    lang ??
-    (typeof document !== "undefined" ? document.documentElement.lang : "") ??
-    "";
-  return raw.toLowerCase().startsWith("en") ? "en" : "ru";
-}
 
 export function categoryLabel(category: string, locale: LabLocale): string {
   const table = locale === "en" ? PATTERN_CATEGORY_LABELS_EN : PATTERN_CATEGORY_LABELS_RU;

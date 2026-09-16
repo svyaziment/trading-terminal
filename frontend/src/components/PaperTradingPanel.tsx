@@ -8,6 +8,18 @@ import {
   type FactorFilters,
 } from "../api";
 import type { PaperOverview, PaperPosition, DynamicsPoint } from "../types";
+import { resolveAppLocale, type AppLocale } from "../i18n/config";
+import { exitReasonLabel, exitReasonTone, EXIT_REASON_ORDER } from "../exitReasons";
+import {
+  trailingLabel,
+  trailingEnabledTone,
+  activeStopTone,
+  stepReachedTone,
+  fmtRiskR,
+  fmtStopPrice,
+  fmtStepReached,
+  buildTrailingSummaryCards,
+} from "../trailingStatus";
 import DataTable, {
   type ColumnDef,
   type FilterState,
@@ -117,6 +129,7 @@ export default function PaperTradingPanel() {
   const [reloadToken, setReloadToken] = useState(0);
   const [infoOpen, setInfoOpen] = useState(false);
   const [visibleCount, setVisibleCount] = useState(0);
+  const locale: AppLocale = resolveAppLocale();
 
   const chartBoxRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -196,6 +209,7 @@ export default function PaperTradingPanel() {
             ...factorParams,
             ticker: txtVal("ticker"),
             status: selVal("status"),
+            exit_reason: selVal("exit_reason"),
             limit: pageSize,
             offset: (page - 1) * pageSize,
             sort_by: sortBy,
@@ -287,8 +301,59 @@ export default function PaperTradingPanel() {
         ),
         filter: { kind: "range" },
       },
+      {
+        key: "exit_reason", label: trailingLabel("trailing_closed", locale) === "Закрыто трейлингом" ? "Причина" : "Reason",
+        accessor: (p) => p.exit_reason,
+        render: (p) => (
+          p.exit_reason ? (
+            <span className={"inline-block rounded px-1.5 py-0.5 font-mono text-[10px] " + exitReasonTone(p.exit_reason)}>
+              {exitReasonLabel(p.exit_reason, locale)}
+            </span>
+          ) : <span className="text-slate-600">—</span>
+        ),
+        filter: {
+          kind: "select",
+          options: [...EXIT_REASON_ORDER],
+          optionLabel: (v) => exitReasonLabel(v, locale),
+        },
+      },
+      {
+        key: "trailing_enabled", label: trailingLabel("trailing_enabled", locale),
+        accessor: (p) => p.trailing_enabled === true ? "on" : "off",
+        render: (p) => (
+          <span className={"inline-block rounded px-1.5 py-0.5 font-mono text-[10px] " + trailingEnabledTone(p.trailing_enabled)}>
+            {p.trailing_enabled ? (locale === "en" ? "on" : "вкл") : (locale === "en" ? "off" : "выкл")}
+          </span>
+        ),
+      },
+      {
+        key: "current_stop_price", label: trailingLabel("active_stop", locale),
+        numeric: true,
+        accessor: (p) => p.current_stop_price,
+        render: (p) => (
+          <span className={"font-mono text-[10px] " + activeStopTone(p.current_stop_price !== null && p.current_stop_price !== undefined)}>
+            {fmtStopPrice(p.current_stop_price)}
+          </span>
+        ),
+      },
+      {
+        key: "step_reached", label: trailingLabel("step_reached", locale),
+        numeric: true,
+        accessor: (p) => p.step_reached,
+        render: (p) => (
+          <span className={"inline-block rounded px-1.5 py-0.5 font-mono text-[10px] " + stepReachedTone(p.step_reached)}>
+            {fmtStepReached(p.step_reached)}
+          </span>
+        ),
+      },
+      {
+        key: "risk_r", label: trailingLabel("risk_r", locale),
+        numeric: true,
+        accessor: (p) => p.risk_r,
+        render: (p) => <span className="font-mono text-[10px] text-slate-400">{fmtRiskR(p.risk_r)}</span>,
+      },
     ];
-  }, [overview]);
+  }, [overview, locale]);
 
   function setFactor(key: keyof FactorFilters, value: string | undefined) {
     setFilters((f) => {
@@ -334,13 +399,15 @@ export default function PaperTradingPanel() {
     ticker: "ticker", status: "статус",
     entry_price: "цена вх.", exit_price: "цена вых.",
     pnl_rub: "PnL₽", pnl_pct: "PnL%",
+    exit_reason: "причина",
   }), []);
 
   const chipValue = useCallback((key: string, v: FilterValue): string => {
     if (key === "status" && v.kind === "select") return statusLabel(v.value);
+    if (key === "exit_reason" && v.kind === "select") return exitReasonLabel(v.value, locale);
     const base = formatFilterValue(v);
     return CLIENT_KEYS.has(key) ? base + " (стр.)" : base;
-  }, []);
+  }, [locale]);
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const s = overview?.summary;
@@ -439,6 +506,18 @@ export default function PaperTradingPanel() {
           </div>
         </div>
       </div>
+
+      {/* ===== TRAILING SUMMARY CARDS (Issue #150) ===== */}
+      {buildTrailingSummaryCards(overview?.summary ?? null, locale).length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3" style={{ animation: "ptr-fade .28s ease-out" }}>
+          {buildTrailingSummaryCards(overview?.summary ?? null, locale).map((card) => (
+            <div key={card.key} className="flex flex-col items-end">
+              <div className="text-[9px] uppercase tracking-[0.14em] text-slate-500">{card.label}</div>
+              <div className={"font-display text-lg font-bold tabular-nums " + card.tone}>{card.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ===== FACTOR FILTERS (A/B arms) ===== */}
       <div className="rounded-lg border border-slate-800 bg-slate-900/50 px-4 py-3" style={{ animation: "ptr-fade .3s ease-out" }}>

@@ -208,6 +208,10 @@ export interface PaperSummary {
   win_rate: number | null;
   wins: number;
   losses: number;
+  trailing_closed: number;
+  trailing_closed_pnl_rub: number;
+  trailing_open: number;
+  active_stop_count: number;
 }
 export interface PaperFactors {
   signal_source: string[];
@@ -242,6 +246,10 @@ export interface PaperPosition {
   lot_size: number | null;
   created_at: string | null;
   updated_at: string | null;
+  trailing_enabled: boolean | null;
+  current_stop_price: number | null;
+  step_reached: number | null;
+  risk_r: number | null;
 }
 export interface LivePosition {
   id: number;
@@ -262,6 +270,10 @@ export interface LivePosition {
   created_at: string | null;
   updated_at: string | null;
   current_price: number | null;
+  trailing_enabled: boolean | null;
+  current_stop_price: number | null;
+  step_reached: number | null;
+  risk_r: number | null;
 }
 export interface DynamicsPoint {
   ts: string;

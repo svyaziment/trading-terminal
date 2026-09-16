@@ -192,6 +192,7 @@ export function getPaperPositions(
     sort_dir?: string;
     date_from?: string;
     date_to?: string;
+    exit_reason?: string;
   }
 ) {
   return getJson<{ items: PaperPosition[]; total: number; limit: number; offset: number }>(
@@ -218,6 +219,7 @@ export function getLivePositions(params: {
   offset?: number;
   sort_by?: string;
   sort_dir?: string;
+  exit_reason?: string;
 }) {
   return getJson<{ items: LivePosition[]; total: number; limit: number; offset: number }>(
     `/api/live-trading/positions${toQuery(params)}`

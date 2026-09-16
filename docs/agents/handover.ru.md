@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-16 (task-150); ранее 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -708,4 +708,34 @@ B_prod вынесен на подпись TL/PO (черновик коммент
   `test_trailing_stop.py`, `test_paper_trailing_stop.py`) — зелёный. 126 / 36 / 102 / 118
   остаются нетронутыми — блока там нет, и #145 не должен использоваться как повод их
   править. Редактирование Lab — это #146, валидация API — #149.
+
+
+## 40. Трейлинг-метрики в панелях Paper / Live (задача #150)
+
+### Что сделано
+- **Backend**: `_build_where` в `paper_trading_jobs.py` и `live_trading_jobs.py` теперь принимает `exit_reason` (query-фильтр по `exit_reason` в позициях). Эндпоинты `GET /api/paper-trading/positions` и `GET /api/live-trading/positions` принимают `?exit_reason=...`.
+- **Backend**: `PaperOverview.summary` уже включает `trailing_closed`, `trailing_closed_pnl_rub`, `trailing_open`, `active_stop_count` (добавлено в #149).
+- **Frontend i18n**: новый модуль `frontend/src/i18n/config.ts` — единый источник `AppLocale` (`"ru" | "en"`) и `resolveAppLocale()`. `LabLocale` в `patternLab.ts` и `trailingStop.ts` теперь алиас `AppLocale`.
+- **Frontend trailingStatus.ts**: новый чистый модуль (`frontend/src/trailingStatus.ts`) — лейблы, tone-классы, форматирование и summary-карточки для трейлинг-метрик. Ни одного трейлинг-лейбла или числа в TSX.
+- **PaperTradingPanel.tsx**: добавлены колонки `exit_reason` (с funnel-фильтром), `trailing_enabled`, `current_stop_price`, `step_reached`, `risk_r`. Добавлен блок трейлинг-карточек над факторными фильтрами.
+- **LiveTradingPanel.tsx**: добавлены колонки `exit_reason` (с funnel-фильтром), `trailing_enabled`, `current_stop_price`, `step_reached`, `risk_r` в обеих таблицах (открытые + история). Трейлинг-карточки вычисляются из данных (нет отдельного summary-эндпоинта для Live).
+- **types.ts**: `PaperSummary` расширен трейлинг-полями; `PaperPosition` и `LivePosition` получили `trailing_enabled`, `current_stop_price`, `step_reached`, `risk_r`.
+- **api.ts**: `getPaperPositions` и `getLivePositions` принимают `exit_reason`.
+
+### Тесты
+- `backend/tests/test_issue150_exit_reason_filter.py` — 6 тестов `_build_where` для paper и live.
+- `frontend/src/trailingStatus.test.ts` — 25 тестов чистых функций.
+- Все существующие тесты (91 vitest + 126+ pytest) остаются зелёными.
+
+### Отклонения от описания задачи
+- В описании #150 упоминаются несуществующие пути файлов и значения enum (`eod`, `error`); фактический код использует `EXIT_REASON_ORDER` из `exitReasons.ts` и `_build_where` из существующих модулей.
+- Критерий `docker compose up frontend` неприменим — frontend не упакован в Docker (только `npm run build`).
+- Полная миграция на i18n не проводилась — только новые лейблы; существующие русские строки в TSX оставлены как есть.
+
+### Команда проверки
+```bash
+cd backend && python -m pytest tests/test_issue150_exit_reason_filter.py -v
+cd frontend && npx vitest run src/trailingStatus.test.ts
+cd frontend && npx tsc --noEmit
+```
 

@@ -12,6 +12,19 @@ import type {
   LivePosition,
   NotificationStatus,
 } from "../types";
+import { resolveAppLocale, type AppLocale } from "../i18n/config";
+import { exitReasonLabel, exitReasonTone, EXIT_REASON_ORDER } from "../exitReasons";
+import {
+  trailingLabel,
+  trailingEnabledTone,
+  activeStopTone,
+  stepReachedTone,
+  fmtRiskR,
+  fmtStopPrice,
+  fmtStepReached,
+  buildTrailingSummaryCards,
+  type TrailingSummaryCard,
+} from "../trailingStatus";
 import DataTable, {
   formatFilterValue,
   type ColumnDef,
@@ -87,6 +100,7 @@ export default function LiveTradingPanel() {
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const locale: AppLocale = resolveAppLocale();
 
   const chartBoxRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -105,6 +119,11 @@ export default function LiveTradingPanel() {
     statusFilter?.kind === "select" && statusFilter.value
       ? statusFilter.value
       : "closed";
+  const exitReasonFilter = filters.exit_reason;
+  const normalizedExitReason =
+    exitReasonFilter?.kind === "select" && exitReasonFilter.value
+      ? exitReasonFilter.value
+      : undefined;
 
   useEffect(() => {
     const element = chartBoxRef.current;
@@ -177,6 +196,7 @@ export default function LiveTradingPanel() {
         getLivePositions({
           ...common,
           status: "open",
+          exit_reason: normalizedExitReason,
           limit: 1000,
           offset: 0,
           sort_by: "entry_ts",
@@ -185,6 +205,7 @@ export default function LiveTradingPanel() {
         getLivePositions({
           ...common,
           status: historyStatus,
+          exit_reason: normalizedExitReason,
           limit: pageSize,
           offset: (page - 1) * pageSize,
           sort_by: sortBy,
@@ -209,6 +230,7 @@ export default function LiveTradingPanel() {
     dateFrom,
     dateTo,
     historyStatus,
+    normalizedExitReason,
     page,
     pageSize,
     sortBy,
@@ -242,6 +264,19 @@ export default function LiveTradingPanel() {
     () => history.reduce((sum, position) => sum + (position.pnl_rub ?? 0), 0),
     [history]
   );
+  const trailingSummary = useMemo<TrailingSummaryCard[]>(() => {
+    const trailingClosed = history.filter((p) => p.exit_reason === "trailing");
+    const trailingClosedPnl = trailingClosed.reduce((s, p) => s + (p.pnl_rub ?? 0), 0);
+    return buildTrailingSummaryCards(
+      {
+        trailing_closed: trailingClosed.length,
+        trailing_closed_pnl_rub: trailingClosedPnl,
+        trailing_open: openPositions.filter((p) => p.trailing_enabled === true).length,
+        active_stop_count: openPositions.filter((p) => p.current_stop_price !== null && p.current_stop_price !== undefined).length,
+      },
+      locale,
+    );
+  }, [history, openPositions, locale]);
   const openColumns = useMemo<ColumnDef<LivePosition>[]>(() => [
     {
       key: "ticker", label: "Тикер", accessor: (position) => position.ticker,
@@ -259,7 +294,32 @@ export default function LiveTradingPanel() {
     { key: "pnl_pct", label: "PnL %", numeric: true, accessor: (position) => position.pnl_pct, render: (position) => <span className={pnlClass(position.pnl_pct)}>{fmtPct(position.pnl_pct)}</span>, filter: { kind: "range" } },
     { key: "size_lots", label: "Размер", numeric: true, accessor: (position) => position.size_lots, render: (position) => `${position.size_lots} лот.` },
     { key: "status", label: "Статус", accessor: (position) => position.status, render: (position) => <StatusBadge status={position.status} />, sortable: false },
-  ], []);
+    {
+      key: "trailing_enabled", label: trailingLabel("trailing_enabled", locale),
+      accessor: (p) => p.trailing_enabled === true ? "on" : "off",
+      render: (p) => (
+        <span className={"inline-block rounded px-1.5 py-0.5 font-mono text-[10px] " + trailingEnabledTone(p.trailing_enabled)}>
+          {p.trailing_enabled ? (locale === "en" ? "on" : "вкл") : (locale === "en" ? "off" : "выкл")}
+        </span>
+      ),
+    },
+    {
+      key: "current_stop_price", label: trailingLabel("active_stop", locale),
+      numeric: true,
+      accessor: (p) => p.current_stop_price,
+      render: (p) => (
+        <span className={"font-mono text-[10px] " + activeStopTone(p.current_stop_price !== null && p.current_stop_price !== undefined)}>
+          {fmtStopPrice(p.current_stop_price)}
+        </span>
+      ),
+    },
+    {
+      key: "risk_r", label: trailingLabel("risk_r", locale),
+      numeric: true,
+      accessor: (p) => p.risk_r,
+      render: (p) => <span className="font-mono text-[10px] text-slate-400">{fmtRiskR(p.risk_r)}</span>,
+    },
+  ], [locale]);
   const historyColumns = useMemo<ColumnDef<LivePosition>[]>(() => [
     {
       key: "ticker", label: "Тикер", accessor: (position) => position.ticker,
@@ -281,7 +341,39 @@ export default function LiveTradingPanel() {
       render: (position) => <StatusBadge status={position.status} />,
       filter: { kind: "select", options: CLOSED_STATUS_OPTIONS, optionLabel: statusLabel },
     },
-  ], []);
+    {
+      key: "exit_reason", label: locale === "en" ? "Reason" : "Причина",
+      accessor: (position) => position.exit_reason,
+      render: (position) => (
+        position.exit_reason ? (
+          <span className={"inline-block rounded px-1.5 py-0.5 font-mono text-[10px] " + exitReasonTone(position.exit_reason)}>
+            {exitReasonLabel(position.exit_reason, locale)}
+          </span>
+        ) : <span className="text-slate-600">—</span>
+      ),
+      filter: {
+        kind: "select",
+        options: [...EXIT_REASON_ORDER],
+        optionLabel: (v) => exitReasonLabel(v, locale),
+      },
+    },
+    {
+      key: "step_reached", label: trailingLabel("step_reached", locale),
+      numeric: true,
+      accessor: (position) => position.step_reached,
+      render: (position) => (
+        <span className={"inline-block rounded px-1.5 py-0.5 font-mono text-[10px] " + stepReachedTone(position.step_reached)}>
+          {fmtStepReached(position.step_reached)}
+        </span>
+      ),
+    },
+    {
+      key: "risk_r", label: trailingLabel("risk_r", locale),
+      numeric: true,
+      accessor: (position) => position.risk_r,
+      render: (position) => <span className="font-mono text-[10px] text-slate-400">{fmtRiskR(position.risk_r)}</span>,
+    },
+  ], [locale]);
   const filterLabels = useMemo(() => ({
     ticker: "тикер",
     entry_ts: "дата входа",
@@ -292,11 +384,13 @@ export default function LiveTradingPanel() {
     current_price: "текущая цена",
     pnl_rub: "PnL ₽",
     pnl_pct: "PnL %",
+    exit_reason: "причина",
   }), []);
   const filterValue = useCallback((key: string, value: FilterValue) => {
     if (key === "status" && value.kind === "select") return statusLabel(value.value);
+    if (key === "exit_reason" && value.kind === "select") return exitReasonLabel(value.value, locale);
     return formatFilterValue(value);
-  }, []);
+  }, [locale]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -331,6 +425,18 @@ export default function LiveTradingPanel() {
           </div>
         </div>
       </section>
+
+      {/* ===== TRAILING SUMMARY CARDS (Issue #150) ===== */}
+      {trailingSummary.length > 0 && (
+        <section className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-lg border border-slate-800 bg-slate-900/40 px-4 py-3">
+          {trailingSummary.map((card) => (
+            <div key={card.key} className="flex flex-col items-end">
+              <div className="text-[9px] uppercase tracking-[0.14em] text-slate-500">{card.label}</div>
+              <div className={"font-display text-lg font-bold tabular-nums " + card.tone}>{card.value}</div>
+            </div>
+          ))}
+        </section>
+      )}
 
       <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-900/50 px-4 py-3">
         <FilterChips
