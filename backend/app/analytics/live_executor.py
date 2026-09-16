@@ -826,9 +826,24 @@ class LiveExecutor:
                 changes += 1
 
             current_price = getattr(position, "current_price", None)
+            if current_price is not None:
+                # Issue #151: Apply trailing ratchet before stop trigger check
+                ratcheted_stop = self._apply_trailing(row, float(current_price))
+                effective_stop = (
+                    ratcheted_stop
+                    if ratcheted_stop is not None
+                    else (
+                        float(row["current_stop_price"])
+                        if pd.notna(row.get("current_stop_price"))
+                        else float(row["stop_price"])
+                    )
+                )
+            else:
+                effective_stop = float(row["stop_price"])
+
             if (
                 current_price is not None
-                and float(current_price) <= float(row["stop_price"])
+                and float(current_price) <= effective_stop
                 and pd.isna(row.get("broker_stop_id"))
             ):
                 self._safe_cancel(row.get("broker_take_id"))
@@ -850,6 +865,104 @@ class LiveExecutor:
                 )
                 changes += 1
         return changes
+
+    def _apply_trailing(
+        self, row: Any, current_price: float
+    ) -> Optional[float]:
+        """Ratchet trailing stop for one position based on current price.
+
+        Args:
+            row: Position row from _active_positions() with trailing_* columns.
+            current_price: Current market price from broker.
+
+        Returns:
+            Updated current_stop_price if ratcheted, None otherwise.
+
+        Idempotent: uses conditional UPDATE (WHERE step_reached < new_step)
+        to ensure monotonicity and restart safety.
+        """
+        if not bool(row.get("trailing_enabled", False)):
+            return None
+
+        # Kill switch check
+        if self.config.get("trailing_kill_switch", False):
+            logger.debug(
+                "Trailing kill switch ON, skipping ratchet for position %s",
+                row["id"],
+            )
+            return None
+
+        # Extract trailing state from DB
+        steps_json = row.get("trailing_steps")
+        if steps_json is None:
+            logger.warning(
+                "Position %s has trailing_enabled=true but no trailing_steps",
+                row["id"],
+            )
+            return None
+
+        import json
+        steps = json.loads(steps_json) if isinstance(steps_json, str) else steps_json
+        entry_price = float(row["entry_price"])
+        initial_stop = float(row["stop_price"])
+        take_price = float(row["take_price"]) if pd.notna(row.get("take_price")) else None
+        risk_r = float(row["risk_r"]) if pd.notna(row.get("risk_r")) else (entry_price - initial_stop)
+        current_stop = float(row["current_stop_price"]) if pd.notna(row.get("current_stop_price")) else initial_stop
+        step_reached = int(row.get("step_reached", 0))
+
+        # Rebuild TrailingState
+        from app.analytics.trailing_stop import TrailingState
+        state = TrailingState.build(
+            steps,
+            entry_exec=entry_price,
+            initial_stop=initial_stop,
+            take=take_price,
+        )
+        if state is None:
+            logger.warning(
+                "Position %s: failed to rebuild TrailingState, skipping ratchet",
+                row["id"],
+            )
+            return None
+
+        # Evaluate current price as a single bar (high=current_price, low=current_price)
+        # This is a simplified model: in live we don't have intraday bars, only current price.
+        # We use current_price as both high and low to check if it triggers a new step.
+        decision = state.evaluate(
+            high=current_price,
+            low=current_price,
+            bar_key=f"live_{int(row['id'])}",
+        )
+
+        if decision.exits:
+            return None
+
+        # Ratchet: conditional UPDATE only if new step > current step_reached
+        new_step = int(decision.step_reached)
+        if new_step <= step_reached:
+            return None
+
+        new_stop = float(decision.stop)
+        position_id = int(row["id"])
+
+        self.db.execute(
+            """
+            UPDATE trading.live_positions
+            SET current_stop_price=%s, step_reached=%s, updated_at=now()
+            WHERE id=%s AND step_reached < %s
+            """,
+            (new_stop, new_step, position_id, new_step),
+        )
+
+        logger.info(
+            "Trailing ratchet: position=%s ticker=%s step_reached=%d new_stop=%.6f",
+            position_id,
+            row["ticker"],
+            new_step,
+            new_stop,
+        )
+
+        return new_stop
 
     def _close_db_position(
         self,

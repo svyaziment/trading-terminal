@@ -1,6 +1,7 @@
 from decimal import Decimal
 from datetime import datetime, timedelta
 from types import SimpleNamespace
+import json
 
 import pandas as pd
 import pytest
@@ -867,6 +868,131 @@ def test_tick_align_returns_original_on_invalid_increment():
     assert tick_align(100.5, -0.01) == 100.5
     assert tick_align(100.5, float("nan")) == 100.5
     assert tick_align(100.5, float("inf")) == 100.5
+
+
+
+# --- Issue #151: trailing ratchet tests --------------------------------------
+
+
+def test_apply_trailing_returns_none_when_disabled():
+    """_apply_trailing returns None when trailing_enabled=False."""
+    executor = make_executor()
+    row = {
+        "id": 1,
+        "trailing_enabled": False,
+        "trailing_steps": None,
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "take_price": 110.0,
+    }
+    result = executor._apply_trailing(row, current_price=105.0)
+    assert result is None
+
+
+def test_apply_trailing_returns_none_when_kill_switch_on():
+    """_apply_trailing returns None when trailing_kill_switch=True."""
+    executor = make_executor(trailing_kill_switch=True)
+    row = {
+        "id": 1,
+        "trailing_enabled": True,
+        "trailing_steps": json.dumps([{"trigger": 2.0, "stop": 1.0}]),
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "take_price": 110.0,
+        "risk_r": 5.0,
+        "current_stop_price": 95.0,
+        "step_reached": 0,
+    }
+    result = executor._apply_trailing(row, current_price=115.0)
+    assert result is None
+
+
+def test_apply_trailing_returns_none_when_no_steps():
+    """_apply_trailing returns None when trailing_steps is None."""
+    executor = make_executor()
+    row = {
+        "id": 1,
+        "trailing_enabled": True,
+        "trailing_steps": None,
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "take_price": 110.0,
+    }
+    result = executor._apply_trailing(row, current_price=105.0)
+    assert result is None
+
+
+def test_apply_trailing_returns_none_when_price_below_next_step():
+    """_apply_trailing returns None when current price hasn't reached next step trigger."""
+    executor = make_executor()
+    # Step triggers at 2.0R (110), stop at 1.0R (105)
+    row = {
+        "id": 1,
+        "trailing_enabled": True,
+        "trailing_steps": json.dumps([{"trigger": 2.0, "stop": 1.0}]),
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "take_price": 115.0,
+        "risk_r": 5.0,
+        "current_stop_price": 95.0,
+        "step_reached": 0,
+    }
+    # Price 108 < trigger 110, so no ratchet
+    result = executor._apply_trailing(row, current_price=108.0)
+    assert result is None
+
+
+def test_apply_trailing_ratchets_when_price_reaches_trigger():
+    """_apply_trailing updates DB and returns new stop when trigger reached."""
+    db = FakeDB()
+    executor = make_executor(db=db)
+    # Step triggers at 2.0R (110), stop at 1.0R (105)
+    row = {
+        "id": 1,
+        "ticker": "SBER",
+        "trailing_enabled": True,
+        "trailing_steps": json.dumps([{"trigger": 2.0, "stop": 1.0}]),
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "take_price": 115.0,
+        "risk_r": 5.0,
+        "current_stop_price": 95.0,
+        "step_reached": 0,
+    }
+    # Price 112 > trigger 110, so ratchet to stop=105
+    result = executor._apply_trailing(row, current_price=112.0)
+    assert result == pytest.approx(105.0, abs=0.01)
+    # Verify UPDATE was executed
+    assert len(db.execute_calls) == 1
+    query, params = db.execute_calls[0]
+    assert "UPDATE trading.live_positions" in query
+    assert params[0] == pytest.approx(105.0, abs=0.01)  # new_stop
+    assert params[1] == 1  # new_step
+    assert params[2] == 1  # position_id
+    assert params[3] == 1  # new_step (for WHERE clause)
+
+
+def test_apply_trailing_returns_none_when_step_already_reached():
+    """_apply_trailing returns None when step_reached >= new_step (monotonicity)."""
+    db = FakeDB()
+    executor = make_executor(db=db)
+    row = {
+        "id": 1,
+        "ticker": "SBER",
+        "trailing_enabled": True,
+        "trailing_steps": json.dumps([{"trigger": 2.0, "stop": 1.0}]),
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "take_price": 115.0,
+        "risk_r": 5.0,
+        "current_stop_price": 105.0,
+        "step_reached": 1,  # Already reached step 1
+    }
+    # Price 112 > trigger 110, but step_reached=1 already, so no ratchet
+    result = executor._apply_trailing(row, current_price=112.0)
+    assert result is None
+    # Verify no UPDATE was executed
+    assert len(db.execute_calls) == 0
 
 
 
