@@ -809,7 +809,7 @@ SELECT pg_try_advisory_lock(151001);  -- false если запущен друг�
 
 ```bash
 cd backend && python -m pytest tests/test_live_executor.py -v
-cd backend && alembic upgrade head
+cd backend && python -m alembic upgrade head
 ```
 
 ### Известные ограничения
