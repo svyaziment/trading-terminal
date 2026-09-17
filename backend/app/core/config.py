@@ -1,4 +1,5 @@
 import os
+from urllib.parse import quote_plus
 
 
 def _env(name: str, default: str | None = None) -> str | None:
@@ -9,6 +10,12 @@ def _env(name: str, default: str | None = None) -> str | None:
     if value == "":
         return default
     return value
+
+
+def _build_url(user: str, password: str, host: str, port: str, db: str) -> str:
+    """Build a PostgreSQL URL with URL-encoded password (handles @, !, $, etc.)."""
+    encoded_password = quote_plus(password)
+    return f"postgresql://{user}:{encoded_password}@{host}:{port}/{db}"
 
 
 def get_app_database_url() -> str:
@@ -22,7 +29,7 @@ def get_app_database_url() -> str:
     port = _env("POSTGRES_PORT", "5432")
     db = _env("POSTGRES_DB", "trading_terminal")
 
-    return f"postgresql://{user}:{password}@{host}:{port}/{db}"
+    return _build_url(user, password, host, port, db)
 
 
 def get_market_database_url() -> str:
