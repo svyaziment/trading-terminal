@@ -800,9 +800,12 @@ SELECT pg_try_advisory_lock(151001);  -- false if another instance running
 
 ### Verification commands
 
-```bash
-# Локальный запуск (без Docker): очистить APP_DATABASE_URL, задать POSTGRES_HOST=localhost
-cd backend && APP_DATABASE_URL="" POSTGRES_HOST=localhost python -m alembic upgrade head
+```powershell
+# Тесты
+cd f:\GIT\trading-terminal\backend; python -m pytest tests/test_live_executor.py -v
+
+# Локальный запуск миграций (PowerShell, без Docker):
+cd f:\GIT\trading-terminal\backend; $env:APP_DATABASE_URL=""; $env:POSTGRES_HOST="localhost"; python -m alembic upgrade head
 
 # Docker запуск:
 docker compose exec backend python -m alembic upgrade head
