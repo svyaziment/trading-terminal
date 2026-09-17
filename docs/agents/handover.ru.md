@@ -809,7 +809,12 @@ SELECT pg_try_advisory_lock(151001);  -- false если запущен друг�
 
 ```bash
 cd backend && python -m pytest tests/test_live_executor.py -v
-cd backend && python -m alembic upgrade head
+
+# Локальный запуск (без Docker): очистить APP_DATABASE_URL, задать POSTGRES_HOST=localhost
+cd backend && APP_DATABASE_URL="" POSTGRES_HOST=localhost python -m alembic upgrade head
+
+# Docker запуск:
+docker compose exec backend python -m alembic upgrade head
 ```
 
 ### Известные ограничения
