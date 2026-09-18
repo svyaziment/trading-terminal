@@ -13,6 +13,10 @@ from app.analytics.live_executor import (
     ensure_live_positions_table,
     tick_align,
 )
+from app.analytics.live_schema import (
+    REQUIRED_LIVE_POSITIONS_COLUMNS,
+    REQUIRED_LIVE_POSITIONS_STATUSES,
+)
 from app.broker.tinkoff_sandbox import SandboxAPIError
 
 
@@ -28,18 +32,58 @@ class Result:
 
 
 class FakeDB:
-    def __init__(self, active=None, instruments=None, app_settings=None):
+    def __init__(
+        self,
+        active=None,
+        instruments=None,
+        app_settings=None,
+        schema_columns=None,
+        schema_statuses=None,
+        schema_tables=None,
+    ):
         self.active = active if active is not None else pd.DataFrame()
         self.instruments = (
             instruments if instruments is not None else pd.DataFrame()
         )
         self.app_settings = app_settings if app_settings is not None else {}
+        # Issue #173: information_schema answers for the live-schema contract.
+        # Defaults describe a fully migrated database (30 columns / 7 statuses);
+        # tests can narrow them to simulate schema drift.
+        self.schema_columns = (
+            list(schema_columns)
+            if schema_columns is not None
+            else list(REQUIRED_LIVE_POSITIONS_COLUMNS)
+        )
+        self.schema_statuses = (
+            list(schema_statuses)
+            if schema_statuses is not None
+            else list(REQUIRED_LIVE_POSITIONS_STATUSES)
+        )
+        self.schema_tables = (
+            list(schema_tables)
+            if schema_tables is not None
+            else ["app_settings", "live_positions"]
+        )
         self.select_calls = []
         self.execute_calls = []
 
     def select(self, query, params=None):
         self.select_calls.append((query, params))
         normalized = " ".join(query.split())
+        if "information_schema.tables" in normalized:
+            return Result(pd.DataFrame({"table_name": self.schema_tables}))
+        if "information_schema.columns" in normalized:
+            return Result(pd.DataFrame({"column_name": self.schema_columns}))
+        if "pg_constraint" in normalized:
+            definition = (
+                "CHECK (((status)::text = ANY ((ARRAY["
+                + ", ".join(
+                    f"'{status}'::character varying"
+                    for status in self.schema_statuses
+                )
+                + "])::text[])))"
+            )
+            return Result(pd.DataFrame({"definition": [definition]}))
         if (
             "SELECT id FROM trading.live_positions" in normalized
             and "broker_order_id=%s" in normalized

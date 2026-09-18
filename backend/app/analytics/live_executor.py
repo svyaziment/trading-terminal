@@ -24,6 +24,11 @@ from app.analytics.live_engine import (
     build_4h_context,
     get_paper_strategy,
 )
+from app.analytics.live_schema import (
+    LiveSchemaError,
+    assert_live_schema,
+    ensure_live_positions_schema,
+)
 from app.analytics.moex_session import (
     is_entry_window,
     next_session_open,
@@ -178,45 +183,19 @@ class TokenBucket:
 
 
 def ensure_live_positions_table(db: Any) -> None:
-    """Apply the idempotent runtime form of the live-positions migration."""
-    db.execute("CREATE SCHEMA IF NOT EXISTS trading")
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS trading.live_positions (
-            id BIGSERIAL PRIMARY KEY,
-            ticker VARCHAR(32) NOT NULL,
-            instrument_id VARCHAR(128) NOT NULL,
-            signal_ts TIMESTAMP NOT NULL,
-            entry_price NUMERIC(20, 9) NOT NULL,
-            lot_size INTEGER NOT NULL CHECK (lot_size > 0),
-            size_lots INTEGER NOT NULL CHECK (size_lots > 0),
-            stop_price NUMERIC(20, 9) NOT NULL,
-            take_price NUMERIC(20, 9) NOT NULL,
-            broker_order_id VARCHAR(128) NOT NULL UNIQUE,
-            broker_stop_id VARCHAR(128),
-            broker_take_id VARCHAR(128),
-            status VARCHAR(32) NOT NULL CHECK (
-                status IN (
-                    'pending', 'open', 'closed_stop',
-                    'closed_take', 'cancelled'
-                )
-            ),
-            strategy_name VARCHAR(255) NOT NULL,
-            exit_ts TIMESTAMP,
-            exit_price NUMERIC(20, 9),
-            exit_reason VARCHAR(64),
-            pnl_rub NUMERIC(20, 2),
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )
-        """
-    )
-    db.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_live_positions_active
-        ON trading.live_positions (status, ticker)
-        """
-    )
+    """Apply the idempotent runtime form of the live-positions migrations.
+
+    Issue #173: the DDL now lives in :mod:`app.analytics.live_schema` so the
+    runtime shape matches Alembic (``20260915_002_live_trailing`` +
+    ``20260916_001_live_trailing_runtime``): 30 columns, a seven-value status
+    CHECK and ``trading.app_settings``. Previously this function created only
+    the historical 20 columns with five statuses, so a fresh database built by
+    the executor (without migrations) broke on the trailing fields and could
+    not store ``closed_trailing`` / ``closed_broker``.
+
+    Kept as a wrapper for backwards compatibility with existing callers/tests.
+    """
+    ensure_live_positions_schema(db)
 
 
 class LiveExecutor:
@@ -308,6 +287,9 @@ class LiveExecutor:
         if not self.config["enabled"]:
             raise RuntimeError("Live trading is disabled in trading_config.py")
         ensure_live_positions_table(self.db)
+        # Issue #173: fail fast on schema drift instead of dying mid-trade with
+        # UndefinedColumn or a CHECK violation on closed_trailing/closed_broker.
+        assert_live_schema(self.db)
         strategy_config, tickers, strategy_name = get_paper_strategy(self.db)
         if strategy_config is None or not strategy_name:
             raise RuntimeError("No active locked strategy is available")
