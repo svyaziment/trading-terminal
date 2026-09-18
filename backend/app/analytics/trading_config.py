@@ -59,6 +59,21 @@ LIVE_TRADING: Dict[str, Any] = {
     'close_positions_on_shutdown': False,
     'check_interval_seconds': 30,
     'context_refresh_seconds': 900,
+    # Issue #151: live trailing-stop runtime switches. Read once per
+    # executor loop iteration from the in-memory copy (config_manager
+    # refreshes from trading.app_settings when available).
+    # trailing_kill_switch=true stops all new trailing arming and cancels
+    # existing trailing stops on the next iteration.
+    'trailing_kill_switch': False,
+    # live_trailing_enabled=false disables trailing arming for new positions
+    # but does not cancel already armed ladders.
+    'live_trailing_enabled': True,
+    # Number of protective ticks (min_price_increment) added to the stop
+    # price when submitting a stop-triggered marketable sell limit.
+    'trailing_protective_ticks': 5,
+    # Optional narrowing of the live universe for trailing tests.
+    # Empty list means all tickers from LIVE_UNIVERSE are eligible.
+    'trailing_ticker_allowlist': [],
 }
 
 # Issue #137: MOEX main-session clock for overnight LiveExecutor.

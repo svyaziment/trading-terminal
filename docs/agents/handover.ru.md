@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-09-16 (task-150); ранее 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -738,4 +738,91 @@ cd backend && python -m pytest tests/test_issue150_exit_reason_filter.py -v
 cd frontend && npx vitest run src/trailingStatus.test.ts
 cd frontend && npx tsc --noEmit
 ```
+## 41. Эксплуатация live trailing stop (задача #151)
+
+Завершена 2026-09-16. Live/sandbox trailing-stop с храповиком, рестартом и kill-switch.
+
+### Обзор архитектуры
+
+- **Армирование**: `process_signal()` армит трейлинг при открытии позиции, если `strategy_config.trailing_stop.enabled=true` и kill switch выключен. Ноль брокерских вызовов. Параметры записываются в `trading.live_positions`: `trailing_enabled=true`, `trailing_steps` (JSONB), `risk_r=entry-stop`, `current_stop_price=stop_price`, `step_reached=0`.
+- **Храповик**: `monitor_positions()` вызывает `_apply_trailing(row, current_price)` для каждой активной позиции с `trailing_enabled=true`. Восстанавливает `TrailingState` из БД, вычисляет текущую цену как одиночный бар, условный UPDATE `WHERE id=%s AND step_reached < %s` обеспечивает монотонность.
+- **Выход**: Когда `current_price <= current_stop_price`, отменяет take, выставляет sell-limit по текущей цене (blocking=False, откладывается при исчерпании rate limit). Записывает `exit_price_model`, `exit_price_actual`, `slippage_bp`, `slippage_r`, `lots_executed`. Статус `closed_trailing`, причина `trailing`.
+- **Kill switch**: `_refresh_kill_switch()` читает `trading.app_settings.trailing_kill_switch` перед каждым циклом мониторинга. ON приостанавливает арминг/храповик; armed-позиции сохраняют состояние. Fail-safe: ошибка БД → kill switch ON.
+- **Advisory lock**: `pg_try_advisory_lock(151001)` в `initialize()`, освобождение в `shutdown()`. Предотвращает запуск нескольких экземпляров.
+- **Безопасность рестарта**: Состояние восстанавливается из колонок БД; in-memory состояния нет. Идемпотентный replay.
+
+### База данных
+
+- Миграция `20260916_001_live_trailing_runtime.py`: расширяет `live_positions.status` CHECK до `closed_trailing`, `closed_broker`; добавляет `exit_price_model`, `exit_price_actual`, `slippage_bp`, `slippage_r`, `lots_executed`; создаёт таблицу `trading.app_settings`.
+- Колонки `trailing_enabled`, `trailing_steps`, `risk_r`, `current_stop_price`, `step_reached` уже существуют (миграция `20260915_002`).
+
+### Конфигурация
+
+- `LIVE_TRADING.trailing_kill_switch`: по умолчанию `false`, runtime-override через `trading.app_settings`.
+- `LIVE_TRADING.live_trailing_enabled`: по умолчанию `true`, глобальный переключатель.
+- `LIVE_TRADING.trailing_protective_ticks`: по умолчанию `5`, защитный отступ для исполнения стопа.
+- `LIVE_TRADING.trailing_ticker_allowlist`: по умолчанию `[]`, опциональный фильтр тикеров.
+
+### Эксплуатация
+
+**Включение трейлинга**:
+1. Убедитесь, что стратегия имеет `trailing_stop.enabled=true` в конфиге.
+2. Проверьте `trading.app_settings.trailing_kill_switch = false`:
+   ```sql
+   SELECT value FROM trading.app_settings WHERE key='trailing_kill_switch';
+   ```
+3. Запустите executor: `python -m app.analytics.run_live_trading --strategy <имя> --duration-minutes 30`
+
+**Приостановка трейлинга (kill switch)**:
+```sql
+UPDATE trading.app_settings SET value='true'::jsonb, updated_at=now() WHERE key='trailing_kill_switch';
+```
+Рестарт не требуется. Armed-позиции сохраняют состояние; новые позиции не armed.
+
+**Возобновление трейлинга**:
+```sql
+UPDATE trading.app_settings SET value='false'::jsonb, updated_at=now() WHERE key='trailing_kill_switch';
+```
+
+**Мониторинг трейлинг-выходов**:
+```bash
+grep 'trailing_exit' reports/live-executor/live-executor-*.log
+```
+Структурированный лог: `ticker, entry, initial_stop, final_stop, step_reached, risk_r, model_price, actual_price, slippage_bp, slippage_r, lots_requested, lots_executed, position_id`.
+
+**Проверка advisory lock**:
+```sql
+SELECT pg_try_advisory_lock(151001);  -- false если запущен другой экземпляр
+```
+
+### Тестирование
+
+68 тестов в `test_live_executor.py` (43 новых для #151):
+- Армирование: `test_open_position_arms_trailing_when_enabled`, `test_open_position_skips_trailing_when_disabled_in_config`, `test_open_position_skips_trailing_when_kill_switch_on`, `test_open_position_no_trailing_without_strategy_config`
+- Храповик: `test_apply_trailing_returns_none_when_disabled`, `test_apply_trailing_returns_none_when_kill_switch_on`, `test_apply_trailing_returns_none_when_no_steps`, `test_apply_trailing_returns_none_when_price_below_next_step`, `test_apply_trailing_ratchets_when_price_reaches_trigger`, `test_apply_trailing_returns_none_when_step_already_reached`
+- Факты исполнения: `test_close_position_records_model_and_actual_price`, `test_close_position_handles_missing_actual_price`, `test_close_position_trailing_uses_closed_trailing_status`
+- Rate limiter: `test_token_bucket_try_acquire_returns_true_when_token_available`, `test_token_bucket_try_acquire_returns_false_when_exhausted`, `test_token_bucket_try_acquire_recovers_over_time`, `test_broker_call_nonblocking_returns_none_when_exhausted`, `test_broker_call_blocking_still_works`
+- Валидация конфига: 9 тестов для `trailing_kill_switch`, `live_trailing_enabled`, `trailing_protective_ticks`, `trailing_ticker_allowlist`
+- Интеграция kill switch: `test_kill_switch_prevents_trailing_arming`, `test_kill_switch_preserves_armed_positions`, `test_invalid_trailing_config_disables_arming`
+
+### Команды проверки
+
+```powershell
+# Тесты
+cd f:\GIT\trading-terminal\backend; python -m pytest tests/test_live_executor.py -v
+
+# Локальный запуск миграций (PowerShell, без Docker):
+cd f:\GIT\trading-terminal\backend; $env:APP_DATABASE_URL=""; $env:POSTGRES_HOST="localhost"; python -m alembic upgrade head
+
+# Docker запуск:
+docker compose exec backend python -m alembic upgrade head
+```
+
+### Известные ограничения
+
+- `EXIT_TAKE` из replay игнорируется (тейк — это resting order, существующая сверка обрабатывает его).
+- Частичные исполнения (`lots_executed < size_lots`) логируются, но не повторяются.
+- Тип события `broker_position_vanished` пока не реализован (сейчас логируется warning).
+
+
 

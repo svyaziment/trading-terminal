@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-16 (task-150); previously 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -355,9 +355,11 @@ Default limits are centralized in `trading_config.py` (`POSITION_SIZING`): 1% ri
 
 `backend/app/analytics/live_executor.py` implements `LiveExecutor` without changing `StrategyEvaluator`. On initialize it intersects the locked paper-strategy tickers with `get_live_trading_universe()` (PO list: ROSN, IRAO, AFKS, NVTK, SBER, MTSS, PHOR, MOEX, FLOT, FEES, GAZP, PLZL) so sandbox orders stay on the configured live names. Per ticker it loads the active locked strategy and 4h context, feeds the latest closed row from `online_candles_1min` into `check_entry`, and applies the mandatory fresh imbalance filter before any broker call. A passing BUY checks free RUB cash, sizes through `calculate_position_size`, submits a sandbox market order, and persists broker IDs and lifecycle state in `trading.live_positions`. Each rejected BUY is logged as one structured line with ticker, a stable `reason` code, and the relevant numbers; silence in `executor.log` means `StrategyEvaluator` produced no BUY, not a dead filter. Issue #137: `until_session_end=True` waits for MOEX 10:00 MSK (computer clock → UTC+3) before `initialize()`, refuses new entries outside [10:00, 19:00) with `reason=outside_entry_window`, and keeps stop/take until the position closes by price (also after 19:00). Session bounds live in `MOEX_SESSION` / `moex_session.py`. Read-only preflight lives in `live_executor_preflight.py`; overnight runbook is handover §15 / §33 (historical canary: §19).
 
+**Issue #151 (completed 2026-09-16)**: Live trailing-stop ratchet, restart, and kill-switch. On position open, the executor arms trailing if `trailing_enabled=true` in strategy config and kill switch is OFF (0 broker calls). `monitor_positions()` calls `_apply_trailing()` to advance the ladder bar-by-bar using conditional UPDATE (`WHERE step_reached < new_step` for monotonicity). Exit records `exit_price_model` vs `exit_price_actual` with slippage in basis points and R units. Kill switch (`trading.app_settings.trailing_kill_switch`) pauses arming/ratchet without stopping executor. Advisory lock `pg_try_advisory_lock(151001)` prevents multiple instances. See §21 for full contract.
+
 The take-profit is submitted immediately as a resting sell-limit. The stop-loss is intentionally synthetic: a sell-limit below the current market would execute immediately, so the executor waits until the broker's current price reaches the stop, cancels the take, and then submits the stop sell-limit at the observed price. Position reconciliation polls `get_positions()`; disappearance after a take or triggered stop closes the DB row and calculates PnL. External SELL handling cancels protection and closes through a sandbox market order.
 
-Every broker API attempt, including internal retries and account discovery, passes through a token bucket capped at 10 requests/second. SIGTERM/SIGINT only sets a shutdown flag; final cleanup then cancels pending entry/protection orders, updates DB state, optionally flattens open sandbox positions when `close_positions_on_shutdown` is enabled, and closes the standalone DB pool. The complete policy is returned by `get_live_trading_config()` from `trading_config.py`.
+Every broker API attempt, including internal retries and account discovery, passes through a token bucket capped at 10 requests/second. SIGTERM/SIGINT only sets a shutdown flag; final cleanup then cancels pending entry/protection orders, updates DB state, optionally flattens open sandbox positions when `close_positions_on_shutdown` is enabled, releases advisory lock, and closes the standalone DB pool. The complete policy is returned by `get_live_trading_config()` from `trading_config.py`.
 
 ## 14. Telegram Alerting
 
@@ -627,6 +629,33 @@ Lab plugin replay, the portfolio simulator and walk-forward — and the same mod
 - **`config_hash` does not exist in this repository** — requirement 4's hash-change check is
   unverifiable here; the saved JSONB `config` genuinely carries the block, which is the substance
   of it. Operational detail: handover §38.
+
+
+## 21. Live trailing stop (Issue #151)
+
+Completed 2026-09-16. Live/sandbox trailing-stop with ratchet, restart safety, and kill-switch.
+
+**Architecture**:
+- **Arming**: On position open (`process_signal`), if `strategy_config.trailing_stop.enabled=true` and kill switch is OFF, the executor arms trailing with 0 broker calls. Parameters: `trailing_enabled=true`, `trailing_steps` (JSON), `risk_r=entry-stop`, `current_stop_price=stop_price`, `step_reached=0`.
+- **Ratchet**: `monitor_positions()` calls `_apply_trailing(row, current_price)` for each active position. Rebuilds `TrailingState` from DB columns, evaluates current price as single bar, conditional UPDATE `WHERE id=%s AND step_reached < %s` ensures monotonicity.
+- **Exit**: When `current_price <= current_stop_price`, cancels take, submits sell-limit at current price. Records `exit_price_model` (the stop price), `exit_price_actual` (fill price), `slippage_bp`, `slippage_r`, `lots_executed`. Status `closed_trailing`, reason `trailing`.
+- **Kill switch**: `_refresh_kill_switch()` reads `trading.app_settings.trailing_kill_switch` before each monitoring cycle. ON pauses arming/ratchet; armed positions keep state. Fail-safe: DB error → kill switch ON.
+- **Advisory lock**: `pg_try_advisory_lock(151001)` in `initialize()`, released in `shutdown()`. Prevents multiple executor instances.
+- **Restart safety**: State restored from DB columns; no in-memory state. Idempotent replay.
+
+**Database**:
+- Migration `20260916_001_live_trailing_runtime.py`: extends `live_positions.status` CHECK to include `closed_trailing`, `closed_broker`; adds `exit_price_model`, `exit_price_actual`, `slippage_bp`, `slippage_r`, `lots_executed`; creates `trading.app_settings` table.
+- Columns `trailing_enabled`, `trailing_steps`, `risk_r`, `current_stop_price`, `step_reached` already exist (migration `20260915_002`).
+
+**Configuration**:
+- `LIVE_TRADING.trailing_kill_switch`: default `false`, runtime override via `trading.app_settings`.
+- `LIVE_TRADING.live_trailing_enabled`: default `true`, global toggle.
+- `LIVE_TRADING.trailing_protective_ticks`: default `5`, protective offset for stop execution.
+- `LIVE_TRADING.trailing_ticker_allowlist`: default `[]`, optional ticker filter.
+
+**Testing**: 68 tests in `test_live_executor.py` (43 new for #151). Coverage: arming, ratchet, monotonicity, kill switch, execution facts, slippage, rate limiter, config validation.
+
+**Operational**: See `docs/strategy/live-trading.md` for user-facing docs, handover §41 for operations.
 
 
 

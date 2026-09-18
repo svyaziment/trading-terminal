@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS trading.live_positions (
             'open',
             'closed_stop',
             'closed_take',
+            'closed_trailing',
+            'closed_broker',
             'cancelled'
         )),
     strategy_name VARCHAR(255) NOT NULL,

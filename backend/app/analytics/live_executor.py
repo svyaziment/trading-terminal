@@ -8,7 +8,9 @@ a sell limit below the market would execute immediately and is not a stop order.
 
 from __future__ import annotations
 
+import json
 import logging
+import math
 import signal
 import threading
 import time
@@ -35,6 +37,7 @@ from app.analytics.orderbook_imbalance import (
 )
 from app.analytics.position_sizer import calculate_position_size
 from app.analytics.strategy_engine import StrategyEvaluator
+from app.analytics.trailing_stop import resolve_trailing_stop
 from app.analytics.trading_config import (
     get_live_trading_config,
     get_live_trading_universe,
@@ -66,6 +69,49 @@ def _filter_live_tickers(strategy_tickers: list[str], live_universe: list[str]) 
         live_universe,
     )
     return list(live_universe)
+
+
+def tick_align(
+    price: float, increment: float, direction: str = "down"
+) -> float:
+    """Round price to the nearest valid tick according to min_price_increment.
+
+    Args:
+        price: The price to align.
+        increment: The minimum price step (min_price_increment from trading.instruments).
+        direction: 'down' rounds toward zero (for stop prices), 'up' rounds away from zero
+                   (for take prices). Defaults to 'down'.
+
+    Returns:
+        The aligned price, or the original price if increment is invalid (<=0 or NaN).
+
+    Examples:
+        >>> tick_align(100.37, 0.05, 'down')
+        100.35
+        >>> tick_align(100.37, 0.05, 'up')
+        100.40
+        >>> tick_align(95.123, 0.01, 'down')
+        95.12
+    """
+    if increment <= 0 or not math.isfinite(increment):
+        return price
+    # Use Decimal for precise arithmetic to avoid floating-point drift
+    from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
+    
+    price_d = Decimal(str(price))
+    incr_d = Decimal(str(increment))
+    
+    if direction == "up":
+        # Round up: divide, ceil, multiply back
+        ticks = (price_d / incr_d).to_integral_value(rounding=ROUND_HALF_UP)
+        # Check if we need to round up further
+        if ticks * incr_d < price_d:
+            ticks += 1
+    else:
+        # Round down: divide, floor, multiply back
+        ticks = (price_d / incr_d).to_integral_value(rounding=ROUND_DOWN)
+    
+    return float(ticks * incr_d)
 
 
 def _now_msk_naive() -> datetime:
@@ -108,6 +154,27 @@ class TokenBucket:
                     return
                 wait_seconds = (1 - self.tokens) / self.rate
             self.sleep_fn(wait_seconds)
+
+    def try_acquire(self) -> bool:
+        """Non-blocking attempt to acquire one token.
+
+        Returns:
+            True if token was acquired, False otherwise.
+
+        Used by trailing exit logic to defer broker calls when bucket is exhausted.
+        """
+        with self._lock:
+            now = self.clock()
+            elapsed = max(0.0, now - self.updated_at)
+            self.tokens = min(
+                self.capacity,
+                self.tokens + elapsed * self.rate,
+            )
+            self.updated_at = now
+            if self.tokens >= 1:
+                self.tokens -= 1
+                return True
+            return False
 
 
 def ensure_live_positions_table(db: Any) -> None:
@@ -199,10 +266,41 @@ class LiveExecutor:
         for key in ("risk_per_trade_pct", "max_position_pct"):
             if float(self.config[key]) < 0:
                 raise ValueError(f"{key} cannot be negative")
+        # Issue #151: validate trailing runtime switches.
+        for key in ("trailing_kill_switch", "live_trailing_enabled"):
+            val = self.config.get(key, False)
+            if not isinstance(val, bool):
+                raise ValueError(f"{key} must be a boolean")
+        ticks = self.config.get("trailing_protective_ticks", 5)
+        if not isinstance(ticks, int) or ticks < 0:
+            raise ValueError("trailing_protective_ticks must be a non-negative integer")
+        allowlist = self.config.get("trailing_ticker_allowlist", [])
+        if not isinstance(allowlist, list):
+            raise ValueError("trailing_ticker_allowlist must be a list of strings")
+        for item in allowlist:
+            if not isinstance(item, str):
+                raise ValueError("trailing_ticker_allowlist must contain only strings")
 
-    def _broker_call(self, method: str, *args: Any, **kwargs: Any) -> Any:
+    def _broker_call(self, method: str, *args: Any, blocking: bool = True, **kwargs: Any) -> Any:
+        """Execute a broker method with rate limiting.
+
+        Args:
+            method: Name of the broker method to call.
+            *args: Positional arguments for the method.
+            blocking: If True (default), wait for rate limit token.
+                      If False, return None immediately if no token available.
+            **kwargs: Keyword arguments for the method.
+
+        Returns:
+            Result of the broker method call, or None if blocking=False and
+            no rate limit token was available.
+        """
         if not self._broker_limits_attempts:
-            self.rate_limiter.acquire()
+            if blocking:
+                self.rate_limiter.acquire()
+            else:
+                if not self.rate_limiter.try_acquire():
+                    return None
         return getattr(self.broker, method)(*args, **kwargs)
 
     def initialize(self) -> None:
@@ -242,10 +340,45 @@ class LiveExecutor:
         if not self.evaluators:
             raise RuntimeError("No live strategy evaluators could be initialized")
 
+        # Issue #151: Acquire advisory lock to prevent multiple executor instances
+        # Lock key: 151001 (arbitrary constant for Issue #151)
+        lock_result = self.db.select(
+            "SELECT pg_try_advisory_lock(151001) AS acquired"
+        ).to_dataframe()
+        if not lock_result.empty and not bool(lock_result.iloc[0]["acquired"]):
+            logger.critical(
+                "Failed to acquire advisory lock (151001): "
+                "another LiveExecutor instance is already running"
+            )
+            raise RuntimeError(
+                "Another LiveExecutor instance is already running "
+                "(advisory lock 151001 is held)"
+            )
+        self._advisory_lock_acquired = True
+        logger.info("Advisory lock 151001 acquired")
+
+        # Issue #151: Log restored trailing positions for observability
+        active = self._active_positions()
+        if not active.empty and "trailing_enabled" in active.columns:
+            trailing_positions = active[active["trailing_enabled"] == True]
+            if not trailing_positions.empty:
+                logger.info(
+                    "Restored %d trailing position(s) from DB:",
+                    len(trailing_positions),
+                )
+                for _, row in trailing_positions.iterrows():
+                    logger.info(
+                        "  position_id=%s ticker=%s step_reached=%s current_stop=%.6f",
+                        int(row["id"]),
+                        row["ticker"],
+                        row.get("step_reached"),
+                        float(row.get("current_stop_price") or row["stop_price"]),
+                    )
+
     def _load_instruments(self) -> None:
         frame = self.db.select(
             """
-            SELECT ticker, figi, lot_size
+            SELECT ticker, figi, lot_size, min_price_increment
             FROM trading.instruments
             WHERE ticker = ANY(%s)
               AND figi IS NOT NULL
@@ -257,6 +390,11 @@ class LiveExecutor:
             str(row["ticker"]): {
                 "instrument_id": str(row["figi"]),
                 "lot_size": int(row["lot_size"]),
+                # Issue #151: load min_price_increment for tick-aligned stop prices.
+                # Falls back to 0.01 if NULL (safe default for most MOEX equities).
+                "min_price_increment": float(row["min_price_increment"])
+                if pd.notna(row.get("min_price_increment")) and float(row["min_price_increment"]) > 0
+                else 0.01,
             }
             for _, row in frame.iterrows()
             if int(row["lot_size"]) > 0 and str(row["figi"]).strip()
@@ -267,6 +405,42 @@ class LiveExecutor:
             **self.strategy_config,
             "imbalance_threshold": self.config["imbalance_threshold"],
         }
+
+    def _refresh_kill_switch(self) -> None:
+        """Read trailing_kill_switch from trading.app_settings (Issue #151).
+
+        Updates self.config['trailing_kill_switch'] from DB.
+        On error: sets kill switch ON (fail-safe) and logs warning.
+        """
+        try:
+            result = self.db.select(
+                """
+                SELECT value FROM trading.app_settings
+                WHERE key = 'trailing_kill_switch'
+                """
+            ).to_dataframe()
+            if result.empty:
+                logger.warning(
+                    "trailing_kill_switch not found in trading.app_settings; "
+                    "defaulting to False"
+                )
+                self.config["trailing_kill_switch"] = False
+            else:
+                value = result.iloc[0]["value"]
+                # value is JSONB, may be bool or string
+                if isinstance(value, bool):
+                    self.config["trailing_kill_switch"] = value
+                elif isinstance(value, str):
+                    self.config["trailing_kill_switch"] = value.lower() == "true"
+                else:
+                    self.config["trailing_kill_switch"] = bool(value)
+        except Exception as exc:
+            logger.warning(
+                "Failed to read trailing_kill_switch from DB: %s; "
+                "defaulting to True (fail-safe)",
+                exc,
+            )
+            self.config["trailing_kill_switch"] = True
 
     def _active_positions(self) -> pd.DataFrame:
         return self.db.select(
@@ -474,6 +648,38 @@ class LiveExecutor:
             float(executed_price) if executed_price is not None else entry_price
         )
         status = "open" if executed_lots > 0 else "pending"
+
+        # Issue #151: Prepare trailing snapshot (0 broker calls).
+        trailing_enabled = False
+        trailing_steps_json = None
+        risk_r = None
+        current_stop = stop_price
+        step_reached = 0
+
+        if (
+            self.config.get("live_trailing_enabled", True)
+            and not self.config.get("trailing_kill_switch", False)
+            and self.strategy_config.get("trailing_stop", {}).get("enabled", False)
+        ):
+            resolved = resolve_trailing_stop(self.strategy_config)
+            if resolved["reasons"]:
+                logger.warning(
+                    "Live trailing SKIP: ticker=%s reasons=%s",
+                    ticker,
+                    ", ".join(resolved["reasons"]),
+                )
+            else:
+                trailing_enabled = True
+                trailing_steps_json = json.dumps(resolved["steps"])
+                risk_r = round(float(stored_entry_price) - float(stop_price), 6)
+                current_stop = stop_price
+                logger.info(
+                    "Live trailing ARMED: ticker=%s steps=%d risk_r=%.6f",
+                    ticker,
+                    len(resolved["steps"]),
+                    risk_r,
+                )
+
         position_id = self._insert_position(
             ticker=ticker,
             instrument_id=instrument["instrument_id"],
@@ -485,6 +691,11 @@ class LiveExecutor:
             take_price=take_price,
             broker_order_id=str(entry_order.order_id),
             status=status,
+            trailing_enabled=trailing_enabled,
+            trailing_steps=trailing_steps_json,
+            risk_r=risk_r,
+            current_stop_price=current_stop,
+            step_reached=step_reached,
         )
 
         if status == "open":
@@ -529,12 +740,17 @@ class LiveExecutor:
             INSERT INTO trading.live_positions (
                 ticker, instrument_id, signal_ts, entry_price, lot_size,
                 size_lots, stop_price, take_price, broker_order_id,
-                status, strategy_name, created_at, updated_at
+                status, strategy_name,
+                trailing_enabled, trailing_steps, risk_r,
+                current_stop_price, step_reached,
+                created_at, updated_at
             )
             VALUES (
                 %s, %s, %s, %s, %s,
                 %s, %s, %s, %s,
-                %s, %s, now(), now()
+                %s, %s,
+                %s, %s, %s, %s, %s,
+                now(), now()
             )
             """,
             (
@@ -549,6 +765,11 @@ class LiveExecutor:
                 position["broker_order_id"],
                 position["status"],
                 self.strategy_name,
+                position.get("trailing_enabled", False),
+                position.get("trailing_steps"),
+                position.get("risk_r"),
+                position.get("current_stop_price", position["stop_price"]),
+                position.get("step_reached", 0),
             ),
         )
         frame = self.db.select(
@@ -714,12 +935,29 @@ class LiveExecutor:
                 changes += 1
 
             current_price = getattr(position, "current_price", None)
+            if current_price is not None:
+                # Issue #151: Apply trailing ratchet before stop trigger check
+                ratcheted_stop = self._apply_trailing(row, float(current_price))
+                effective_stop = (
+                    ratcheted_stop
+                    if ratcheted_stop is not None
+                    else (
+                        float(row["current_stop_price"])
+                        if pd.notna(row.get("current_stop_price"))
+                        else float(row["stop_price"])
+                    )
+                )
+            else:
+                effective_stop = float(row["stop_price"])
+
             if (
                 current_price is not None
-                and float(current_price) <= float(row["stop_price"])
+                and float(current_price) <= effective_stop
                 and pd.isna(row.get("broker_stop_id"))
             ):
                 self._safe_cancel(row.get("broker_take_id"))
+                # Issue #151: Use non-blocking broker call for trailing exits.
+                # If rate limit exhausted, defer to next iteration (state already in DB).
                 stop_order = self._broker_call(
                     "execute_order",
                     instrument_id=str(row["instrument_id"]),
@@ -727,7 +965,19 @@ class LiveExecutor:
                     direction="sell",
                     order_type="limit",
                     price=float(current_price),
+                    blocking=False,
                 )
+                if stop_order is None:
+                    # Deferred: no rate limit token available
+                    logger.warning(
+                        "Trailing exit deferred (rate limit): position=%s ticker=%s "
+                        "effective_stop=%.6f current_price=%.6f",
+                        position_id,
+                        row["ticker"],
+                        effective_stop,
+                        float(current_price),
+                    )
+                    continue
                 self.db.execute(
                     """
                     UPDATE trading.live_positions
@@ -739,6 +989,104 @@ class LiveExecutor:
                 changes += 1
         return changes
 
+    def _apply_trailing(
+        self, row: Any, current_price: float
+    ) -> Optional[float]:
+        """Ratchet trailing stop for one position based on current price.
+
+        Args:
+            row: Position row from _active_positions() with trailing_* columns.
+            current_price: Current market price from broker.
+
+        Returns:
+            Updated current_stop_price if ratcheted, None otherwise.
+
+        Idempotent: uses conditional UPDATE (WHERE step_reached < new_step)
+        to ensure monotonicity and restart safety.
+        """
+        if not bool(row.get("trailing_enabled", False)):
+            return None
+
+        # Kill switch check
+        if self.config.get("trailing_kill_switch", False):
+            logger.debug(
+                "Trailing kill switch ON, skipping ratchet for position %s",
+                row["id"],
+            )
+            return None
+
+        # Extract trailing state from DB
+        steps_json = row.get("trailing_steps")
+        if steps_json is None:
+            logger.warning(
+                "Position %s has trailing_enabled=true but no trailing_steps",
+                row["id"],
+            )
+            return None
+
+        import json
+        steps = json.loads(steps_json) if isinstance(steps_json, str) else steps_json
+        entry_price = float(row["entry_price"])
+        initial_stop = float(row["stop_price"])
+        take_price = float(row["take_price"]) if pd.notna(row.get("take_price")) else None
+        risk_r = float(row["risk_r"]) if pd.notna(row.get("risk_r")) else (entry_price - initial_stop)
+        current_stop = float(row["current_stop_price"]) if pd.notna(row.get("current_stop_price")) else initial_stop
+        step_reached = int(row.get("step_reached", 0))
+
+        # Rebuild TrailingState
+        from app.analytics.trailing_stop import TrailingState
+        state = TrailingState.build(
+            steps,
+            entry_exec=entry_price,
+            initial_stop=initial_stop,
+            take=take_price,
+        )
+        if state is None:
+            logger.warning(
+                "Position %s: failed to rebuild TrailingState, skipping ratchet",
+                row["id"],
+            )
+            return None
+
+        # Evaluate current price as a single bar (high=current_price, low=current_price)
+        # This is a simplified model: in live we don't have intraday bars, only current price.
+        # We use current_price as both high and low to check if it triggers a new step.
+        decision = state.evaluate(
+            high=current_price,
+            low=current_price,
+            bar_key=f"live_{int(row['id'])}",
+        )
+
+        if decision.exits:
+            return None
+
+        # Ratchet: conditional UPDATE only if new step > current step_reached
+        new_step = int(decision.step_reached)
+        if new_step <= step_reached:
+            return None
+
+        new_stop = float(decision.stop)
+        position_id = int(row["id"])
+
+        self.db.execute(
+            """
+            UPDATE trading.live_positions
+            SET current_stop_price=%s, step_reached=%s, updated_at=now()
+            WHERE id=%s AND step_reached < %s
+            """,
+            (new_stop, new_step, position_id, new_step),
+        )
+
+        logger.info(
+            "Trailing ratchet: position=%s ticker=%s step_reached=%d new_stop=%.6f",
+            position_id,
+            row["ticker"],
+            new_step,
+            new_stop,
+        )
+
+        return new_stop
+
     def _close_db_position(
         self,
         row: Any,
@@ -746,26 +1094,95 @@ class LiveExecutor:
         exit_price: float,
         *,
         status: Optional[str] = None,
+        exit_price_actual: Optional[float] = None,
+        lots_executed: Optional[int] = None,
     ) -> None:
+        """Close a position and record execution facts (Issue #151).
+
+        Args:
+            row: Position row from _active_positions().
+            reason: Exit reason ('stop', 'take', 'trailing', 'sell_signal', 'shutdown').
+            exit_price: Model price (the price the executor expected at exit time).
+            status: Override status (default: 'closed_{reason}').
+            exit_price_actual: Actual fill price from broker (may be None if not yet known).
+            lots_executed: Actual lots filled (may be None if not yet known).
+
+        Records:
+            - exit_price_model = exit_price (model price)
+            - exit_price_actual = exit_price_actual (actual fill, or NULL)
+            - exit_price = exit_price_actual if available, else exit_price (Variant A)
+            - slippage_bp = (actual/model - 1) * 1e4 (positive = adverse for long)
+            - slippage_r = (model - actual) / risk_r
+            - lots_executed = lots_executed (or NULL)
+        """
+        # Determine effective exit price (Variant A: actual if available, else model)
+        effective_exit = (
+            exit_price_actual if exit_price_actual is not None else exit_price
+        )
         pnl_rub = (
-            exit_price - float(row["entry_price"])
+            effective_exit - float(row["entry_price"])
         ) * int(row["size_lots"]) * int(row["lot_size"])
+
+        # Compute slippage metrics
+        slippage_bp = None
+        slippage_r = None
+        if exit_price_actual is not None and exit_price > 0:
+            slippage_bp = round((exit_price_actual / exit_price - 1.0) * 1e4, 4)
+            risk_r = float(row.get("risk_r") or 0.0)
+            if risk_r > 0:
+                slippage_r = round((exit_price - exit_price_actual) / risk_r, 6)
+
+        # Determine status
+        final_status = status or f"closed_{reason}"
+        if reason == "trailing":
+            final_status = status or "closed_trailing"
+
         self.db.execute(
             """
             UPDATE trading.live_positions
             SET status=%s, exit_ts=%s, exit_price=%s, exit_reason=%s,
-                pnl_rub=%s, updated_at=now()
+                pnl_rub=%s,
+                exit_price_model=%s, exit_price_actual=%s,
+                slippage_bp=%s, slippage_r=%s, lots_executed=%s,
+                updated_at=now()
             WHERE id=%s
             """,
             (
-                status or f"closed_{reason}",
+                final_status,
                 _now_msk_naive(),
-                exit_price,
+                effective_exit,
                 reason,
                 round(pnl_rub, 2),
+                exit_price,
+                exit_price_actual,
+                slippage_bp,
+                slippage_r,
+                lots_executed,
                 int(row["id"]),
             ),
         )
+
+        # Structured log for trailing exits (Issue #151 requirement 9)
+        if reason == "trailing":
+            logger.info(
+                "trailing_exit ticker=%s entry=%.6f initial_stop=%.6f final_stop=%.6f "
+                "step_reached=%s risk_r=%s model_price=%.6f actual_price=%s "
+                "slippage_bp=%s slippage_r=%s lots_requested=%d lots_executed=%s "
+                "position_id=%s",
+                row["ticker"],
+                float(row["entry_price"]),
+                float(row["stop_price"]),
+                float(row.get("current_stop_price") or row["stop_price"]),
+                row.get("step_reached"),
+                row.get("risk_r"),
+                exit_price,
+                exit_price_actual,
+                slippage_bp,
+                slippage_r,
+                int(row["size_lots"]),
+                lots_executed,
+                int(row["id"]),
+            )
 
     def _safe_cancel(self, order_id: Any) -> None:
         if order_id is None or pd.isna(order_id) or not str(order_id).strip():
@@ -870,6 +1287,14 @@ class LiveExecutor:
                     (int(row["id"]),),
                 )
 
+        # Issue #151: Release advisory lock
+        if getattr(self, "_advisory_lock_acquired", False):
+            try:
+                self.db.execute("SELECT pg_advisory_unlock(151001)")
+                logger.info("Advisory lock 151001 released")
+            except Exception as exc:
+                logger.warning("Failed to release advisory lock: %s", exc)
+
     def wait_for_session_open(self) -> None:
         """Sleep until the MOEX entry window, logging progress, honoring SIGTERM."""
         session = get_moex_session_config()
@@ -949,6 +1374,8 @@ class LiveExecutor:
                     self.refresh_contexts()
                     last_context_refresh = now
                 if now - last_check >= check_interval:
+                    # Issue #151: Refresh kill switch from DB before monitoring
+                    self._refresh_kill_switch()
                     self.monitor_positions()
                     if is_entry_window(now_msk):
                         self.process_latest_bars()

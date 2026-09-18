@@ -1,6 +1,7 @@
 from decimal import Decimal
 from datetime import datetime, timedelta
 from types import SimpleNamespace
+import json
 
 import pandas as pd
 import pytest
@@ -10,6 +11,7 @@ from app.analytics.live_executor import (
     LiveExecutor,
     TokenBucket,
     ensure_live_positions_table,
+    tick_align,
 )
 from app.broker.tinkoff_sandbox import SandboxAPIError
 
@@ -26,11 +28,12 @@ class Result:
 
 
 class FakeDB:
-    def __init__(self, active=None, instruments=None):
+    def __init__(self, active=None, instruments=None, app_settings=None):
         self.active = active if active is not None else pd.DataFrame()
         self.instruments = (
             instruments if instruments is not None else pd.DataFrame()
         )
+        self.app_settings = app_settings if app_settings is not None else {}
         self.select_calls = []
         self.execute_calls = []
 
@@ -49,6 +52,17 @@ class FakeDB:
             if params and "ticker=%s" in normalized and not frame.empty:
                 frame = frame[frame["ticker"] == params[0]]
             return Result(frame)
+        if "FROM trading.app_settings" in normalized:
+            # Return app_settings as DataFrame
+            if params and len(params) > 0:
+                key = params[0]
+                if key in self.app_settings:
+                    return Result(pd.DataFrame([{"key": key, "value": self.app_settings[key]}]))
+            elif self.app_settings:
+                return Result(pd.DataFrame([
+                    {"key": k, "value": v} for k, v in self.app_settings.items()
+                ]))
+            return Result()
         return Result()
 
     def execute(self, query, params=None):
@@ -104,6 +118,11 @@ def make_executor(*, db=None, broker=None, now_fn=None, clock=None, sleep_fn=Non
             "imbalance_threshold": 1.0,
             "risk_per_trade_pct": 1.0,
             "max_position_pct": 20.0,
+            # Issue #151: trailing defaults for tests
+            "trailing_kill_switch": False,
+            "live_trailing_enabled": True,
+            "trailing_protective_ticks": 5,
+            "trailing_ticker_allowlist": [],
             **config,
         },
         now_fn=now_fn or (lambda: IN_SESSION_NOW),
@@ -112,7 +131,11 @@ def make_executor(*, db=None, broker=None, now_fn=None, clock=None, sleep_fn=Non
     executor.strategy_name = "active-strategy"
     executor.strategy_config = {"patterns": ["levels_reversal"]}
     executor.instruments = {
-        "SBER": {"instrument_id": "figi-sber", "lot_size": 10}
+        "SBER": {
+            "instrument_id": "figi-sber",
+            "lot_size": 10,
+            "min_price_increment": 0.01,
+        }
     }
     return executor
 
@@ -779,3 +802,570 @@ def test_duration_minutes_does_not_wait_for_session_open():
 
     assert events["init"] == [datetime(2026, 8, 30, 23, 0)]
     assert fake.wall < datetime(2026, 8, 31, 10, 0, 0)
+
+
+# --- Issue #151: trailing config validation -----------------------------------
+
+
+def test_trailing_config_defaults_are_accepted():
+    """Executor accepts config with default trailing switches."""
+    executor = make_executor()
+    # Should not raise during construction or validation
+    assert executor.config.get("trailing_kill_switch") is False
+    assert executor.config.get("live_trailing_enabled") is True
+
+
+@pytest.mark.parametrize(
+    "key,bad_value,error_fragment",
+    [
+        ("trailing_kill_switch", "yes", "must be a boolean"),
+        ("trailing_kill_switch", 1, "must be a boolean"),
+        ("live_trailing_enabled", None, "must be a boolean"),
+        ("trailing_protective_ticks", -1, "non-negative integer"),
+        ("trailing_protective_ticks", 2.5, "non-negative integer"),
+        ("trailing_ticker_allowlist", "SBER", "must be a list"),
+        ("trailing_ticker_allowlist", [123], "must contain only strings"),
+    ],
+)
+def test_trailing_config_rejects_bad_values(key, bad_value, error_fragment):
+    with pytest.raises(ValueError, match=error_fragment):
+        make_executor(**{key: bad_value})
+
+
+def test_trailing_config_explicit_values_are_accepted():
+    executor = make_executor(
+        trailing_kill_switch=True,
+        live_trailing_enabled=False,
+        trailing_protective_ticks=10,
+        trailing_ticker_allowlist=["SBER", "LKOH"],
+    )
+    assert executor.config["trailing_kill_switch"] is True
+    assert executor.config["live_trailing_enabled"] is False
+    assert executor.config["trailing_protective_ticks"] == 10
+    assert executor.config["trailing_ticker_allowlist"] == ["SBER", "LKOH"]
+
+
+
+# --- Issue #151: tick_align tests -------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "price,increment,direction,expected",
+    [
+        # Down: floor to nearest tick
+        (100.37, 0.05, "down", 100.35),
+        (100.35, 0.05, "down", 100.35),  # already aligned
+        (95.123, 0.01, "down", 95.12),
+        (95.129, 0.01, "down", 95.12),
+        (100.007, 0.01, "down", 100.00),
+        # Up: ceil to nearest tick
+        (100.37, 0.05, "up", 100.40),
+        (100.35, 0.05, "up", 100.35),  # already aligned
+        (95.121, 0.01, "up", 95.13),
+        (95.120, 0.01, "up", 95.12),  # already aligned
+        # Real-world increments
+        (15234.5, 0.5, "down", 15234.5),  # LKOH-style
+        (15234.3, 0.5, "down", 15234.0),
+        (15234.3, 0.5, "up", 15234.5),
+    ],
+)
+def test_tick_align_rounds_correctly(price, increment, direction, expected):
+    result = tick_align(price, increment, direction)
+    assert result == pytest.approx(expected, abs=1e-9)
+
+
+def test_tick_align_returns_original_on_invalid_increment():
+    """tick_align is a no-op when increment is zero, negative, or non-finite."""
+    assert tick_align(100.5, 0.0) == 100.5
+    assert tick_align(100.5, -0.01) == 100.5
+    assert tick_align(100.5, float("nan")) == 100.5
+    assert tick_align(100.5, float("inf")) == 100.5
+
+
+
+# --- Issue #151: trailing ratchet tests --------------------------------------
+
+
+def test_apply_trailing_returns_none_when_disabled():
+    """_apply_trailing returns None when trailing_enabled=False."""
+    executor = make_executor()
+    row = {
+        "id": 1,
+        "trailing_enabled": False,
+        "trailing_steps": None,
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "take_price": 110.0,
+    }
+    result = executor._apply_trailing(row, current_price=105.0)
+    assert result is None
+
+
+def test_apply_trailing_returns_none_when_kill_switch_on():
+    """_apply_trailing returns None when trailing_kill_switch=True."""
+    executor = make_executor(trailing_kill_switch=True)
+    row = {
+        "id": 1,
+        "trailing_enabled": True,
+        "trailing_steps": json.dumps([{"trigger": 2.0, "stop": 1.0}]),
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "take_price": 110.0,
+        "risk_r": 5.0,
+        "current_stop_price": 95.0,
+        "step_reached": 0,
+    }
+    result = executor._apply_trailing(row, current_price=115.0)
+    assert result is None
+
+
+def test_apply_trailing_returns_none_when_no_steps():
+    """_apply_trailing returns None when trailing_steps is None."""
+    executor = make_executor()
+    row = {
+        "id": 1,
+        "trailing_enabled": True,
+        "trailing_steps": None,
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "take_price": 110.0,
+    }
+    result = executor._apply_trailing(row, current_price=105.0)
+    assert result is None
+
+
+def test_apply_trailing_returns_none_when_price_below_next_step():
+    """_apply_trailing returns None when current price hasn't reached next step trigger."""
+    executor = make_executor()
+    # Step triggers at 2.0R (110), stop at 1.0R (105)
+    row = {
+        "id": 1,
+        "trailing_enabled": True,
+        "trailing_steps": json.dumps([{"trigger": 2.0, "stop": 1.0}]),
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "take_price": 115.0,
+        "risk_r": 5.0,
+        "current_stop_price": 95.0,
+        "step_reached": 0,
+    }
+    # Price 108 < trigger 110, so no ratchet
+    result = executor._apply_trailing(row, current_price=108.0)
+    assert result is None
+
+
+def test_apply_trailing_ratchets_when_price_reaches_trigger():
+    """_apply_trailing updates DB and returns new stop when trigger reached."""
+    db = FakeDB()
+    executor = make_executor(db=db)
+    # Step triggers at 2.0R (110), stop at 1.0R (105)
+    row = {
+        "id": 1,
+        "ticker": "SBER",
+        "trailing_enabled": True,
+        "trailing_steps": json.dumps([{"trigger": 2.0, "stop": 1.0}]),
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "take_price": 115.0,
+        "risk_r": 5.0,
+        "current_stop_price": 95.0,
+        "step_reached": 0,
+    }
+    # Price 112 > trigger 110, so ratchet to stop=105
+    result = executor._apply_trailing(row, current_price=112.0)
+    assert result == pytest.approx(105.0, abs=0.01)
+    # Verify UPDATE was executed
+    assert len(db.execute_calls) == 1
+    query, params = db.execute_calls[0]
+    assert "UPDATE trading.live_positions" in query
+    assert params[0] == pytest.approx(105.0, abs=0.01)  # new_stop
+    assert params[1] == 1  # new_step
+    assert params[2] == 1  # position_id
+    assert params[3] == 1  # new_step (for WHERE clause)
+
+
+def test_apply_trailing_returns_none_when_step_already_reached():
+    """_apply_trailing returns None when step_reached >= new_step (monotonicity)."""
+    db = FakeDB()
+    executor = make_executor(db=db)
+    row = {
+        "id": 1,
+        "ticker": "SBER",
+        "trailing_enabled": True,
+        "trailing_steps": json.dumps([{"trigger": 2.0, "stop": 1.0}]),
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "take_price": 115.0,
+        "risk_r": 5.0,
+        "current_stop_price": 105.0,
+        "step_reached": 1,  # Already reached step 1
+    }
+    # Price 112 > trigger 110, but step_reached=1 already, so no ratchet
+    result = executor._apply_trailing(row, current_price=112.0)
+    assert result is None
+    # Verify no UPDATE was executed
+    assert len(db.execute_calls) == 0
+
+
+
+# --- Issue #151: trailing arming on open --------------------------------------
+
+
+def _find_insert_call(db):
+    """Find the INSERT INTO trading.live_positions call in execute_calls."""
+    for query, params in db.execute_calls:
+        if "INSERT INTO trading.live_positions" in query:
+            return query, params
+    return None, None
+
+
+def test_open_position_arms_trailing_when_enabled():
+    """When trailing is enabled in strategy_config, INSERT includes trailing columns."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    # Set trailing_stop in strategy_config (as if loaded from DB)
+    executor.strategy_config = {
+        "patterns": ["levels_reversal"],
+        "trailing_stop": {
+            "enabled": True,
+            "steps": [
+                {"trigger": 2.0, "stop": 1.0},
+                {"trigger": 3.0, "stop": 2.0},
+            ],
+        },
+    }
+
+    executor.process_signal(
+        "SBER",
+        {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
+        imbalance=1.5,
+    )
+
+    query, params = _find_insert_call(db)
+    assert query is not None, "INSERT not found in execute_calls"
+    # Params: ticker, instrument_id, signal_ts, entry_price, lot_size,
+    #         size_lots, stop_price, take_price, broker_order_id, status,
+    #         strategy_name, trailing_enabled, trailing_steps, risk_r,
+    #         current_stop_price, step_reached
+    assert params[11] is True  # trailing_enabled
+    assert params[12] is not None  # trailing_steps (JSON string)
+    assert params[13] == pytest.approx(5.0, abs=0.01)  # risk_r = 100 - 95
+    assert params[14] == pytest.approx(95.0)  # current_stop_price
+    assert params[15] == 0  # step_reached
+    # Verify JSON is valid
+    import json
+    steps = json.loads(params[12])
+    assert len(steps) == 2
+
+
+def test_open_position_skips_trailing_when_disabled_in_config():
+    """When live_trailing_enabled=False, INSERT has trailing_enabled=False."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(
+        db=db, broker=broker, live_trailing_enabled=False
+    )
+    executor.strategy_config = {
+        "patterns": ["levels_reversal"],
+        "trailing_stop": {
+            "enabled": True,
+            "steps": [{"trigger": 2.0, "stop": 1.0}],
+        },
+    }
+
+    executor.process_signal(
+        "SBER",
+        {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
+        imbalance=1.5,
+    )
+
+    query, params = _find_insert_call(db)
+    assert query is not None
+    assert params[11] is False  # trailing_enabled
+
+
+def test_open_position_skips_trailing_when_kill_switch_on():
+    """When trailing_kill_switch=True, INSERT has trailing_enabled=False."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(
+        db=db, broker=broker, trailing_kill_switch=True
+    )
+    executor.strategy_config = {
+        "patterns": ["levels_reversal"],
+        "trailing_stop": {
+            "enabled": True,
+            "steps": [{"trigger": 2.0, "stop": 1.0}],
+        },
+    }
+
+    executor.process_signal(
+        "SBER",
+        {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
+        imbalance=1.5,
+    )
+
+    query, params = _find_insert_call(db)
+    assert query is not None
+    assert params[11] is False  # trailing_enabled
+
+
+def test_open_position_no_trailing_without_strategy_config():
+    """When strategy_config has no trailing_stop, INSERT has trailing_enabled=False."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    executor.strategy_config = {"patterns": ["levels_reversal"]}
+
+    executor.process_signal(
+        "SBER",
+        {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
+        imbalance=1.5,
+    )
+
+    query, params = _find_insert_call(db)
+    assert query is not None
+    assert params[11] is False  # trailing_enabled
+    assert params[12] is None  # trailing_steps
+    assert params[13] is None  # risk_r
+
+
+
+# --- Issue #151: close position with execution facts --------------------------
+
+
+def test_close_position_records_model_and_actual_price():
+    """_close_db_position writes exit_price_model, exit_price_actual, slippage metrics."""
+    db = FakeDB()
+    executor = make_executor(db=db)
+    row = {
+        "id": 1,
+        "ticker": "SBER",
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "size_lots": 10,
+        "lot_size": 10,
+        "risk_r": 5.0,
+    }
+    executor._close_db_position(
+        row,
+        reason="stop",
+        exit_price=95.0,  # model price
+        exit_price_actual=94.8,  # actual fill (slippage)
+        lots_executed=10,
+    )
+    query, params = db.execute_calls[0]
+    assert "exit_price_model=%s" in query
+    assert "exit_price_actual=%s" in query
+    assert "slippage_bp=%s" in query
+    assert "slippage_r=%s" in query
+    assert "lots_executed=%s" in query
+    # Params: status, exit_ts, exit_price, exit_reason, pnl_rub,
+    #         exit_price_model, exit_price_actual, slippage_bp, slippage_r,
+    #         lots_executed, id
+    assert params[2] == pytest.approx(94.8)  # exit_price = actual (Variant A)
+    assert params[5] == pytest.approx(95.0)  # exit_price_model
+    assert params[6] == pytest.approx(94.8)  # exit_price_actual
+    assert params[7] == pytest.approx(-21.0526, abs=0.01)  # slippage_bp = (94.8/95 - 1) * 1e4
+    assert params[8] is not None  # slippage_r
+    assert params[9] == 10  # lots_executed
+
+
+def test_close_position_handles_missing_actual_price():
+    """_close_db_position works when exit_price_actual is None."""
+    db = FakeDB()
+    executor = make_executor(db=db)
+    row = {
+        "id": 1,
+        "ticker": "SBER",
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "size_lots": 10,
+        "lot_size": 10,
+        "risk_r": 5.0,
+    }
+    executor._close_db_position(
+        row,
+        reason="stop",
+        exit_price=95.0,
+        exit_price_actual=None,
+        lots_executed=None,
+    )
+    query, params = db.execute_calls[0]
+    assert params[2] == pytest.approx(95.0)  # exit_price = model (fallback)
+    assert params[5] == pytest.approx(95.0)  # exit_price_model
+    assert params[6] is None  # exit_price_actual
+    assert params[7] is None  # slippage_bp
+    assert params[8] is None  # slippage_r
+    assert params[9] is None  # lots_executed
+
+
+def test_close_position_trailing_uses_closed_trailing_status():
+    """_close_db_position with reason='trailing' sets status='closed_trailing'."""
+    db = FakeDB()
+    executor = make_executor(db=db)
+    row = {
+        "id": 1,
+        "ticker": "SBER",
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "current_stop_price": 105.0,
+        "step_reached": 1,
+        "risk_r": 5.0,
+        "size_lots": 10,
+        "lot_size": 10,
+    }
+    executor._close_db_position(
+        row,
+        reason="trailing",
+        exit_price=105.0,
+        exit_price_actual=104.9,
+        lots_executed=10,
+    )
+    query, params = db.execute_calls[0]
+    assert params[0] == "closed_trailing"  # status
+    assert params[3] == "trailing"  # exit_reason
+
+
+# --- Issue #151: TokenBucket.try_acquire() tests ------------------------------
+
+
+def test_token_bucket_try_acquire_returns_true_when_token_available():
+    """try_acquire() returns True when bucket has tokens."""
+    bucket = TokenBucket(rate_per_second=2.0)
+    assert bucket.try_acquire() is True
+
+
+def test_token_bucket_try_acquire_returns_false_when_exhausted():
+    """try_acquire() returns False when bucket is empty."""
+    bucket = TokenBucket(rate_per_second=1.0)
+    bucket.try_acquire()  # consume the only token
+    assert bucket.try_acquire() is False
+
+
+def test_token_bucket_try_acquire_recovers_over_time():
+    """try_acquire() returns True after enough time passes."""
+    now = [0.0]
+    bucket = TokenBucket(
+        rate_per_second=1.0,
+        clock=lambda: now[0],
+    )
+    bucket.try_acquire()  # consume initial token
+    assert bucket.try_acquire() is False  # no tokens left
+    now[0] = 1.0  # advance 1 second
+    assert bucket.try_acquire() is True  # token recovered
+
+
+def test_broker_call_nonblocking_returns_none_when_exhausted():
+    """_broker_call(blocking=False) returns None when rate limit exhausted."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    # Consume all tokens
+    executor.rate_limiter.tokens = 0
+    executor.rate_limiter.updated_at = executor.rate_limiter.clock()
+    # Non-blocking call should return None
+    result = executor._broker_call("check_balance", blocking=False)
+    assert result is None
+    # Broker method should not have been called
+    assert len(broker.calls) == 0
+
+
+def test_broker_call_blocking_still_works():
+    """_broker_call(blocking=True) still works as before (default behavior)."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    # Blocking call should work
+    result = executor._broker_call("check_balance")
+    assert result == broker.balance
+    assert len(broker.calls) == 1
+
+
+# --- Issue #151: Kill switch integration tests --------------------------------
+
+
+def test_kill_switch_prevents_trailing_arming():
+    """When kill switch is ON, new positions are not armed with trailing."""
+    db = FakeDB(app_settings={"trailing_kill_switch": True})
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    # Refresh kill switch from DB
+    executor._refresh_kill_switch()
+    
+    # Set trailing config in strategy
+    executor.strategy_config = {
+        "patterns": ["levels_reversal"],
+        "trailing_stop": {
+            "enabled": True,
+            "steps": [{"trigger": 2.0, "stop": 1.0}],
+        },
+    }
+    
+    # Open position
+    executor.process_signal(
+        "SBER",
+        {"action": "enter", "entry_price": 100.0, "stop": 95.0, "take": 110.0},
+        imbalance=1.5,
+    )
+    
+    # Check INSERT params
+    query, params = _find_insert_call(db)
+    assert query is not None
+    assert params[11] is False  # trailing_enabled=False due to kill switch
+
+
+def test_kill_switch_preserves_armed_positions():
+    """When kill switch is ON, already armed positions keep their state."""
+    db = FakeDB(app_settings={"trailing_kill_switch": True})
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    
+    # Position already armed with trailing
+    active_pos = active_position(
+        trailing_enabled=True,
+        trailing_steps=json.dumps([{"trigger": 2.0, "stop": 1.0}]),
+        risk_r=5.0,
+        current_stop_price=105.0,
+        step_reached=1,
+    )
+    db.active = active_pos
+    
+    # Kill switch ON
+    executor._refresh_kill_switch()
+    
+    # Apply trailing should be skipped
+    row = active_pos.iloc[0].to_dict()
+    result = executor._apply_trailing(row, current_price=115.0)
+    assert result is None  # No ratchet due to kill switch
+
+
+def test_invalid_trailing_config_disables_arming():
+    """When trailing config is invalid, trailing_enabled=False."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+    
+    # Invalid trailing config (trigger < stop)
+    executor.strategy_config = {
+        "patterns": ["levels_reversal"],
+        "trailing_stop": {
+            "enabled": True,
+            "steps": [{"trigger": 1.0, "stop": 2.0}],  # Invalid: stop > trigger
+        },
+    }
+    
+    executor.process_signal(
+        "SBER",
+        {"action": "enter", "entry_price": 100.0, "stop": 95.0, "take": 110.0},
+        imbalance=1.5,
+    )
+    
+    query, params = _find_insert_call(db)
+    assert query is not None
+    assert params[11] is False  # trailing_enabled=False due to invalid config
+    assert params[12] is None  # trailing_steps=None
+
+
+

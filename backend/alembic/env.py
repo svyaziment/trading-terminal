@@ -30,8 +30,10 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Get database URL from the single source of truth (same as the app).
+# Escape '%' for configparser interpolation (known Alembic gotcha with
+# URL-encoded passwords containing special characters like '@', '!', etc.).
 database_url = get_app_database_url()
-config.set_main_option("sqlalchemy.url", database_url)
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 # add your model's MetaData object here
 # for 'autogenerate' support

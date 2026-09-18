@@ -87,20 +87,23 @@ The ladder itself is the same pure function used by backtest, walk-forward and p
   `20260915_002_live_trailing.py` (`ADD COLUMN IF NOT EXISTS` + backfill of historical rows
   to `false`/`NULL`, idempotent on re-run). The same schema is reused by the forthcoming
   production broker wiring (out of scope for #149).
-- **Runtime**: the executor does not yet advance the ladder bar-by-bar — that is Issue #151.
-  Until it lands, every live position reports `trailing_enabled=false` and `current_stop_price`
-  / `step_reached` / `risk_r` as `null`, so the API stays forward-compatible and the UI sees a
-  stable shape.
-- **Reading a run**: `exit_reason='trailing'` on a live position therefore means the trailing
-  wiring landed (#151) and the ladder fired; before that, exits are `stop` or `take` only.
+- **Runtime**: the executor advances the ladder bar-by-bar (Issue #151, completed 2026-09-16).
+  Every live position with `trailing_enabled=true` reports `current_stop_price`, `step_reached`,
+  and `risk_r` as the ladder progresses. Positions without trailing report these as `null`.
+- **Reading a run**: `exit_reason='trailing'` on a live position means the ladder fired;
+  `exit_reason='stop'` or `'take'` means the initial stop or take filled without trailing.
+- **Kill switch**: set `trading.app_settings.trailing_kill_switch = true` to pause all trailing
+  advancement without stopping the executor. Armed positions keep their state; new positions
+  are not armed until the switch is cleared.
 
 ## Tables
 
 - `trading.alerts` — shared with paper (signal JSONB: price, support/take, confirm_close_time,
   window_mode, rr_mode).
 - `trading.live_positions` — sandbox positions (entry/exit, PnL, A/B factors, trailing
-  columns from #149).
+  columns from #149, runtime columns from #151).
 - `trading.live_equity` — sandbox equity curve (capital + realized + unrealized PnL).
+- `trading.app_settings` — runtime switches (key-value JSONB, includes `trailing_kill_switch`).
 
 See `testing-rules.md` for the full parameter set and report formats.
 
@@ -108,6 +111,8 @@ See `testing-rules.md` for the full parameter set and report formats.
   - `closed_stop` — a 1min candle touches the synthetic stop; executor submits a sell limit
     at best bid to close.
   - `closed_trailing` — same shape as `closed_stop`, but the stop was ratcheted by a trailing
-    ladder before firing. **Schema-ready** (Issue #149): columns exist in
-    `trading.live_positions` via migration `20260915_002_live_trailing.py`, but the executor
-    does not yet drive them — wiring is owned by Issue #151.
+    ladder before firing. **Operational** (Issue #151, completed 2026-09-16): columns exist in
+    `trading.live_positions` via migration `20260915_002_live_trailing.py`, and the executor
+    drives them through `_apply_trailing()` in `monitor_positions()`.
+  - `closed_broker` — the position vanished from the broker account without a recorded exit
+    (e.g., manual intervention, broker-side liquidation). Exit price is the last known price.

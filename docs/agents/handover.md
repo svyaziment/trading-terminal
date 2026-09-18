@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-16 (task-150); previously 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -731,4 +731,91 @@ cd backend && python -m pytest tests/test_issue150_exit_reason_filter.py -v
 cd frontend && npx vitest run src/trailingStatus.test.ts
 cd frontend && npx tsc --noEmit
 ```
+## 41. Operating live trailing stop (Issue #151)
+
+Completed 2026-09-16. Live/sandbox trailing-stop ratchet, restart, and kill-switch.
+
+### Architecture overview
+
+- **Arming**: `process_signal()` arms trailing on position open if `strategy_config.trailing_stop.enabled=true` and kill switch is OFF. Zero broker calls. Parameters written to `trading.live_positions`: `trailing_enabled=true`, `trailing_steps` (JSONB), `risk_r=entry-stop`, `current_stop_price=stop_price`, `step_reached=0`.
+- **Ratchet**: `monitor_positions()` calls `_apply_trailing(row, current_price)` for each active position with `trailing_enabled=true`. Rebuilds `TrailingState` from DB, evaluates current price as single bar, conditional UPDATE `WHERE id=%s AND step_reached < %s` ensures monotonicity.
+- **Exit**: When `current_price <= current_stop_price`, cancels take, submits sell-limit at current price (blocking=False, deferred if rate limit exhausted). Records `exit_price_model`, `exit_price_actual`, `slippage_bp`, `slippage_r`, `lots_executed`. Status `closed_trailing`, reason `trailing`.
+- **Kill switch**: `_refresh_kill_switch()` reads `trading.app_settings.trailing_kill_switch` before each monitoring cycle. ON pauses arming/ratchet; armed positions keep state. Fail-safe: DB error → kill switch ON.
+- **Advisory lock**: `pg_try_advisory_lock(151001)` in `initialize()`, released in `shutdown()`. Prevents multiple executor instances.
+- **Restart safety**: State restored from DB columns; no in-memory state. Idempotent replay.
+
+### Database
+
+- Migration `20260916_001_live_trailing_runtime.py`: extends `live_positions.status` CHECK to include `closed_trailing`, `closed_broker`; adds `exit_price_model`, `exit_price_actual`, `slippage_bp`, `slippage_r`, `lots_executed`; creates `trading.app_settings` table.
+- Columns `trailing_enabled`, `trailing_steps`, `risk_r`, `current_stop_price`, `step_reached` already exist (migration `20260915_002`).
+
+### Configuration
+
+- `LIVE_TRADING.trailing_kill_switch`: default `false`, runtime override via `trading.app_settings`.
+- `LIVE_TRADING.live_trailing_enabled`: default `true`, global toggle.
+- `LIVE_TRADING.trailing_protective_ticks`: default `5`, protective offset for stop execution.
+- `LIVE_TRADING.trailing_ticker_allowlist`: default `[]`, optional ticker filter.
+
+### Operations
+
+**Enable trailing**:
+1. Ensure strategy has `trailing_stop.enabled=true` in config.
+2. Verify `trading.app_settings.trailing_kill_switch = false`:
+   ```sql
+   SELECT value FROM trading.app_settings WHERE key='trailing_kill_switch';
+   ```
+3. Start executor: `python -m app.analytics.run_live_trading --strategy <name> --duration-minutes 30`
+
+**Pause trailing (kill switch)**:
+```sql
+UPDATE trading.app_settings SET value='true'::jsonb, updated_at=now() WHERE key='trailing_kill_switch';
+```
+No restart required. Armed positions keep state; new positions not armed.
+
+**Resume trailing**:
+```sql
+UPDATE trading.app_settings SET value='false'::jsonb, updated_at=now() WHERE key='trailing_kill_switch';
+```
+
+**Monitor trailing exits**:
+```bash
+grep 'trailing_exit' reports/live-executor/live-executor-*.log
+```
+Structured log: `ticker, entry, initial_stop, final_stop, step_reached, risk_r, model_price, actual_price, slippage_bp, slippage_r, lots_requested, lots_executed, position_id`.
+
+**Check advisory lock**:
+```sql
+SELECT pg_try_advisory_lock(151001);  -- false if another instance running
+```
+
+### Testing
+
+68 tests in `test_live_executor.py` (43 new for #151):
+- Arming: `test_open_position_arms_trailing_when_enabled`, `test_open_position_skips_trailing_when_disabled_in_config`, `test_open_position_skips_trailing_when_kill_switch_on`, `test_open_position_no_trailing_without_strategy_config`
+- Ratchet: `test_apply_trailing_returns_none_when_disabled`, `test_apply_trailing_returns_none_when_kill_switch_on`, `test_apply_trailing_returns_none_when_no_steps`, `test_apply_trailing_returns_none_when_price_below_next_step`, `test_apply_trailing_ratchets_when_price_reaches_trigger`, `test_apply_trailing_returns_none_when_step_already_reached`
+- Execution facts: `test_close_position_records_model_and_actual_price`, `test_close_position_handles_missing_actual_price`, `test_close_position_trailing_uses_closed_trailing_status`
+- Rate limiter: `test_token_bucket_try_acquire_returns_true_when_token_available`, `test_token_bucket_try_acquire_returns_false_when_exhausted`, `test_token_bucket_try_acquire_recovers_over_time`, `test_broker_call_nonblocking_returns_none_when_exhausted`, `test_broker_call_blocking_still_works`
+- Config validation: 9 tests for `trailing_kill_switch`, `live_trailing_enabled`, `trailing_protective_ticks`, `trailing_ticker_allowlist`
+- Kill switch integration: `test_kill_switch_prevents_trailing_arming`, `test_kill_switch_preserves_armed_positions`, `test_invalid_trailing_config_disables_arming`
+
+### Verification commands
+
+```powershell
+# Тесты
+cd f:\GIT\trading-terminal\backend; python -m pytest tests/test_live_executor.py -v
+
+# Локальный запуск миграций (PowerShell, без Docker):
+cd f:\GIT\trading-terminal\backend; $env:APP_DATABASE_URL=""; $env:POSTGRES_HOST="localhost"; python -m alembic upgrade head
+
+# Docker запуск:
+docker compose exec backend python -m alembic upgrade head
+```
+
+### Known limitations
+
+- `EXIT_TAKE` from replay is ignored (take is resting order, existing reconciliation handles it).
+- Partial fills (`lots_executed < size_lots`) logged but not retried.
+- `broker_position_vanished` event type not yet implemented (currently logs warning).
+
+
 
