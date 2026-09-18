@@ -1,6 +1,6 @@
 # Epic #001: Production T-Bank live trading readiness
 
-**Status:** planning
+**Status:** in-progress
 **Created:** 2026-09-18
 **Last refreshed:** 2026-09-18
 
@@ -50,7 +50,7 @@
 
 ## Разбивка на Issues
 
-Номера GitHub Issues проставляются в таблице соответствия ниже после создания (план по правилу формируется до Issues).
+Номера GitHub Issues присвоены при создании: epic-Issue **#172**, задачи A-F — **#173...#178** (полное соответствие — в разделе «Таблица соответствия Issues»).
 
 ### Задача A: Schema — выравнивание runtime-DDL и fail-fast preflight
 
@@ -128,12 +128,13 @@
 
 | Задача | GitHub Issue | Ветка |
 | --- | --- | --- |
-| A | TBD | TBD |
-| B | TBD | TBD |
-| C | TBD | TBD |
-| D | TBD | TBD |
-| E | TBD | TBD |
-| F | TBD | TBD |
+| Epic | #172 | `feature/epic-001-live-production-readiness` |
+| A — Schema и preflight | #173 | `feature/issue-173-live-schema-preflight` |
+| B — Живучесть цикла, shutdown, lock | #174 | `feature/issue-174-executor-resilience` |
+| C — Брокерская защита и реконсиляция | #175 | `feature/issue-175-broker-stop-protection` |
+| D — Live equity и риск-гейты | #176 | `feature/issue-176-live-equity-risk-gates` |
+| E — Уведомления и мониторинг | #177 | `feature/issue-177-live-notifications-monitoring` |
+| F — Реальный брокер, kill switch, деплой | #178 | `feature/issue-178-live-broker-kill-switch-deploy` |
 
 ## Risks
 
@@ -160,3 +161,4 @@
 ## Progress Log
 
 - 2026-09-18 Epic created. План сформирован по итогам анализа кода, 68 зелёных тестов `backend/tests/test_live_executor.py` и read-only проверки боевой БД (`trading.live_positions`: 30 колонок, CHECK из 7 статусов; `live_equity` отсутствует; `app_settings.value` — JSONB; `alembic_version` присутствует).
+- 2026-09-18 Созданы epic-Issue #172 и задачи #173-#178 (A-F), метка `epic-172`. Статус эпика — in-progress, старт реализации с задачи A (#173).
