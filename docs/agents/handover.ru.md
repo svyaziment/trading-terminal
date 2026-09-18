@@ -824,5 +824,45 @@ docker compose exec backend python -m alembic upgrade head
 - Частичные исполнения (`lots_executed < size_lots`) логируются, но не повторяются.
 - Тип события `broker_position_vanished` пока не реализован (сейчас логируется warning).
 
+## 42. Контракт схемы live_positions и fail-fast preflight (задача #173)
+
+### Зачем
+
+Runtime-DDL в `ensure_live_positions_table()` создавал 20 колонок и CHECK из пяти статусов, тогда как Alembic (`20260915_002`, `20260916_001`) требует 30 колонок и семь статусов. Прод-база, созданная исполнителем без миграций, падала бы на трейлинг-колонках (`UndefinedColumn`) и не могла сохранить `closed_trailing` / `closed_broker`. Preflight схему не проверял вовсе, поэтому дрейф всплывал уже во время торговли, а не на старте.
+
+### Что изменилось
+
+| Файл | Изменения |
+| --- | --- |
+| `backend/app/analytics/live_schema.py` | **Новый модуль**: константы контракта (30 колонок, 7 статусов, ключи `app_settings`), идемпотентный DDL `ensure_live_positions_schema()` (`LIVE_SCHEMA_STATEMENTS`), `inspect_live_schema()`, `validate_live_schema()`, `assert_live_schema()` / `LiveSchemaError`, `describe_live_schema_problems()`, `live_schema_summary()` |
+| `backend/app/analytics/live_executor.py` | `ensure_live_positions_table()` — тонкая обёртка над модулем контракта; `initialize()` вызывает `assert_live_schema()` сразу после DDL |
+| `backend/app/analytics/live_executor_preflight.py` | Новая блокирующая проверка `live_positions_schema` и блок `details.live_schema` |
+| `backend/tests/test_live_schema.py` | **Новый файл**: 23 теста (контракт, идемпотентность и порядок DDL, обнаружение дрейфа, предупреждения, fail-fast исполнителя) |
+| `backend/tests/test_live_executor.py` | `FakeDB` отвечает на `information_schema.tables` / `information_schema.columns` / `pg_constraint`; по умолчанию описывает полностью мигрированную схему, аргументы конструктора позволяют имитировать дрейф |
+
+### Поведение
+
+- DDL идемпотентен и является суперсетом обеих миграций: `CREATE TABLE IF NOT EXISTS` (30 колонок, CHECK из семи статусов), индекс активных позиций, `ADD COLUMN IF NOT EXISTS` для трейлинг- и execution-fact колонок, backfill `current_stop_price`, `DROP/ADD CONSTRAINT` для CHECK статуса, затем создание и сидирование `app_settings`.
+- Блокирующие ошибки: отсутствие `trading.live_positions` или `trading.app_settings`, недостающие колонки, отсутствующий/узкий CHECK статуса, сбой чтения каталога.
+- Только предупреждения: отсутствие ключей `app_settings` (исполнитель и так использует безопасные значения по умолчанию) и колонки вне контракта.
+- Первые три оператора DDL сохраняют исторические позиции, потому что `test_runtime_migration_is_idempotent` проверяет их по индексам.
+
+### Команды проверки
+
+```powershell
+# 23 новых + 68 существующих тестов исполнителя
+cd f:\GIT\trading-terminal\backend; python -m pytest tests/test_live_schema.py tests/test_live_executor.py -q
+
+# Read-only проверка контракта на реальной БД
+cd f:\GIT\trading-terminal\backend; python ..\reports\173-issue-173-live-schema-preflight\verify_schema_contract.py
+```
+
+Результат на прод-БД (2026-09-18): `ok: true`, `columns_found: 30/30`, разрешены все семь статусов, оба ключа `app_settings` на месте, предупреждений нет.
+
+### Известные ограничения
+
+- `live_executor_preflight.py` по-прежнему требует Linux `/proc` и живой backend на `localhost:8000`; на Windows юнит-тестируется только его часть про схему.
+- Два устаревших ассерта (появились до #173) всё ещё ожидают группу `closed` из двух статусов, как до #149: `test_live_trading_api.py::test_live_filters_target_closed_positions_ticker_and_dates` и `test_paper_trading_monitoring_api.py::test_monitoring_filters_support_closed_group_ticker_and_dates`. Зафиксировано в Issue #179, вне объёма #173.
+
 
 

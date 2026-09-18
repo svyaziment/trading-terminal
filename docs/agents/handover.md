@@ -817,5 +817,45 @@ docker compose exec backend python -m alembic upgrade head
 - Partial fills (`lots_executed < size_lots`) logged but not retried.
 - `broker_position_vanished` event type not yet implemented (currently logs warning).
 
+## 42. live_positions schema contract and fail-fast preflight (Issue #173)
+
+### Why
+
+The runtime DDL in `ensure_live_positions_table()` created 20 columns and a five-status CHECK, while Alembic (`20260915_002`, `20260916_001`) requires 30 columns and seven statuses. A production database built by the executor without migrations would fail on the trailing columns (`UndefinedColumn`) and could not store `closed_trailing` / `closed_broker`. Preflight did not inspect the schema at all, so drift surfaced during trading instead of at startup.
+
+### What changed
+
+| File | Change |
+| --- | --- |
+| `backend/app/analytics/live_schema.py` | **New module**: contract constants (30 columns, 7 statuses, `app_settings` keys), idempotent DDL `ensure_live_positions_schema()` (`LIVE_SCHEMA_STATEMENTS`), `inspect_live_schema()`, `validate_live_schema()`, `assert_live_schema()` / `LiveSchemaError`, `describe_live_schema_problems()`, `live_schema_summary()` |
+| `backend/app/analytics/live_executor.py` | `ensure_live_positions_table()` is now a thin wrapper over the contract module; `initialize()` calls `assert_live_schema()` immediately after the DDL |
+| `backend/app/analytics/live_executor_preflight.py` | New blocking check `live_positions_schema` plus a `details.live_schema` summary |
+| `backend/tests/test_live_schema.py` | **New**: 23 tests (contract, DDL idempotency and order, drift detection, warnings, executor fail-fast) |
+| `backend/tests/test_live_executor.py` | `FakeDB` now answers `information_schema.tables` / `information_schema.columns` / `pg_constraint`; defaults describe a fully migrated schema, constructor arguments allow simulating drift |
+
+### Behaviour
+
+- The DDL is idempotent and a superset of both migrations: `CREATE TABLE IF NOT EXISTS` (30 columns, seven-status CHECK), the active index, `ADD COLUMN IF NOT EXISTS` for the trailing and execution-fact columns, the `current_stop_price` backfill, `DROP/ADD CONSTRAINT` for the status CHECK, then `app_settings` creation and seeding.
+- Blocking errors: missing `trading.live_positions` or `trading.app_settings`, missing columns, missing or narrow status CHECK, catalog read failures.
+- Warnings only: missing `app_settings` keys (the executor already falls back to safe defaults) and columns outside the contract.
+- The first three DDL statements keep their historical positions because `test_runtime_migration_is_idempotent` asserts on them.
+
+### Verification
+
+```powershell
+# 23 new + 68 existing executor tests
+cd f:\GIT\trading-terminal\backend; python -m pytest tests/test_live_schema.py tests/test_live_executor.py -q
+
+# Read-only contract check against the real database
+cd f:\GIT\trading-terminal\backend; python ..\reports\173-issue-173-live-schema-preflight\verify_schema_contract.py
+```
+
+Production database result (2026-09-18): `ok: true`, `columns_found: 30/30`, all seven statuses allowed, both `app_settings` keys present, no warnings.
+
+### Known limitations
+
+- `live_executor_preflight.py` still requires Linux `/proc` and a healthy backend on `localhost:8000`; only its schema part is unit-testable on Windows.
+- Two pre-existing stale assertions still expect the pre-#149 two-status `closed` group: `test_live_trading_api.py::test_live_filters_target_closed_positions_ticker_and_dates` and `test_paper_trading_monitoring_api.py::test_monitoring_filters_support_closed_group_ticker_and_dates`. Tracked in Issue #179, out of scope for #173.
+
 
 

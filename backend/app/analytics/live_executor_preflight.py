@@ -11,6 +11,10 @@ from typing import Any
 
 import pandas as pd
 
+from app.analytics.live_schema import (
+    live_schema_summary,
+    validate_live_schema,
+)
 from app.analytics.trading_config import (
     EXPECTED_LOCKED_STRATEGY,
     LIVE_UNIVERSE,
@@ -70,6 +74,10 @@ def collect_preflight() -> dict[str, Any]:
 
     db = DBManager()
     try:
+        # Issue #173: schema drift is a hard blocker - the executor would die
+        # mid-trade with UndefinedColumn or a status CHECK violation.
+        schema_validation = validate_live_schema(db)
+        schema_summary = live_schema_summary(schema_validation)
         universe = get_trading_universe(db)
         live_universe = get_live_trading_universe(db)
         strategies = db.select(
@@ -123,6 +131,7 @@ def collect_preflight() -> dict[str, Any]:
         )
         checks = {
             "backend_health": health.get("status") == "ok",
+            "live_positions_schema": schema_validation.ok,
             "live_universe": live_universe == CANARY_TICKERS,
             "single_locked_strategy": (
                 len(strategy_rows) == 1
@@ -148,6 +157,7 @@ def collect_preflight() -> dict[str, Any]:
             "checked_at_msk": now.isoformat(),
             "checks": checks,
             "details": {
+                "live_schema": schema_summary,
                 "live_universe": live_universe,
                 "locked_strategies": strategy_rows,
                 "sandbox_free_rub": free_rub,
