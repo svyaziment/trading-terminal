@@ -9,6 +9,7 @@ import pytest
 from app.analytics import live_executor as module
 from app.analytics.live_executor import (
     LiveExecutor,
+    MAX_CONSECUTIVE_ERRORS,
     TokenBucket,
     ensure_live_positions_table,
     tick_align,
@@ -29,6 +30,41 @@ class Result:
 
     def to_dataframe(self):
         return self.frame.copy()
+
+
+class FakeCursor:
+    """Fake cursor that records executed queries."""
+
+    def __init__(self, connection):
+        self.connection = connection
+        self.executed = []
+
+    def execute(self, query, params=None):
+        self.executed.append((query, params))
+
+    def fetchone(self):
+        # pg_try_advisory_lock returns (True,) when acquired
+        if self.executed and "pg_try_advisory_lock" in self.executed[-1][0]:
+            return (True,)
+        return None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        pass
+
+
+class FakeConnection:
+    """Fake connection that tracks cursors for advisory lock tests."""
+
+    def __init__(self):
+        self.cursors = []
+
+    def cursor(self):
+        cursor = FakeCursor(self)
+        self.cursors.append(cursor)
+        return cursor
 
 
 class FakeDB:
@@ -66,6 +102,9 @@ class FakeDB:
         )
         self.select_calls = []
         self.execute_calls = []
+        # Issue #174: dedicated connection for advisory lock tests
+        self._dedicated_conn = FakeConnection()
+        self.dedicated_connection_calls = []
 
     def select(self, query, params=None):
         self.select_calls.append((query, params))
@@ -112,6 +151,15 @@ class FakeDB:
     def execute(self, query, params=None):
         self.execute_calls.append((" ".join(query.split()), params))
         return 1
+
+    def get_dedicated_connection(self):
+        """Issue #174: return a dedicated connection for advisory lock."""
+        self.dedicated_connection_calls.append(("get", None))
+        return self._dedicated_conn
+
+    def release_dedicated_connection(self, conn):
+        """Issue #174: return a dedicated connection to the pool."""
+        self.dedicated_connection_calls.append(("release", conn))
 
 
 class FakeBroker:
@@ -493,7 +541,7 @@ def test_missing_broker_position_is_recorded_as_take_close():
 def test_shutdown_cancels_all_pending_orders_without_flattening_by_default():
     active = pd.concat(
         [
-            active_position(),
+            active_position(),  # open SBER with take-1
             active_position(
                 id=42,
                 ticker="GAZP",
@@ -520,13 +568,20 @@ def test_shutdown_cancels_all_pending_orders_without_flattening_by_default():
         for call in broker.calls
         if call[0] == "cancel_order"
     ]
-    assert cancelled == ["take-1", "entry-2"]
+    # Issue #174: only pending entry orders are cancelled; open positions
+    # keep their broker_stop_id and broker_take_id untouched.
+    assert cancelled == ["entry-2"]
     assert not any(
         call[0] == "execute_order" for call in broker.calls
     )
     assert any(
         "SET status='cancelled'" in query and params[1] == "shutdown"
         for query, params in db.execute_calls
+    )
+    # Verify that broker_stop_id and broker_take_id are NOT cleared for open positions
+    assert not any(
+        "SET broker_stop_id=NULL" in query
+        for query, _ in db.execute_calls
     )
 
 
@@ -1413,3 +1468,495 @@ def test_invalid_trailing_config_disables_arming():
 
 
 
+
+
+# --- Issue #174: advisory lock on dedicated connection ------------------------
+
+
+def test_advisory_lock_uses_dedicated_connection(monkeypatch):
+    """Issue #174: advisory lock and unlock happen on the SAME dedicated connection."""
+    instruments = pd.DataFrame(
+        [{"ticker": "SBER", "figi": "figi-sber", "lot_size": 10}]
+    )
+    db = FakeDB(instruments=instruments)
+
+    class Evaluator:
+        def __init__(self, config):
+            pass
+
+        def load_context(self, *args):
+            pass
+
+    strategy = {"patterns": ["levels_reversal"]}
+    monkeypatch.setattr(
+        module,
+        "get_paper_strategy",
+        lambda _db: (strategy, ["SBER"], "strategy-1"),
+    )
+    monkeypatch.setattr(
+        module,
+        "build_4h_context",
+        lambda *_args: {
+            "levels": ["level"],
+            "ts_4h": ["ts"],
+            "atr_by_ts": {"ts": 1},
+            "buy_ts": [],
+        },
+    )
+    executor = LiveExecutor(
+        db=db,
+        broker=FakeBroker(),
+        config={"enabled": True},
+        evaluator_factory=Evaluator,
+    )
+
+    # Initialize acquires advisory lock on dedicated connection
+    executor.initialize()
+
+    # Verify lock was acquired on the dedicated connection
+    assert executor._advisory_lock_acquired is True
+    assert executor._lock_conn is db._dedicated_conn
+    lock_queries = [
+        q for cursor in db._dedicated_conn.cursors for q, _ in cursor.executed
+        if "pg_try_advisory_lock" in q
+    ]
+    assert len(lock_queries) == 1
+
+    # Shutdown releases advisory lock on the SAME connection
+    executor.shutdown()
+
+    # Verify unlock happened on the same connection
+    assert executor._lock_conn is None
+    assert executor._advisory_lock_acquired is False
+    unlock_queries = [
+        q for cursor in db._dedicated_conn.cursors for q, _ in cursor.executed
+        if "pg_advisory_unlock" in q
+    ]
+    assert len(unlock_queries) == 1
+
+    # Verify release_dedicated_connection was called
+    release_calls = [
+        action for action, conn in db.dedicated_connection_calls
+        if action == "release"
+    ]
+    assert len(release_calls) >= 1
+
+
+# --- Issue #174: main loop protection against transient errors ----------------
+
+
+def test_run_continues_after_transient_error(monkeypatch):
+    """Issue #174: single error in monitor_positions does not stop the executor."""
+    instruments = pd.DataFrame(
+        [{"ticker": "SBER", "figi": "figi-sber", "lot_size": 10}]
+    )
+    db = FakeDB(instruments=instruments)
+
+    class Evaluator:
+        def __init__(self, config):
+            pass
+
+        def load_context(self, *args):
+            pass
+
+    strategy = {"patterns": ["levels_reversal"]}
+    monkeypatch.setattr(
+        module,
+        "get_paper_strategy",
+        lambda _db: (strategy, ["SBER"], "strategy-1"),
+    )
+    monkeypatch.setattr(
+        module,
+        "build_4h_context",
+        lambda *_args: {
+            "levels": ["level"],
+            "ts_4h": ["ts"],
+            "atr_by_ts": {"ts": 1},
+            "buy_ts": [],
+        },
+    )
+    executor = LiveExecutor(
+        db=db,
+        broker=FakeBroker(),
+        config={"enabled": True, "check_interval_seconds": 0.1, "context_refresh_seconds": 60},
+        evaluator_factory=Evaluator,
+    )
+
+    # Make monitor_positions fail once
+    call_count = [0]
+    original_monitor = executor.monitor_positions
+
+    def failing_monitor():
+        call_count[0] += 1
+        if call_count[0] == 1:
+            raise RuntimeError("Transient error")
+        return original_monitor()
+
+    executor.monitor_positions = failing_monitor
+
+    # Run for 0.3 seconds (should complete 3 cycles)
+    executor.run(duration_minutes=0.005)
+
+    # Verify executor continued after error
+    assert call_count[0] >= 2
+    assert executor._consecutive_errors == 0  # reset after successful call
+
+
+def test_run_stops_after_max_errors(monkeypatch):
+    """Issue #174: executor stops after MAX_CONSECUTIVE_ERRORS consecutive failures."""
+    instruments = pd.DataFrame(
+        [{"ticker": "SBER", "figi": "figi-sber", "lot_size": 10}]
+    )
+    db = FakeDB(instruments=instruments)
+
+    class Evaluator:
+        def __init__(self, config):
+            pass
+
+        def load_context(self, *args):
+            pass
+
+    strategy = {"patterns": ["levels_reversal"]}
+    monkeypatch.setattr(
+        module,
+        "get_paper_strategy",
+        lambda _db: (strategy, ["SBER"], "strategy-1"),
+    )
+    monkeypatch.setattr(
+        module,
+        "build_4h_context",
+        lambda *_args: {
+            "levels": ["level"],
+            "ts_4h": ["ts"],
+            "atr_by_ts": {"ts": 1},
+            "buy_ts": [],
+        },
+    )
+    executor = LiveExecutor(
+        db=db,
+        broker=FakeBroker(),
+        config={"enabled": True, "check_interval_seconds": 0.1, "context_refresh_seconds": 60},
+        evaluator_factory=Evaluator,
+    )
+
+    # Make monitor_positions always fail
+    def failing_monitor():
+        raise RuntimeError("Persistent error")
+
+    executor.monitor_positions = failing_monitor
+
+    # Run for 1 second (should stop after MAX_CONSECUTIVE_ERRORS)
+    executor.run(duration_minutes=0.02)
+
+    # Verify executor stopped after MAX_CONSECUTIVE_ERRORS
+    assert executor._consecutive_errors >= MAX_CONSECUTIVE_ERRORS
+
+
+
+# --- Issue #174: safe shutdown leaves positions protected -------------------
+
+
+def test_shutdown_leaves_position_protected_by_default():
+    """Issue #174: shutdown with close_positions=False leaves stop/take orders intact."""
+    active = active_position(
+        broker_stop_id="stop-1",
+        broker_take_id="take-1",
+    )
+    db = FakeDB(active=active)
+    broker = FakeBroker()
+    executor = make_executor(
+        db=db,
+        broker=broker,
+        close_positions_on_shutdown=False,
+    )
+
+    executor.shutdown()
+
+    # No cancel_order calls for stop or take
+    cancelled = [
+        call[1]["order_id"]
+        for call in broker.calls
+        if call[0] == "cancel_order"
+    ]
+    assert cancelled == []
+
+    # No execute_order calls (no flattening)
+    assert not any(call[0] == "execute_order" for call in broker.calls)
+
+    # No UPDATE clearing broker IDs for open positions
+    assert not any(
+        "SET broker_stop_id=NULL" in query
+        for query, _ in db.execute_calls
+    )
+    assert not any(
+        "SET broker_take_id=NULL" in query
+        for query, _ in db.execute_calls
+    )
+
+
+def test_shutdown_still_flattens_when_explicitly_requested():
+    """Issue #174: shutdown with close_positions=True still closes positions (regression)."""
+    active = active_position(
+        broker_stop_id="stop-1",
+        broker_take_id="take-1",
+    )
+    db = FakeDB(active=active)
+    broker = FakeBroker()
+    executor = make_executor(
+        db=db,
+        broker=broker,
+        close_positions_on_shutdown=True,
+    )
+
+    executor.request_shutdown()
+    executor.shutdown()
+
+    # Cancel stop and take before market sell
+    cancelled = [
+        call[1]["order_id"]
+        for call in broker.calls
+        if call[0] == "cancel_order"
+    ]
+    assert "stop-1" in cancelled
+    assert "take-1" in cancelled
+
+    # Market sell order was submitted
+    assert any(
+        call[0] == "execute_order"
+        and call[1]["direction"] == "sell"
+        and call[1]["order_type"] == "market"
+        for call in broker.calls
+    )
+
+
+
+# --- Issue #174: isolation at unit-of-work level -----------------------------
+
+
+def test_error_in_one_ticker_does_not_break_others(monkeypatch):
+    """Issue #174: error in one ticker does not break processing of others."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+
+    # Set up two tickers with mock evaluators
+    class MockEvaluator:
+        def update_context(self, **kwargs):
+            pass
+
+        def check_entry(self, bar):
+            return {"action": "enter", "entry_price": 100, "stop": 95, "take": 110}
+
+    executor.evaluators = {
+        "SBER": MockEvaluator(),
+        "GAZP": MockEvaluator(),
+    }
+    executor.last_processed = {"SBER": None, "GAZP": None}
+
+    # Mock build_1m_context to fail for SBER, succeed for GAZP
+    def mock_build_1m_context(db, ticker, config):
+        if ticker == "SBER":
+            raise RuntimeError("Transient error for SBER")
+        return (
+            pd.DataFrame([{"timestamp": pd.Timestamp("2026-08-31 11:01:00")}]),
+            [True],
+        )
+
+    monkeypatch.setattr(module, "build_1m_context", mock_build_1m_context)
+
+    # Mock process_signal to track calls
+    processed_tickers = []
+
+    def mock_process_signal(ticker, decision, signal_ts=None, imbalance=None):
+        processed_tickers.append(ticker)
+        return {"executed": True, "reason": "open"}
+
+    executor.process_signal = mock_process_signal
+
+    # Run process_latest_bars
+    executed = executor.process_latest_bars()
+
+    # Verify GAZP was processed despite SBER error
+    assert "GAZP" in processed_tickers
+    assert "SBER" not in processed_tickers
+    assert executed == 1
+
+
+def test_error_in_one_position_does_not_break_others():
+    """Issue #174: error in one position does not break monitoring of others."""
+    # Two positions: SBER (will fail on _close_db_position), GAZP (will succeed)
+    active = pd.concat(
+        [
+            active_position(),  # SBER, status="open", broker_take_id="take-1"
+            active_position(
+                id=42,
+                ticker="GAZP",
+                instrument_id="figi-gazp",
+                broker_take_id=None,  # Missing take, will trigger _place_take_order
+            ),
+        ],
+        ignore_index=True,
+    )
+    db = FakeDB(active=active)
+    # Only GAZP has a broker position; SBER's vanished
+    broker_position = SimpleNamespace(
+        ticker="GAZP",
+        figi="figi-gazp",
+        instrument_uid="",
+        current_price=Decimal("100"),
+    )
+    broker = FakeBroker(positions=[broker_position])
+    executor = make_executor(db=db, broker=broker)
+
+    # Make _close_db_position fail for SBER (position 41)
+    original_close = executor._close_db_position
+
+    def failing_close(row, reason, exit_price, **kwargs):
+        if int(row["id"]) == 41:
+            raise RuntimeError("Transient error for position 41")
+        return original_close(row, reason, exit_price, **kwargs)
+
+    executor._close_db_position = failing_close
+
+    # Run monitor_positions
+    changes = executor.monitor_positions()
+
+    # Verify GAZP was processed despite SBER error
+    # GAZP has broker_take_id=None, so _place_take_order should be called
+    assert any(
+        call[0] == "execute_order" and call[1]["direction"] == "sell"
+        for call in broker.calls
+    )
+    assert changes >= 1
+
+
+def test_error_in_one_ticker_refresh_does_not_break_others(monkeypatch):
+    """Issue #174: error in one ticker does not break context refresh of others."""
+    db = FakeDB()
+    broker = FakeBroker()
+    executor = make_executor(db=db, broker=broker)
+
+    # Set up two tickers with mock evaluators
+    class MockEvaluator:
+        def __init__(self):
+            self.updated = False
+
+        def update_context(self, **kwargs):
+            self.updated = True
+
+    sber_eval = MockEvaluator()
+    gazp_eval = MockEvaluator()
+    executor.evaluators = {
+        "SBER": sber_eval,
+        "GAZP": gazp_eval,
+    }
+
+    # Mock build_4h_context to fail for SBER, succeed for GAZP
+    def mock_build_4h_context(db, ticker, config):
+        if ticker == "SBER":
+            raise RuntimeError("Transient error for SBER")
+        return {
+            "levels": ["level"],
+            "ts_4h": ["ts"],
+            "atr_by_ts": {"ts": 1},
+            "buy_ts": [],
+        }
+
+    monkeypatch.setattr(module, "build_4h_context", mock_build_4h_context)
+
+    # Run refresh_contexts
+    executor.refresh_contexts()
+
+    # Verify GAZP was updated despite SBER error
+    assert not sber_eval.updated
+    assert gazp_eval.updated
+
+
+
+# --- Issue #174: heartbeat and metrics ----------------------------------------
+
+
+def test_heartbeat_updates_each_iteration():
+    """Issue #174: heartbeat_ts and iterations_total update after each successful iteration."""
+    # Use time before 10:00 to avoid _FakeWallClock.sleep() magic (replaces 1s with 900s at >=10:00)
+    fake = _FakeWallClock(datetime(2026, 8, 31, 9, 0, 0))
+    events = {"monitor": 0, "bars": 0}
+    executor = make_executor(
+        now_fn=fake.now,
+        clock=fake.clock,
+        sleep_fn=fake.sleep,
+        check_interval_seconds=1,
+        context_refresh_seconds=10 ** 6,
+    )
+    executor.install_signal_handlers = lambda: None
+
+    def initialize():
+        executor.evaluators = {"SBER": object()}
+        executor.strategy_name = "active-strategy"
+
+    executor.initialize = initialize
+    executor.monitor_positions = lambda: events.__setitem__("monitor", events["monitor"] + 1)
+    executor.process_latest_bars = lambda: events.__setitem__("bars", events["bars"] + 1)
+    executor.refresh_contexts = lambda: None
+    executor.shutdown = lambda: None
+    executor._active_positions = lambda: pd.DataFrame()
+
+    # Run for 0.05 minutes (3 seconds, should complete 3 iterations)
+    executor.run(duration_minutes=0.05)
+
+    # Verify heartbeat and iterations updated
+    assert executor.iterations_total >= 3
+    assert executor.heartbeat_ts is not None
+    assert executor.errors_total == 0
+    assert executor.last_error_at is None
+
+    # Verify get_metrics returns the same values
+    metrics = executor.get_metrics()
+    assert metrics["iterations_total"] == executor.iterations_total
+    assert metrics["heartbeat_ts"] == executor.heartbeat_ts
+    assert metrics["errors_total"] == 0
+    assert metrics["errors_consecutive"] == 0
+    assert metrics["last_error_at"] is None
+
+
+def test_metrics_track_errors():
+    """Issue #174: errors_total and last_error_at update when errors occur."""
+    # Use time before 10:00 to avoid _FakeWallClock.sleep() magic
+    fake = _FakeWallClock(datetime(2026, 8, 31, 9, 0, 0))
+    executor = make_executor(
+        now_fn=fake.now,
+        clock=fake.clock,
+        sleep_fn=fake.sleep,
+        check_interval_seconds=1,
+        context_refresh_seconds=10 ** 6,
+    )
+    executor.install_signal_handlers = lambda: None
+
+    def initialize():
+        executor.evaluators = {"SBER": object()}
+        executor.strategy_name = "active-strategy"
+
+    executor.initialize = initialize
+    executor.refresh_contexts = lambda: None
+    executor.shutdown = lambda: None
+    executor._active_positions = lambda: pd.DataFrame()
+    executor.process_latest_bars = lambda: 0
+
+    # Make monitor_positions fail
+    def failing_monitor():
+        raise RuntimeError("Test error")
+
+    executor.monitor_positions = failing_monitor
+
+    # Run for 0.02 minutes (should hit error multiple times and stop)
+    executor.run(duration_minutes=0.02)
+
+    # Verify error metrics updated
+    assert executor.errors_total >= 1
+    assert executor.last_error_at is not None
+
+    # Verify get_metrics includes error info
+    metrics = executor.get_metrics()
+    assert metrics["errors_total"] == executor.errors_total
+    assert metrics["last_error_at"] == executor.last_error_at
+    assert metrics["errors_consecutive"] >= 1

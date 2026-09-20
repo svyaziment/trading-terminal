@@ -57,6 +57,12 @@ logger = logging.getLogger(__name__)
 
 ACTIVE_STATUSES = ("pending", "open")
 
+# Issue #174: Maximum consecutive errors in main loop before executor stops.
+# After reaching this threshold, the executor logs a critical error and
+# performs a safe shutdown to avoid infinite retry loops on persistent
+# failures (e.g. DB down, broker API outage).
+MAX_CONSECUTIVE_ERRORS = 5
+
 
 def _filter_live_tickers(strategy_tickers: list[str], live_universe: list[str]) -> list[str]:
     """Keep strategy tickers that belong to the configured LIVE_UNIVERSE."""
@@ -235,6 +241,19 @@ class LiveExecutor:
         self.strategy_config: Dict[str, Any] = {}
         self.strategy_name = ""
         self.tickers = []
+        # Issue #174: dedicated connection for advisory lock (must be held
+        # across the entire executor lifetime; pool connections are recycled).
+        self._lock_conn = None
+        self._advisory_lock_acquired = False
+        # Issue #174: counter for consecutive errors in main loop.
+        # If MAX_CONSECUTIVE_ERRORS is reached, the executor stops to
+        # avoid infinite retry loops on persistent failures.
+        self._consecutive_errors = 0
+        # Issue #174: heartbeat and metrics for external monitoring.
+        self.heartbeat_ts = None
+        self.iterations_total = 0
+        self.errors_total = 0
+        self.last_error_at = None
 
     def _validate_config(self) -> None:
         if int(self.config["max_open_positions"]) <= 0:
@@ -322,22 +341,39 @@ class LiveExecutor:
         if not self.evaluators:
             raise RuntimeError("No live strategy evaluators could be initialized")
 
-        # Issue #151: Acquire advisory lock to prevent multiple executor instances
-        # Lock key: 151001 (arbitrary constant for Issue #151)
-        lock_result = self.db.select(
-            "SELECT pg_try_advisory_lock(151001) AS acquired"
-        ).to_dataframe()
-        if not lock_result.empty and not bool(lock_result.iloc[0]["acquired"]):
-            logger.critical(
-                "Failed to acquire advisory lock (151001): "
-                "another LiveExecutor instance is already running"
-            )
-            raise RuntimeError(
-                "Another LiveExecutor instance is already running "
-                "(advisory lock 151001 is held)"
-            )
-        self._advisory_lock_acquired = True
-        logger.info("Advisory lock 151001 acquired")
+        # Issue #174: Acquire advisory lock on a DEDICATED connection.
+        # Advisory locks are bound to the session (connection) that acquired
+        # them. Using db.select() would return the connection to the pool
+        # immediately, and a later unlock on a different pooled connection
+        # would fail or leak the lock forever.
+        self._lock_conn = None
+        try:
+            self._lock_conn = self.db.get_dedicated_connection()
+            with self._lock_conn.cursor() as cursor:
+                cursor.execute("SELECT pg_try_advisory_lock(151001)")
+                row = cursor.fetchone()
+                acquired = bool(row[0]) if row else False
+            if not acquired:
+                logger.critical(
+                    "Failed to acquire advisory lock (151001): "
+                    "another LiveExecutor instance is already running"
+                )
+                self.db.release_dedicated_connection(self._lock_conn)
+                self._lock_conn = None
+                raise RuntimeError(
+                    "Another LiveExecutor instance is already running "
+                    "(advisory lock 151001 is held)"
+                )
+            self._advisory_lock_acquired = True
+            logger.info("Advisory lock 151001 acquired on dedicated connection")
+        except Exception:
+            if self._lock_conn is not None:
+                try:
+                    self.db.release_dedicated_connection(self._lock_conn)
+                except Exception:
+                    pass
+                self._lock_conn = None
+            raise
 
         # Issue #151: Log restored trailing positions for observability
         active = self._active_positions()
@@ -796,47 +832,67 @@ class LiveExecutor:
         """Feed each new closed 1-minute bar to the shared evaluator."""
         executed = 0
         for ticker, evaluator in self.evaluators.items():
-            frame, confirm_series = build_1m_context(
-                self.db,
-                ticker,
-                self.strategy_config,
-            )
-            if frame is None or not confirm_series:
-                continue
-            evaluator.update_context(confirm_series=confirm_series)
-            bar = frame.iloc[-1]
-            bar_ts = bar["timestamp"]
-            previous = self.last_processed[ticker]
-            if previous is not None and bar_ts <= previous:
-                continue
-            self.last_processed[ticker] = bar_ts
-            decision = evaluator.check_entry(bar)
-            if decision is None:
-                continue
-            result = self.process_signal(
-                ticker,
-                decision,
-                signal_ts=bar_ts,
-            )
-            if result["executed"]:
-                executed += 1
+            # Issue #174: isolate errors per ticker so one failure does not
+            # break processing of the rest.
+            try:
+                frame, confirm_series = build_1m_context(
+                    self.db,
+                    ticker,
+                    self.strategy_config,
+                )
+                if frame is None or not confirm_series:
+                    continue
+                evaluator.update_context(confirm_series=confirm_series)
+                bar = frame.iloc[-1]
+                bar_ts = bar["timestamp"]
+                previous = self.last_processed[ticker]
+                if previous is not None and bar_ts <= previous:
+                    continue
+                self.last_processed[ticker] = bar_ts
+                decision = evaluator.check_entry(bar)
+                if decision is None:
+                    continue
+                result = self.process_signal(
+                    ticker,
+                    decision,
+                    signal_ts=bar_ts,
+                )
+                if result["executed"]:
+                    executed += 1
+            except Exception as exc:
+                logger.error(
+                    "Isolated error in process_latest_bars: ticker=%s error=%s",
+                    ticker,
+                    exc,
+                    exc_info=True,
+                )
         return executed
 
     def refresh_contexts(self) -> None:
         for ticker, evaluator in self.evaluators.items():
-            context = build_4h_context(
-                self.db,
-                ticker,
-                self.strategy_config,
-            )
-            if context is not None:
-                evaluator.update_context(
-                    levels=context["levels"],
-                    ts_4h=context["ts_4h"],
-                    atr_by_ts=context["atr_by_ts"],
-                    buy_ts=context["buy_ts"],
-                    signal_filter_series=context.get("signal_filter_series") or [],
-                    htf_bars=context.get("htf_bars"),
+            # Issue #174: isolate errors per ticker so one failure does not
+            # break context refresh of the rest.
+            try:
+                context = build_4h_context(
+                    self.db,
+                    ticker,
+                    self.strategy_config,
+                )
+                if context is not None:
+                    evaluator.update_context(
+                        levels=context["levels"],
+                        ts_4h=context["ts_4h"],
+                        atr_by_ts=context["atr_by_ts"],
+                        buy_ts=context["buy_ts"],
+                        signal_filter_series=context.get("signal_filter_series") or [],
+                        htf_bars=context.get("htf_bars"),
+                    )
+            except Exception as exc:
+                logger.error(
+                    "Isolated error in refresh_contexts: ticker=%s error=%s",
+                    ticker,
+                    exc,
+                    exc_info=True,
                 )
 
     @staticmethod
@@ -860,115 +916,126 @@ class LiveExecutor:
         changes = 0
 
         for _, row in active.iterrows():
-            position = next(
-                (
-                    item
-                    for item in broker_positions
-                    if str(row["ticker"]) in self._position_keys(item)
-                    or str(row["instrument_id"]) in self._position_keys(item)
-                ),
-                None,
-            )
-            position_id = int(row["id"])
-            status = str(row["status"])
+            # Issue #174: isolate errors per position so one failure does not
+            # break monitoring of the rest.
+            try:
+                position = next(
+                    (
+                        item
+                        for item in broker_positions
+                        if str(row["ticker"]) in self._position_keys(item)
+                        or str(row["instrument_id"]) in self._position_keys(item)
+                    ),
+                    None,
+                )
+                position_id = int(row["id"])
+                status = str(row["status"])
 
-            if status == "pending":
-                if position is None:
-                    continue
-                self.db.execute(
-                    """
-                    UPDATE trading.live_positions
-                    SET status='open', updated_at=now()
-                    WHERE id=%s
-                    """,
-                    (position_id,),
-                )
-                self._place_take_order(
-                    position_id,
-                    str(row["instrument_id"]),
-                    int(row["size_lots"]),
-                    float(row["take_price"]),
-                )
-                changes += 1
-                continue
-
-            if position is None:
-                reason = "stop" if pd.notna(row.get("broker_stop_id")) else "take"
-                sibling = (
-                    row.get("broker_take_id")
-                    if reason == "stop"
-                    else row.get("broker_stop_id")
-                )
-                self._safe_cancel(sibling)
-                exit_price = float(
-                    row["stop_price"] if reason == "stop" else row["take_price"]
-                )
-                self._close_db_position(row, reason, exit_price)
-                changes += 1
-                continue
-
-            if pd.isna(row.get("broker_take_id")):
-                self._place_take_order(
-                    position_id,
-                    str(row["instrument_id"]),
-                    int(row["size_lots"]),
-                    float(row["take_price"]),
-                )
-                changes += 1
-
-            current_price = getattr(position, "current_price", None)
-            if current_price is not None:
-                # Issue #151: Apply trailing ratchet before stop trigger check
-                ratcheted_stop = self._apply_trailing(row, float(current_price))
-                effective_stop = (
-                    ratcheted_stop
-                    if ratcheted_stop is not None
-                    else (
-                        float(row["current_stop_price"])
-                        if pd.notna(row.get("current_stop_price"))
-                        else float(row["stop_price"])
+                if status == "pending":
+                    if position is None:
+                        continue
+                    self.db.execute(
+                        """
+                        UPDATE trading.live_positions
+                        SET status='open', updated_at=now()
+                        WHERE id=%s
+                        """,
+                        (position_id,),
                     )
-                )
-            else:
-                effective_stop = float(row["stop_price"])
-
-            if (
-                current_price is not None
-                and float(current_price) <= effective_stop
-                and pd.isna(row.get("broker_stop_id"))
-            ):
-                self._safe_cancel(row.get("broker_take_id"))
-                # Issue #151: Use non-blocking broker call for trailing exits.
-                # If rate limit exhausted, defer to next iteration (state already in DB).
-                stop_order = self._broker_call(
-                    "execute_order",
-                    instrument_id=str(row["instrument_id"]),
-                    quantity=int(row["size_lots"]),
-                    direction="sell",
-                    order_type="limit",
-                    price=float(current_price),
-                    blocking=False,
-                )
-                if stop_order is None:
-                    # Deferred: no rate limit token available
-                    logger.warning(
-                        "Trailing exit deferred (rate limit): position=%s ticker=%s "
-                        "effective_stop=%.6f current_price=%.6f",
+                    self._place_take_order(
                         position_id,
-                        row["ticker"],
-                        effective_stop,
-                        float(current_price),
+                        str(row["instrument_id"]),
+                        int(row["size_lots"]),
+                        float(row["take_price"]),
                     )
+                    changes += 1
                     continue
-                self.db.execute(
-                    """
-                    UPDATE trading.live_positions
-                    SET broker_stop_id=%s, broker_take_id=NULL, updated_at=now()
-                    WHERE id=%s
-                    """,
-                    (str(stop_order.order_id), position_id),
+
+                if position is None:
+                    reason = "stop" if pd.notna(row.get("broker_stop_id")) else "take"
+                    sibling = (
+                        row.get("broker_take_id")
+                        if reason == "stop"
+                        else row.get("broker_stop_id")
+                    )
+                    self._safe_cancel(sibling)
+                    exit_price = float(
+                        row["stop_price"] if reason == "stop" else row["take_price"]
+                    )
+                    self._close_db_position(row, reason, exit_price)
+                    changes += 1
+                    continue
+
+                if pd.isna(row.get("broker_take_id")):
+                    self._place_take_order(
+                        position_id,
+                        str(row["instrument_id"]),
+                        int(row["size_lots"]),
+                        float(row["take_price"]),
+                    )
+                    changes += 1
+
+                current_price = getattr(position, "current_price", None)
+                if current_price is not None:
+                    # Issue #151: Apply trailing ratchet before stop trigger check
+                    ratcheted_stop = self._apply_trailing(row, float(current_price))
+                    effective_stop = (
+                        ratcheted_stop
+                        if ratcheted_stop is not None
+                        else (
+                            float(row["current_stop_price"])
+                            if pd.notna(row.get("current_stop_price"))
+                            else float(row["stop_price"])
+                        )
+                    )
+                else:
+                    effective_stop = float(row["stop_price"])
+
+                if (
+                    current_price is not None
+                    and float(current_price) <= effective_stop
+                    and pd.isna(row.get("broker_stop_id"))
+                ):
+                    self._safe_cancel(row.get("broker_take_id"))
+                    # Issue #151: Use non-blocking broker call for trailing exits.
+                    # If rate limit exhausted, defer to next iteration (state already in DB).
+                    stop_order = self._broker_call(
+                        "execute_order",
+                        instrument_id=str(row["instrument_id"]),
+                        quantity=int(row["size_lots"]),
+                        direction="sell",
+                        order_type="limit",
+                        price=float(current_price),
+                        blocking=False,
+                    )
+                    if stop_order is None:
+                        # Deferred: no rate limit token available
+                        logger.warning(
+                            "Trailing exit deferred (rate limit): position=%s ticker=%s "
+                            "effective_stop=%.6f current_price=%.6f",
+                            position_id,
+                            row["ticker"],
+                            effective_stop,
+                            float(current_price),
+                        )
+                        continue
+                    self.db.execute(
+                        """
+                        UPDATE trading.live_positions
+                        SET broker_stop_id=%s, broker_take_id=NULL, updated_at=now()
+                        WHERE id=%s
+                        """,
+                        (str(stop_order.order_id), position_id),
+                    )
+                    changes += 1
+            except Exception as exc:
+                logger.error(
+                    "Isolated error in monitor_positions: position=%s ticker=%s error=%s",
+                    row.get("id"),
+                    row.get("ticker"),
+                    exc,
+                    exc_info=True,
                 )
-                changes += 1
         return changes
 
     def _apply_trailing(
@@ -1232,19 +1299,41 @@ class LiveExecutor:
         except ValueError:
             logger.warning("Signal handlers can only be installed in the main thread")
 
+    def get_metrics(self) -> Dict[str, Any]:
+        """Return current executor metrics for external monitoring (Issue #174).
+
+        Returns:
+            Dictionary with heartbeat timestamp, iteration count, error count,
+            and last error timestamp. Used by monitoring systems (e.g. task #177)
+            to detect stale or failing executors.
+        """
+        return {
+            "heartbeat_ts": self.heartbeat_ts,
+            "iterations_total": self.iterations_total,
+            "errors_total": self.errors_total,
+            "errors_consecutive": self._consecutive_errors,
+            "last_error_at": self.last_error_at,
+        }
+
     def shutdown(self) -> None:
         """Cancel pending orders and optionally flatten sandbox holdings."""
         self.shutdown_requested.set()
         active = self._active_positions()
         close_positions = bool(self.config["close_positions_on_shutdown"])
         for _, row in active.iterrows():
-            self._safe_cancel(row.get("broker_stop_id"))
-            self._safe_cancel(row.get("broker_take_id"))
             if str(row["status"]) == "pending":
+                # Always cancel pending entry/take/stop orders on shutdown:
+                # there is no broker-side protection to preserve.
                 self._safe_cancel(row.get("broker_order_id"))
+                self._safe_cancel(row.get("broker_take_id"))
+                self._safe_cancel(row.get("broker_stop_id"))
                 self._mark_cancelled(int(row["id"]), "shutdown")
                 continue
+            # From here: status == "open" (active position with protection)
             if close_positions:
+                # Flatten: cancel protections and market-sell the position
+                self._safe_cancel(row.get("broker_stop_id"))
+                self._safe_cancel(row.get("broker_take_id"))
                 order = self._broker_call(
                     "execute_order",
                     instrument_id=str(row["instrument_id"]),
@@ -1260,22 +1349,34 @@ class LiveExecutor:
                     status="cancelled",
                 )
             else:
-                self.db.execute(
-                    """
-                    UPDATE trading.live_positions
-                    SET broker_stop_id=NULL, broker_take_id=NULL, updated_at=now()
-                    WHERE id=%s
-                    """,
-                    (int(row["id"]),),
+                # Issue #174: leave position protected — do NOT cancel stop/take
+                # and do NOT clear broker IDs in DB. The broker continues to
+                # hold stop and take orders after executor shutdown; on
+                # restart the executor will see them in the DB and reconcile
+                # correctly. This is the safe default: positions survive
+                # SIGTERM/SIGINT with their protection intact.
+                logger.info(
+                    "Position %s left protected with broker_stop_id=%s broker_take_id=%s",
+                    int(row["id"]),
+                    row.get("broker_stop_id"),
+                    row.get("broker_take_id"),
                 )
 
-        # Issue #151: Release advisory lock
-        if getattr(self, "_advisory_lock_acquired", False):
+        # Issue #174: Release advisory lock on the SAME dedicated connection
+        if getattr(self, "_advisory_lock_acquired", False) and self._lock_conn is not None:
             try:
-                self.db.execute("SELECT pg_advisory_unlock(151001)")
+                with self._lock_conn.cursor() as cursor:
+                    cursor.execute("SELECT pg_advisory_unlock(151001)")
                 logger.info("Advisory lock 151001 released")
             except Exception as exc:
                 logger.warning("Failed to release advisory lock: %s", exc)
+            finally:
+                try:
+                    self.db.release_dedicated_connection(self._lock_conn)
+                except Exception:
+                    pass
+                self._lock_conn = None
+                self._advisory_lock_acquired = False
 
     def wait_for_session_open(self) -> None:
         """Sleep until the MOEX entry window, logging progress, honoring SIGTERM."""
@@ -1358,9 +1459,45 @@ class LiveExecutor:
                 if now - last_check >= check_interval:
                     # Issue #151: Refresh kill switch from DB before monitoring
                     self._refresh_kill_switch()
-                    self.monitor_positions()
+                    try:
+                        self.monitor_positions()
+                        self._consecutive_errors = 0
+                    except Exception as exc:
+                        self._consecutive_errors += 1
+                        self.errors_total += 1
+                        self.last_error_at = self.now_fn()
+                        logger.warning(
+                            "monitor_positions() failed (attempt %d/%d): %s",
+                            self._consecutive_errors,
+                            MAX_CONSECUTIVE_ERRORS,
+                            exc,
+                        )
+                        if self._consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                            logger.critical(
+                                "Too many consecutive errors (%d); stopping LiveExecutor",
+                                self._consecutive_errors,
+                            )
+                            break
                     if is_entry_window(now_msk):
-                        self.process_latest_bars()
+                        try:
+                            self.process_latest_bars()
+                            self._consecutive_errors = 0
+                        except Exception as exc:
+                            self._consecutive_errors += 1
+                            self.errors_total += 1
+                            self.last_error_at = self.now_fn()
+                            logger.warning(
+                                "process_latest_bars() failed (attempt %d/%d): %s",
+                                self._consecutive_errors,
+                                MAX_CONSECUTIVE_ERRORS,
+                                exc,
+                            )
+                            if self._consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                                logger.critical(
+                                    "Too many consecutive errors (%d); stopping LiveExecutor",
+                                    self._consecutive_errors,
+                                )
+                                break
                     elif session_closed:
                         if not entry_closed_logged:
                             logger.info(
@@ -1376,6 +1513,9 @@ class LiveExecutor:
                             )
                             break
                     last_check = now
+                    # Issue #174: update heartbeat and iteration counter
+                    self.heartbeat_ts = self.now_fn()
+                    self.iterations_total += 1
                 self.sleep_fn(min(1.0, check_interval))
         finally:
             try:

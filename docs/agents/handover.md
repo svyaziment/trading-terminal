@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-19 (task-174); previously 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -859,3 +859,43 @@ Production database result (2026-09-18): `ok: true`, `columns_found: 30/30`, all
 
 
 
+
+
+## 43. LiveExecutor resilience (Issue #174)
+
+Completed 2026-09-19. Cycle resilience, safe shutdown, advisory lock on dedicated connection, heartbeat and metrics.
+
+### Why
+
+The LiveExecutor could die on a single transient error (DB timeout, broker gRPC failure), leaving positions unprotected. The advisory lock `pg_try_advisory_lock(151001)` was acquired on a pooled connection and could leak if `shutdown()` used a different pooled connection. On shutdown with `close_positions_on_shutdown=false`, stop/take orders were cancelled, leaving positions unprotected between executor restarts.
+
+### What changed
+
+| File | Change |
+| --- | --- |
+| `backend/app/db/db_manager.py` | New methods: `get_dedicated_connection()`, `release_dedicated_connection(conn)`, context manager `dedicated_connection()`. Existing consumers (`select`, `execute`, `insert`) unchanged. |
+| `backend/app/analytics/live_executor.py` | Advisory lock on dedicated connection (`_lock_conn`); loop protection with `MAX_CONSECUTIVE_ERRORS = 5`; per-unit isolation in `process_latest_bars()`, `refresh_contexts()`, `monitor_positions()`; safe shutdown leaves open positions protected; heartbeat metrics (`heartbeat_ts`, `iterations_total`, `errors_total`, `errors_consecutive`, `last_error_at`); new method `get_metrics()` for external monitoring (task E #177). |
+| `backend/tests/test_live_executor.py` | 10 new tests: advisory lock, loop protection, isolation, safe shutdown, heartbeat. Total: 78 tests. |
+
+### Behaviour
+
+- **Loop protection**: `monitor_positions()` and `process_latest_bars()` are wrapped in `try/except` inside `run()`. Each failure increments `_consecutive_errors`; success resets it to 0. At `MAX_CONSECUTIVE_ERRORS = 5` consecutive failures, a critical alert is logged and the executor stops gracefully.
+- **Per-unit isolation**: errors in one ticker (in `process_latest_bars()` / `refresh_contexts()`) or one position (in `monitor_positions()`) are logged with `exc_info=True` and do not break processing of other units.
+- **Safe shutdown**: when `close_positions_on_shutdown=false` (the default), `shutdown()` does **not** cancel stop/take orders for open positions and does **not** clear `broker_stop_id` / `broker_take_id` in the DB. Only pending entry orders are cancelled. Open positions survive SIGTERM/SIGINT with broker-side protection intact. When `close_positions_on_shutdown=true`, behaviour is unchanged (positions are flattened).
+- **Advisory lock**: acquired on a dedicated connection (`get_dedicated_connection()`) in `initialize()`, released on the **same** connection in `shutdown()`. The connection is held outside the pool auto-release for the entire executor lifetime.
+- **Heartbeat**: `heartbeat_ts` and `iterations_total` are updated after each successful loop iteration. `errors_total` and `last_error_at` are updated on each error. `get_metrics()` returns `{"heartbeat_ts", "iterations_total", "errors_total", "errors_consecutive", "last_error_at"}`.
+
+### Commands
+
+```bash
+# Unit tests (78 tests)
+cd backend && python -m pytest tests/test_live_executor.py -q
+
+# Check advisory lock is held
+psql -c "SELECT pg_try_advisory_lock(151001);"  # returns false if executor is running
+```
+
+### Known limitations
+
+- `MAX_CONSECUTIVE_ERRORS = 5` is a module constant, not configurable via `trading_config.py` (may be added in task E #177).
+- Heartbeat is in-memory only; external monitoring (task E #177) will need to poll `get_metrics()` or a dedicated endpoint.
