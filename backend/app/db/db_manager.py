@@ -7,6 +7,7 @@ For FastAPI request handling, prefer async database access.
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -119,6 +120,54 @@ class DBManager:
             DBManager._connection_pool.closeall()
             DBManager._connection_pool = None
             logger.info("PostgreSQL connection pool closed")
+
+    def get_dedicated_connection(self):
+        """Return a connection from the pool that is NOT auto-released.
+
+        Caller is responsible for calling :meth:`release_dedicated_connection`
+        when done. Used for long-lived operations that must hold the same
+        physical connection across multiple statements (e.g. PostgreSQL
+        advisory locks, which are bound to the session/connection that
+        acquired them).
+
+        Existing consumers (:meth:`select`, :meth:`execute`, :meth:`insert`)
+        are unchanged — they continue to auto-release via ``finally``.
+
+        Returns:
+            A psycopg2 connection from the pool.
+
+        Raises:
+            RuntimeError: If the pool is not initialized.
+        """
+        return self._get_conn()
+
+    def release_dedicated_connection(self, conn) -> None:
+        """Return a dedicated connection to the pool.
+
+        Args:
+            conn: The connection previously obtained from
+                :meth:`get_dedicated_connection`.
+        """
+        self._release_conn(conn)
+
+    @contextlib.contextmanager
+    def dedicated_connection(self):
+        """Context manager for safe dedicated connection usage.
+
+        Yields:
+            A psycopg2 connection that will be returned to the pool on exit.
+
+        Example::
+
+            with db.dedicated_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT pg_try_advisory_lock(%s)", (key,))
+        """
+        conn = self.get_dedicated_connection()
+        try:
+            yield conn
+        finally:
+            self.release_dedicated_connection(conn)
 
     def select(
         self,

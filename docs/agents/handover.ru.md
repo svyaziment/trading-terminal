@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-19 (task-174); ранее 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -866,3 +866,43 @@ cd f:\GIT\trading-terminal\backend; python ..\reports\173-issue-173-live-schema-
 
 
 
+
+
+## 43. Эксплуатация живучести LiveExecutor (задача #174)
+
+Завершена 2026-09-19. Живучесть цикла, безопасный останов, блокировка на выделенном соединении, пульс и метрики.
+
+### Зачем
+
+`LiveExecutor` мог погибнуть от одной транзиентной ошибки (таймаут БД, сбой gRPC брокера), оставляя позиции без защиты. Блокировка `pg_try_advisory_lock(151001)` выполнялась на пуловом соединении и могла «утечь», если `shutdown()` использовал другое пуловое соединение. При останове с `close_positions_on_shutdown=false` стоп/тейк-ордера отменялись, оставляя позиции без защиты между перезапусками исполнителя.
+
+### Что изменилось
+
+| Файл | Изменения |
+| --- | --- |
+| `backend/app/db/db_manager.py` | Новые методы: `get_dedicated_connection()`, `release_dedicated_connection(conn)`, контекстный менеджер `dedicated_connection()`. Существующие потребители (`select`, `execute`, `insert`) не изменены. |
+| `backend/app/analytics/live_executor.py` | Блокировка на выделенном соединении (`_lock_conn`); защита цикла с `MAX_CONSECUTIVE_ERRORS = 5`; изоляция на уровне единицы работы в `process_latest_bars()`, `refresh_contexts()`, `monitor_positions()`; безопасный останов оставляет открытые позиции защищёнными; метрики пульса (`heartbeat_ts`, `iterations_total`, `errors_total`, `errors_consecutive`, `last_error_at`); новый метод `get_metrics()` для внешнего мониторинга (задача E #177). |
+| `backend/tests/test_live_executor.py` | 10 новых тестов: блокировка, защита цикла, изоляция, безопасный останов, пульс. Итого: 78 тестов. |
+
+### Поведение
+
+- **Защита цикла**: `monitor_positions()` и `process_latest_bars()` обёрнуты в `try/except` внутри `run()`. Каждая ошибка инкрементирует `_consecutive_errors`; успех сбрасывает его в 0. При `MAX_CONSECUTIVE_ERRORS = 5` последовательных ошибках пишется критический алерт и исполнитель корректно останавливается.
+- **Изоляция на уровне единицы работы**: ошибки по одному тикеру (в `process_latest_bars()` / `refresh_contexts()`) или по одной позиции (в `monitor_positions()`) логируются с `exc_info=True` и не прерывают обработку остальных единиц.
+- **Безопасный останов**: при `close_positions_on_shutdown=false` (дефолт) `shutdown()` **не** отменяет стоп/тейк-ордера для открытых позиций и **не** обнуляет `broker_stop_id` / `broker_take_id` в БД. Отменяются только ожидающие входные ордера (`pending`). Открытые позиции переживают SIGTERM/SIGINT с защитой на стороне брокера. При `close_positions_on_shutdown=true` поведение без изменений (позиции закрываются).
+- **Блокировка**: выполняется на выделенном соединении (`get_dedicated_connection()`) в `initialize()`, освобождается на **том же** соединении в `shutdown()`. Соединение удерживается вне авто-возврата пула на протяжении всей жизни процесса.
+- **Пульс**: `heartbeat_ts` и `iterations_total` обновляются после каждой успешной итерации цикла. `errors_total` и `last_error_at` обновляются при каждой ошибке. `get_metrics()` возвращает `{"heartbeat_ts", "iterations_total", "errors_total", "errors_consecutive", "last_error_at"}`.
+
+### Команды
+
+```bash
+# Юнит-тесты (78 тестов)
+cd backend && python -m pytest tests/test_live_executor.py -q
+
+# Проверка удержания блокировки
+psql -c "SELECT pg_try_advisory_lock(151001);"  # возвращает false, если исполнитель запущен
+```
+
+### Известные ограничения
+
+- `MAX_CONSECUTIVE_ERRORS = 5` — константа модуля, не конфигурируется через `trading_config.py` (может быть добавлено в задаче E #177).
+- Пульс хранится только в памяти; внешний мониторинг (задача E #177) должен опрашивать `get_metrics()` или выделенный эндпоинт.
