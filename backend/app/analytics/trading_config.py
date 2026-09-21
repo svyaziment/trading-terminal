@@ -74,6 +74,26 @@ LIVE_TRADING: Dict[str, Any] = {
     # Optional narrowing of the live universe for trailing tests.
     # Empty list means all tickers from LIVE_UNIVERSE are eligible.
     'trailing_ticker_allowlist': [],
+    # Issue #175: broker-side protection (real STOP_LOSS via PostStopOrder).
+    # broker_stop_enabled=false falls back to the pre-#175 synthetic stop
+    # (cancel take + marketable sell limit); it is a debug switch only.
+    'broker_stop_enabled': True,
+    # Base delay of the exponential backoff applied when PostStopOrder fails.
+    # The position stays flagged protection_failed until a stop is armed.
+    'protection_retry_seconds': 30,
+    # How often armed stops are re-verified against GetStopOrders (seconds).
+    'broker_stop_verify_interval_seconds': 60,
+    # OCO: grace period after a close before orphaned stop/take orders are
+    # cancelled manually (Product Owner decision of 2026-09-22).
+    'oco_check_delay_seconds': 60,
+    # OCO: verification attempts before the executor stops retrying.
+    'oco_check_attempts': 3,
+    # Fill reconciliation: GetOperations lookback window in hours.
+    'operations_lookback_hours': 24,
+    # Token-bucket tokens kept in reserve for protection calls so that new
+    # entries can never starve stop arming / amend-trailing
+    # (priority: protection > trailing > entry).
+    'entry_token_reserve': 1.0,
 }
 
 # Issue #137: MOEX main-session clock for overnight LiveExecutor.

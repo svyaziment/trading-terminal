@@ -1,9 +1,14 @@
 """Sandbox live executor using the unified strategy evaluator.
 
 The executor deliberately uses only :class:`TinkoffSandboxClient`. A take-profit
-is submitted as a resting sell limit. A stop-loss is a synthetic trigger: the
-sell limit is submitted only after the monitored price reaches the stop, because
-a sell limit below the market would execute immediately and is not a stop order.
+is submitted as a resting sell limit. Since Issue #175 the stop-loss is a real
+broker ``STOP_LOSS`` stop order: it is armed as soon as the entry fills, amended
+by duplication on every trailing step (post the higher stop -> verify through
+``GetStopOrders`` -> cancel the older, lower one) and reconciled against real
+broker fills from ``GetOperations``. The pre-#175 synthetic stop (cancel take +
+marketable sell limit at the trigger) survives only as a last-resort fallback for
+a position whose broker stop could not be armed, so protection is never absent
+while the executor is running.
 """
 
 from __future__ import annotations
@@ -15,6 +20,7 @@ import signal
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Any, Callable, Dict, Optional
 
 import pandas as pd
@@ -149,43 +155,54 @@ class TokenBucket:
         self.updated_at = clock()
         self._lock = threading.Lock()
 
-    def acquire(self) -> None:
-        """Wait until one request token is available."""
+    def acquire(self, *, reserve: float = 0.0) -> None:
+        """Wait until one request token is available above ``reserve``.
+
+        Issue #175: ``reserve`` implements broker-call prioritisation. Entry
+        calls request a reserve, so they may only spend tokens above the
+        protection floor; protection and trailing calls (``reserve=0``) always
+        proceed. The reserve is clamped to the bucket capacity, otherwise a
+        1 req/s bucket could never serve an entry call.
+        """
+        needed = self._needed_tokens(reserve)
         while True:
             with self._lock:
-                now = self.clock()
-                elapsed = max(0.0, now - self.updated_at)
-                self.tokens = min(
-                    self.capacity,
-                    self.tokens + elapsed * self.rate,
-                )
-                self.updated_at = now
-                if self.tokens >= 1:
+                self._refill()
+                if self.tokens >= needed:
                     self.tokens -= 1
                     return
-                wait_seconds = (1 - self.tokens) / self.rate
+                wait_seconds = (needed - self.tokens) / self.rate
             self.sleep_fn(wait_seconds)
 
-    def try_acquire(self) -> bool:
-        """Non-blocking attempt to acquire one token.
+    def try_acquire(self, *, reserve: float = 0.0) -> bool:
+        """Non-blocking attempt to acquire one token above ``reserve``.
 
         Returns:
             True if token was acquired, False otherwise.
 
         Used by trailing exit logic to defer broker calls when bucket is exhausted.
         """
+        needed = self._needed_tokens(reserve)
         with self._lock:
-            now = self.clock()
-            elapsed = max(0.0, now - self.updated_at)
-            self.tokens = min(
-                self.capacity,
-                self.tokens + elapsed * self.rate,
-            )
-            self.updated_at = now
-            if self.tokens >= 1:
+            self._refill()
+            if self.tokens >= needed:
                 self.tokens -= 1
                 return True
             return False
+
+    def _needed_tokens(self, reserve: float) -> float:
+        """Tokens required for one call of the given priority reserve (#175)."""
+        return min(1.0 + max(0.0, float(reserve)), self.capacity)
+
+    def _refill(self) -> None:
+        """Add tokens accrued since the last call. Caller must hold the lock."""
+        now = self.clock()
+        elapsed = max(0.0, now - self.updated_at)
+        self.tokens = min(
+            self.capacity,
+            self.tokens + elapsed * self.rate,
+        )
+        self.updated_at = now
 
 
 def ensure_live_positions_table(db: Any) -> None:
@@ -227,8 +244,11 @@ class LiveExecutor:
             sleep_fn=sleep_fn,
         )
         self._broker_limits_attempts = broker is None
+        # Issue #175: the embedded client throttles through the same bucket, but
+        # the reserve depends on the priority of the call currently in flight, so
+        # the hook reads ``self._current_priority`` instead of a bare acquire().
         self.broker = broker or TinkoffSandboxClient(
-            before_request=self.rate_limiter.acquire
+            before_request=self._rate_limit_request
         )
         self.evaluator_factory = evaluator_factory
         self.clock = clock
@@ -254,6 +274,27 @@ class LiveExecutor:
         self.iterations_total = 0
         self.errors_total = 0
         self.last_error_at = None
+        # Issue #175: broker-side protection bookkeeping. The live_positions
+        # schema is frozen (#173), so protection state that does not belong to a
+        # position row lives here: failed arms awaiting a retry, pending OCO
+        # checks and the counters surfaced through get_metrics().
+        self._current_priority = "protection"
+        self._protection_failed: set[int] = set()
+        self._protection_attempts: Dict[int, int] = {}
+        self._protection_retry_at: Dict[int, float] = {}
+        self._stop_attempt_seq = 0
+        self._oco_checks: list[Dict[str, Any]] = []
+        self._stop_ids_cache: Optional[set[str]] = None
+        self._last_stop_verify_at = float("-inf")
+        self._pending_stop_cancels: Dict[int, tuple] = {}
+        self._broker_stop_unsupported_warned = False
+        self.stops_armed_total = 0
+        self.stop_amend_total = 0
+        self.stop_amend_failed_total = 0
+        self.protection_failed_total = 0
+        self.invariant_violations_total = 0
+        self.oco_orphans_cancelled_total = 0
+        self.fills_reconciled_total = 0
 
     def _validate_config(self) -> None:
         if int(self.config["max_open_positions"]) <= 0:
@@ -278,28 +319,77 @@ class LiveExecutor:
         for item in allowlist:
             if not isinstance(item, str):
                 raise ValueError("trailing_ticker_allowlist must contain only strings")
+        # Issue #175: validate broker-protection runtime switches.
+        broker_stop = self.config.get("broker_stop_enabled", True)
+        if not isinstance(broker_stop, bool):
+            raise ValueError("broker_stop_enabled must be a boolean")
+        for key in (
+            "protection_retry_seconds",
+            "broker_stop_verify_interval_seconds",
+            "oco_check_delay_seconds",
+            "operations_lookback_hours",
+            "entry_token_reserve",
+        ):
+            value = self.config.get(key)
+            if value is None:
+                continue
+            if float(value) < 0:
+                raise ValueError(f"{key} cannot be negative")
+        attempts = self.config.get("oco_check_attempts")
+        if attempts is not None and int(attempts) < 1:
+            raise ValueError("oco_check_attempts must be at least 1")
 
-    def _broker_call(self, method: str, *args: Any, blocking: bool = True, **kwargs: Any) -> Any:
-        """Execute a broker method with rate limiting.
+    def _broker_call(
+        self,
+        method: str,
+        *args: Any,
+        blocking: bool = True,
+        priority: str = "protection",
+        **kwargs: Any,
+    ) -> Any:
+        """Execute a broker method with prioritised rate limiting.
 
         Args:
             method: Name of the broker method to call.
             *args: Positional arguments for the method.
             blocking: If True (default), wait for rate limit token.
                       If False, return None immediately if no token available.
+            priority: Issue #175 call class — ``protection`` (stop arming,
+                      amend, cancel, fill reconciliation), ``trailing``
+                      (monitoring) or ``entry`` (new positions). Entry calls
+                      must leave ``entry_token_reserve`` tokens untouched, so a
+                      busy bucket defers entries but never protection.
             **kwargs: Keyword arguments for the method.
 
         Returns:
             Result of the broker method call, or None if blocking=False and
             no rate limit token was available.
         """
+        self._current_priority = priority
+        reserve = self._priority_reserve(priority)
         if not self._broker_limits_attempts:
             if blocking:
-                self.rate_limiter.acquire()
+                self.rate_limiter.acquire(reserve=reserve)
             else:
-                if not self.rate_limiter.try_acquire():
+                if not self.rate_limiter.try_acquire(reserve=reserve):
                     return None
         return getattr(self.broker, method)(*args, **kwargs)
+
+    def _priority_reserve(self, priority: str) -> float:
+        """Token reserve keeping protection ahead of entries (Issue #175)."""
+        if str(priority) == "entry":
+            return float(self.config.get("entry_token_reserve", 1.0))
+        return 0.0
+
+    def _rate_limit_request(self) -> None:
+        """``before_request`` hook of the embedded sandbox client (Issue #175).
+
+        The client throttles every attempt (including its internal retries); the
+        reserve follows the priority of the executor call currently in flight.
+        """
+        self.rate_limiter.acquire(
+            reserve=self._priority_reserve(self._current_priority)
+        )
 
     def initialize(self) -> None:
         """Prepare persistence, strategy evaluators, and instrument metadata."""
@@ -605,7 +695,7 @@ class LiveExecutor:
             )
 
         try:
-            free_balance = self._broker_call("check_balance")
+            free_balance = self._broker_call("check_balance", priority="entry")
         except SandboxAPIError as exc:
             return self._skip_signal(
                 ticker,
@@ -649,6 +739,7 @@ class LiveExecutor:
                 quantity=sizing["size_lots"],
                 direction="buy",
                 order_type="market",
+                priority="entry",
             )
         except SandboxAPIError as exc:
             return self._skip_signal(
@@ -717,6 +808,15 @@ class LiveExecutor:
         )
 
         if status == "open":
+            # Issue #175: protection first — the broker STOP_LOSS is armed before
+            # the take-profit limit, so the position is never left naked.
+            self._arm_broker_stop(
+                position_id=position_id,
+                ticker=ticker,
+                instrument_id=instrument["instrument_id"],
+                quantity=stored_lots,
+                stop_price=float(current_stop),
+            )
             try:
                 self._place_take_order(
                     position_id,
@@ -908,12 +1008,27 @@ class LiveExecutor:
         }
 
     def monitor_positions(self) -> int:
-        """Reconcile DB positions with broker holdings and trigger synthetic stops."""
+        """Reconcile DB positions, real broker fills and broker-side protection.
+
+        Issue #175: one cycle now performs, in order —
+        1. reconciliation of every DB position against the broker portfolio; a
+           vanished position is closed with the real fill from ``GetOperations``;
+        2. trailing ratchet, which amends the broker stop by duplication;
+        3. the synthetic stop, only while a position has no broker stop at all;
+        4. protection reconciliation (invariant check + re-arming);
+        5. OCO monitoring of the orders orphaned by an earlier close.
+        """
+        # Per-cycle cache: one GetStopOrders snapshot serves the invariant check,
+        # amend confirmation and OCO monitoring.
+        self._stop_ids_cache = None
         active = self._active_positions()
         if active.empty:
-            return 0
+            return self._process_oco_checks()
         broker_positions = self._broker_call("get_positions")
         changes = 0
+        # Snapshots of the rows that are still open after reconciliation; they
+        # feed the protection pass without a second DB read.
+        protected_rows: list[Dict[str, Any]] = []
 
         for _, row in active.iterrows():
             # Issue #174: isolate errors per position so one failure does not
@@ -942,6 +1057,12 @@ class LiveExecutor:
                         """,
                         (position_id,),
                     )
+                    armed_stop_id = self._arm_broker_stop_for_row(row)
+                    snapshot = row.to_dict()
+                    snapshot["status"] = "open"
+                    if armed_stop_id:
+                        snapshot["broker_stop_id"] = armed_stop_id
+                    protected_rows.append(snapshot)
                     self._place_take_order(
                         position_id,
                         str(row["instrument_id"]),
@@ -952,17 +1073,35 @@ class LiveExecutor:
                     continue
 
                 if position is None:
-                    reason = "stop" if pd.notna(row.get("broker_stop_id")) else "take"
+                    # Issue #175: the position is gone at the broker. Reconcile the
+                    # exit with the real fill and classify the reason from the
+                    # authoritative stop-order status instead of guessing by id.
+                    fill = self._resolve_broker_fill(row)
+                    reason = self._classify_exit_reason(row, fill)
+                    stop_exit = reason in ("stop", "trailing")
                     sibling = (
                         row.get("broker_take_id")
-                        if reason == "stop"
+                        if stop_exit
                         else row.get("broker_stop_id")
                     )
-                    self._safe_cancel(sibling)
-                    exit_price = float(
-                        row["stop_price"] if reason == "stop" else row["take_price"]
+                    if stop_exit:
+                        self._safe_cancel(sibling)
+                    else:
+                        self._safe_cancel_stop(sibling)
+                    if stop_exit:
+                        model_stop = row.get("current_stop_price")
+                        if model_stop is None or pd.isna(model_stop):
+                            model_stop = row["stop_price"]
+                        exit_price = float(model_stop)
+                    else:
+                        exit_price = float(row["take_price"])
+                    self._close_db_position(
+                        row,
+                        reason,
+                        exit_price,
+                        exit_price_actual=fill.get("exit_price_actual"),
+                        lots_executed=fill.get("lots_executed"),
                     )
-                    self._close_db_position(row, reason, exit_price)
                     changes += 1
                     continue
 
@@ -1027,7 +1166,12 @@ class LiveExecutor:
                         """,
                         (str(stop_order.order_id), position_id),
                     )
+                    row["broker_stop_id"] = str(stop_order.order_id)
                     changes += 1
+
+                # Issue #175: the position survived this cycle — hand a snapshot
+                # to the protection pass instead of re-reading the DB.
+                protected_rows.append(row.to_dict())
             except Exception as exc:
                 logger.error(
                     "Isolated error in monitor_positions: position=%s ticker=%s error=%s",
@@ -1036,6 +1180,11 @@ class LiveExecutor:
                     exc,
                     exc_info=True,
                 )
+        # Issue #175: protection reconciliation and OCO monitoring run after the
+        # per-position pass, so they only see positions that are still open.
+        changes += self._cancel_pending_stops()
+        changes += self._reconcile_protection(protected_rows, broker_positions)
+        changes += self._process_oco_checks()
         return changes
 
     def _apply_trailing(
@@ -1133,6 +1282,21 @@ class LiveExecutor:
             new_step,
             new_stop,
         )
+
+        # Issue #175: move the broker stop together with the model stop. The DB
+        # ratchet is kept even when the amend fails — a stop never moves down —
+        # and the next cycle retries, so ladder and broker converge.
+        if bool(self.config.get("broker_stop_enabled", True)):
+            amended_stop_id = self._amend_broker_stop(row, new_stop, new_step)
+            if amended_stop_id:
+                # Keep the in-memory row — and the snapshot handed to the
+                # protection pass of this cycle — in sync with the broker.
+                try:
+                    row["broker_stop_id"] = amended_stop_id
+                except (TypeError, ValueError):  # pragma: no cover - read-only row
+                    logger.debug(
+                        "Cannot sync broker_stop_id for position %s", position_id
+                    )
 
         return new_stop
 
@@ -1233,13 +1397,754 @@ class LiveExecutor:
                 int(row["id"]),
             )
 
-    def _safe_cancel(self, order_id: Any) -> None:
+        # Issue #175: OCO — the leg that survived the close (stop or take) is
+        # monitored and cancelled manually once the grace period expires.
+        self._schedule_oco_checks(row)
+
+    @staticmethod
+    def _text_or_none(value: Any) -> Optional[str]:
+        """Normalise a nullable DB/API text value to a stripped string (#175)."""
+        if value is None:
+            return None
+        try:
+            if pd.isna(value):
+                return None
+        except (TypeError, ValueError):
+            pass
+        text = str(value).strip()
+        return text or None
+
+    def _stop_prices(self, ticker: str, stop_price: float) -> tuple[float, float]:
+        """Return the tick-aligned ``(trigger, protective limit)`` stop prices.
+
+        Issue #175: ``trailing_protective_ticks`` is the offset between the
+        broker stop trigger and the limit price of the order it activates, so a
+        triggered STOP_LOSS still executes in a fast or gapping market.
+        """
+        instrument = self.instruments.get(ticker) or {}
+        increment = float(instrument.get("min_price_increment") or 0.0)
+        trigger = tick_align(float(stop_price), increment, "down")
+        ticks = max(0, int(self.config.get("trailing_protective_ticks", 5) or 0))
+        protective = trigger
+        if increment > 0 and ticks:
+            protective = tick_align(trigger - ticks * increment, increment, "down")
+        if protective <= 0:
+            # A non-positive limit price would be rejected by the broker; the
+            # trigger itself keeps the position protected instead.
+            protective = trigger
+        return round(trigger, 8), round(protective, 8)
+
+    def _arm_broker_stop(
+        self,
+        *,
+        position_id: int,
+        ticker: str,
+        instrument_id: str,
+        quantity: int,
+        stop_price: float,
+        step_reached: int = 0,
+        priority: str = "protection",
+    ) -> Optional[str]:
+        """Post a broker STOP_LOSS for one position and persist its id (#175).
+
+        Returns:
+            The broker ``stop_order_id``, or None when protection could not be
+            armed. Every failure is registered for a backoff retry and raises a
+            critical ``protection_failed`` alert.
+        """
+        if not bool(self.config.get("broker_stop_enabled", True)):
+            return None
+        trigger, protective = self._stop_prices(ticker, stop_price)
+        if not callable(getattr(self.broker, "post_stop_order", None)):
+            self._register_protection_failure(
+                position_id, ticker, "broker_stop_unsupported", trigger
+            )
+            return None
+        self._stop_attempt_seq += 1
+        order_key = (
+            f"live-stop-{position_id}-{int(step_reached)}-{self._stop_attempt_seq}"
+        )
+        try:
+            stop = self._broker_call(
+                "post_stop_order",
+                instrument_id=instrument_id,
+                quantity=int(quantity),
+                stop_price=trigger,
+                direction="sell",
+                stop_order_type="stop_loss",
+                price=protective,
+                order_id=order_key,
+                priority=priority,
+            )
+        except (SandboxAPIError, AttributeError) as exc:
+            self._register_protection_failure(
+                position_id, ticker, type(exc).__name__, trigger
+            )
+            return None
+        stop_id = self._text_or_none(getattr(stop, "stop_order_id", None))
+        if stop_id is None:
+            self._register_protection_failure(
+                position_id, ticker, "empty_stop_order_id", trigger
+            )
+            return None
+        self.db.execute(
+            """
+            UPDATE trading.live_positions
+            SET broker_stop_id=%s, updated_at=now()
+            WHERE id=%s
+            """,
+            (stop_id, position_id),
+        )
+        self._protection_failed.discard(position_id)
+        self._protection_attempts.pop(position_id, None)
+        self._protection_retry_at.pop(position_id, None)
+        self.stops_armed_total += 1
+        logger.info(
+            "broker_stop_armed ticker=%s position_id=%s stop_order_id=%s "
+            "stop_price=%.6f protective_price=%.6f quantity=%d step_reached=%d",
+            ticker,
+            position_id,
+            stop_id,
+            trigger,
+            protective,
+            int(quantity),
+            int(step_reached),
+        )
+        return stop_id
+
+
+    def _arm_broker_stop_for_row(
+        self, row: Any, *, priority: str = "protection"
+    ) -> Optional[str]:
+        """Arm the broker stop described by a live_positions row (#175)."""
+        position_id = int(row["id"])
+        instrument_id = self._text_or_none(row.get("instrument_id"))
+        size_lots = row.get("size_lots")
+        stop_price = row.get("current_stop_price")
+        if stop_price is None or pd.isna(stop_price):
+            stop_price = row.get("stop_price")
+        incomplete = (
+            instrument_id is None
+            or size_lots is None
+            or pd.isna(size_lots)
+            or stop_price is None
+            or pd.isna(stop_price)
+        )
+        if incomplete:
+            logger.warning(
+                "broker_stop_skipped position_id=%s reason=incomplete_row",
+                position_id,
+            )
+            return None
+        step = row.get("step_reached")
+        step_reached = 0 if step is None or pd.isna(step) else int(step)
+        return self._arm_broker_stop(
+            position_id=position_id,
+            ticker=str(row["ticker"]),
+            instrument_id=instrument_id,
+            quantity=int(size_lots),
+            stop_price=float(stop_price),
+            step_reached=step_reached,
+            priority=priority,
+        )
+
+    def _register_protection_failure(
+        self, position_id: int, ticker: str, error_type: str, stop_price: float
+    ) -> None:
+        """Flag a position as unprotected and schedule a backoff retry (#175)."""
+        attempts = self._protection_attempts.get(position_id, 0) + 1
+        self._protection_attempts[position_id] = attempts
+        self._protection_failed.add(position_id)
+        self.protection_failed_total += 1
+        base = float(self.config.get("protection_retry_seconds", 30) or 0)
+        delay = base * (2 ** min(attempts - 1, 4))
+        self._protection_retry_at[position_id] = self.clock() + delay
+        logger.critical(
+            "protection_failed ticker=%s position_id=%s operation=post_stop_order "
+            "error_type=%s stop_price=%.6f attempt=%d retry_in=%.0fs",
+            ticker,
+            position_id,
+            error_type,
+            stop_price,
+            attempts,
+            delay,
+        )
+
+    def _protection_retry_due(self, position_id: int) -> bool:
+        """True when the backoff of a failed stop arming has elapsed (#175)."""
+        due_at = self._protection_retry_at.get(position_id)
+        return due_at is None or self.clock() >= due_at
+
+    def _clear_broker_stop_id(self, position_id: int) -> None:
+        """Drop a stale broker stop id so the position gets re-armed (#175)."""
+        self.db.execute(
+            """
+            UPDATE trading.live_positions
+            SET broker_stop_id=NULL, updated_at=now()
+            WHERE id=%s
+            """,
+            (position_id,),
+        )
+
+
+    def _active_stop_ids(self, *, force: bool = False) -> Optional[set[str]]:
+        """Return the ids of ACTIVE broker stop orders, cached per cycle (#175).
+
+        Returns:
+            The id set, or None when the list is unavailable. Callers must never
+            read None as "the stop is gone" — an API failure is not evidence.
+        """
+        if self._stop_ids_cache is not None and not force:
+            return self._stop_ids_cache
+        if not callable(getattr(self.broker, "get_stop_orders", None)):
+            return None
+        try:
+            stops = self._broker_call(
+                "get_stop_orders", status="active", priority="protection"
+            )
+        except (SandboxAPIError, AttributeError) as exc:
+            logger.warning(
+                "get_stop_orders unavailable: error_type=%s", type(exc).__name__
+            )
+            return None
+        self._stop_ids_cache = {
+            str(getattr(stop, "stop_order_id", "")) for stop in (stops or [])
+        }
+        self._last_stop_verify_at = self.clock()
+        return self._stop_ids_cache
+
+    def _position_present(self, row: Any, broker_positions: Any) -> bool:
+        """True while the broker portfolio still holds this position (#175)."""
+        keys = {str(row["ticker"]), str(row["instrument_id"])}
+        for item in broker_positions or []:
+            if keys & self._position_keys(item):
+                return True
+        return False
+
+
+    def _reconcile_protection(
+        self, rows: list[Dict[str, Any]], broker_positions: Any
+    ) -> int:
+        """Verify and restore broker protection of open positions (#175).
+
+        Runs after the per-position reconciliation of a monitor cycle, so it only
+        sees positions that are still open. Two invariants are enforced:
+
+        1. every open position has a ``broker_stop_id``;
+        2. every stored ``broker_stop_id`` is an ACTIVE stop order at the broker.
+
+        A violation raises a critical alert and is repaired by re-arming — but
+        only while the broker portfolio still shows the position. A vanished
+        position belongs to the fill-reconciliation path; re-arming there would
+        leave a naked sell stop behind.
+        """
+        open_rows = [row for row in rows if str(row.get("status")) == "open"]
+        if not open_rows:
+            return 0
+        stop_enabled = bool(self.config.get("broker_stop_enabled", True))
+        if not callable(getattr(self.broker, "post_stop_order", None)):
+            if not self._broker_stop_unsupported_warned:
+                self._broker_stop_unsupported_warned = True
+                logger.warning(
+                    "broker_stop_unavailable reason=no_post_stop_order_on_broker; "
+                    "positions keep the synthetic stop fallback"
+                )
+            return 0
+        interval = float(
+            self.config.get("broker_stop_verify_interval_seconds", 60) or 0
+        )
+        verify_due = stop_enabled and (
+            self.clock() - self._last_stop_verify_at >= interval
+        )
+        active_ids = self._active_stop_ids() if verify_due else self._stop_ids_cache
+        changes = 0
+        for row in open_rows:
+            position_id = int(row["id"])
+            ticker = str(row["ticker"])
+            stop_id = self._text_or_none(row.get("broker_stop_id"))
+            present = self._position_present(row, broker_positions)
+            if position_id in self._pending_stop_cancels:
+                # An amend is in flight; that path owns both stop ids.
+                continue
+            if stop_id and active_ids is not None and stop_id not in active_ids:
+                self.invariant_violations_total += 1
+                logger.critical(
+                    "Invariant violation: position_id=%s ticker=%s has "
+                    "broker_stop_id=%s but no active stop order",
+                    position_id,
+                    ticker,
+                    stop_id,
+                )
+                if not present:
+                    # Keep the id as exit evidence for fill reconciliation.
+                    continue
+                # Cancel first: the id may be a pre-#175 synthetic sell limit
+                # that is still resting at the broker.
+                self._safe_cancel_stop(stop_id)
+                self._clear_broker_stop_id(position_id)
+                row["broker_stop_id"] = None
+                stop_id = None
+            if stop_id:
+                self._protection_failed.discard(position_id)
+                continue
+            if not present or not stop_enabled:
+                continue
+            if not self._protection_retry_due(position_id):
+                continue
+            self.invariant_violations_total += 1
+            logger.critical(
+                "Invariant violation: position_id=%s ticker=%s is open without "
+                "broker_stop_id",
+                position_id,
+                ticker,
+            )
+            if self._arm_broker_stop_for_row(row):
+                changes += 1
+        return changes
+    def _amend_broker_stop(
+        self, row: Any, new_stop: float, new_step: int
+    ) -> Optional[str]:
+        """Amend the broker stop by duplication: post -> verify -> cancel (#175).
+
+        Product Owner decision of 2026-09-22: the new (higher) stop is posted
+        first, its presence is verified through ``GetStopOrders`` and only then is
+        the older, lower stop cancelled, so the position is never unprotected.
+
+        Returns:
+            The new ``stop_order_id`` when the stop is armed at the broker, else
+            None. On failure the old stop stays in place; the DB ratchet is kept
+            because a stop never moves down, and the next cycle retries.
+        """
+        position_id = int(row["id"])
+        ticker = str(row["ticker"])
+        old_stop_id = self._text_or_none(row.get("broker_stop_id"))
+        instrument_id = self._text_or_none(row.get("instrument_id"))
+        size_lots = row.get("size_lots")
+        if instrument_id is None or size_lots is None or pd.isna(size_lots):
+            logger.warning(
+                "trailing_amend_skipped position_id=%s ticker=%s "
+                "reason=missing_instrument_or_size",
+                position_id,
+                ticker,
+            )
+            return None
+        new_stop_id = self._arm_broker_stop(
+            position_id=position_id,
+            ticker=ticker,
+            instrument_id=instrument_id,
+            quantity=int(size_lots),
+            stop_price=new_stop,
+            step_reached=new_step,
+            priority="trailing",
+        )
+        if new_stop_id is None:
+            self.stop_amend_failed_total += 1
+            logger.critical(
+                "trailing_amend_failed position_id=%s ticker=%s step=%d "
+                "new_stop=%.6f reason=post_stop_order_failed old_stop_id=%s",
+                position_id,
+                ticker,
+                new_step,
+                new_stop,
+                old_stop_id,
+            )
+            return None
+        self.stop_amend_total += 1
+        if not old_stop_id:
+            return new_stop_id
+        active_ids = self._active_stop_ids(force=True)
+        if active_ids is not None and new_stop_id in active_ids:
+            self._cancel_superseded_stop(position_id, old_stop_id, new_stop_id)
+            return new_stop_id
+        # Risk 2 of #175: GetStopOrders can lag. The old stop is NOT cancelled
+        # here (that would risk a naked position); it is queued for a verified
+        # cancel, with a hard deadline so two active stops can never coexist long
+        # enough to over-sell the position.
+        self._pending_stop_cancels[position_id] = (
+            old_stop_id,
+            new_stop_id,
+            self.clock(),
+        )
+        logger.warning(
+            "trailing_amend_unverified position_id=%s ticker=%s new_stop_id=%s "
+            "old_stop_id=%s reason=get_stop_orders_inconclusive",
+            position_id,
+            ticker,
+            new_stop_id,
+            old_stop_id,
+        )
+        return new_stop_id
+
+    def _cancel_superseded_stop(
+        self, position_id: int, old_stop_id: str, new_stop_id: str
+    ) -> None:
+        """Cancel the stop superseded by an amend once duplication is confirmed."""
+        self._pending_stop_cancels.pop(position_id, None)
+        if self._safe_cancel_stop(old_stop_id):
+            logger.info(
+                "trailing_amend_cancelled position_id=%s old_stop_id=%s "
+                "new_stop_id=%s",
+                position_id,
+                old_stop_id,
+                new_stop_id,
+            )
+        else:
+            logger.warning(
+                "trailing_amend_cancel_failed position_id=%s old_stop_id=%s; "
+                "position keeps double protection",
+                position_id,
+                old_stop_id,
+            )
+
+    def _cancel_pending_stops(self) -> int:
+        """Cancel superseded stops whose removal could not be verified (#175).
+
+        The older stop is cancelled as soon as ``GetStopOrders`` confirms the new
+        one — or, after ``oco_check_delay_seconds``, unconditionally, because two
+        active stops on a single position would over-sell it.
+        """
+        if not self._pending_stop_cancels:
+            return 0
+        active_ids = self._active_stop_ids()
+        deadline = float(self.config.get("oco_check_delay_seconds", 60) or 0)
+        now = self.clock()
+        changes = 0
+        for position_id in list(self._pending_stop_cancels):
+            old_stop_id, new_stop_id, since = self._pending_stop_cancels[position_id]
+            confirmed = bool(active_ids) and new_stop_id in active_ids
+            expired = now - since >= deadline
+            if not confirmed and not expired:
+                continue
+            logger.info(
+                "trailing_amend_cancel_retry position_id=%s old_stop_id=%s "
+                "new_stop_id=%s confirmed=%s age=%.0fs",
+                position_id,
+                old_stop_id,
+                new_stop_id,
+                confirmed,
+                now - since,
+            )
+            self._cancel_superseded_stop(position_id, old_stop_id, new_stop_id)
+            changes += 1
+        return changes
+
+    def _resolve_broker_fill(self, row: Any) -> Dict[str, Any]:
+        """Return the real broker fill behind a closed position (#175).
+
+        Reads ``GetOperations`` over a bounded lookback window and keeps the last
+        executed SELL operation of the instrument. ``exit_price_actual`` is the
+        price per share (trade-weighted when the operation carries trades) and
+        ``lots_executed`` the number of lots — the API reports shares, so the
+        value is converted with the lot size of the position.
+        """
+        fill: Dict[str, Any] = {
+            "exit_price_actual": None,
+            "lots_executed": None,
+            "operation_id": None,
+        }
+        if not callable(getattr(self.broker, "get_operations", None)):
+            return fill
+        position_id = int(row["id"])
+        ticker = str(row["ticker"])
+        lookback = float(self.config.get("operations_lookback_hours", 24) or 0)
+        to_date = datetime.now(timezone.utc)
+        from_date = to_date - timedelta(hours=max(1.0, lookback))
+        try:
+            operations = self._broker_call(
+                "get_operations",
+                from_date=from_date,
+                to_date=to_date,
+                state="executed",
+                figi=str(row["instrument_id"]),
+                priority="protection",
+            )
+        except (SandboxAPIError, AttributeError) as exc:
+            logger.warning(
+                "fill_reconciliation_unavailable ticker=%s position_id=%s "
+                "error_type=%s",
+                ticker,
+                position_id,
+                type(exc).__name__,
+            )
+            return fill
+        sells = [
+            operation
+            for operation in (operations or [])
+            if str(getattr(operation, "operation_type", "")).upper().endswith("SELL")
+            and int(getattr(operation, "quantity", 0) or 0) > 0
+        ]
+        if not sells:
+            logger.warning(
+                "fill_reconciliation_empty ticker=%s position_id=%s window_hours=%.0f",
+                ticker,
+                position_id,
+                lookback,
+            )
+            return fill
+        latest = sells[-1]
+        price = getattr(latest, "price", None)
+        quantity = int(getattr(latest, "quantity", 0) or 0) - int(
+            getattr(latest, "quantity_rest", 0) or 0
+        )
+        trades = list(getattr(latest, "trades", None) or [])
+        if trades:
+            weighted = Decimal("0")
+            total = 0
+            for trade in trades:
+                trade_quantity = int(getattr(trade, "quantity", 0) or 0)
+                trade_price = getattr(trade, "price", None)
+                if trade_quantity <= 0 or trade_price is None:
+                    continue
+                weighted += Decimal(str(trade_price)) * trade_quantity
+                total += trade_quantity
+            if total > 0:
+                price = weighted / Decimal(total)
+                quantity = total
+        lot_size = max(1, int(row.get("lot_size") or 1))
+        fill["exit_price_actual"] = float(price) if price is not None else None
+        filled_lots = max(0, quantity) // lot_size
+        fill["lots_executed"] = filled_lots or None
+        fill["operation_id"] = self._text_or_none(getattr(latest, "id", None))
+        self.fills_reconciled_total += 1
+        logger.info(
+            "fill_reconciled ticker=%s position_id=%s operation_id=%s "
+            "exit_price_actual=%s lots_executed=%s",
+            ticker,
+            position_id,
+            fill["operation_id"],
+            fill["exit_price_actual"],
+            fill["lots_executed"],
+        )
+        return fill
+
+
         if order_id is None or pd.isna(order_id) or not str(order_id).strip():
             return
+    @staticmethod
+    def _is_ratcheted(row: Any) -> bool:
+        """True when the trailing ladder moved the stop above its initial level."""
+        step = row.get("step_reached")
+        if step is not None and not pd.isna(step) and int(step) > 0:
+            return True
+        initial = row.get("stop_price")
+        current = row.get("current_stop_price")
+        if initial is None or pd.isna(initial):
+            return False
+        if current is None or pd.isna(current):
+            return False
+        return float(current) > float(initial) + 1e-9
+
+    def _broker_stop_status(self, stop_id: str) -> Optional[str]:
+        """Return the broker status of one stop order, or None if unknown (#175)."""
+        if not callable(getattr(self.broker, "get_stop_orders", None)):
+            return None
         try:
-            self._broker_call("cancel_order", str(order_id))
+            stops = self._broker_call(
+                "get_stop_orders", status="all", priority="protection"
+            )
+        except (SandboxAPIError, AttributeError) as exc:
+            logger.warning(
+                "stop_status_unavailable stop_order_id=%s error_type=%s",
+                stop_id,
+                type(exc).__name__,
+            )
+            return None
+        for stop in stops or []:
+            if str(getattr(stop, "stop_order_id", "")) == stop_id:
+                return str(getattr(stop, "status", "") or "")
+        return None
+
+    def _classify_exit_reason(self, row: Any, fill: Dict[str, Any]) -> str:
+        """Map a vanished broker position to a live_positions exit reason (#175).
+
+        Priority: the authoritative broker stop-order status, then the actual fill
+        price against the model levels, then the pre-#175 id heuristic. Returned
+        values map onto the #173 statuses ``closed_stop`` / ``closed_take`` /
+        ``closed_trailing`` / ``closed_broker``.
+        """
+        position_id = int(row["id"])
+        stop_id = self._text_or_none(row.get("broker_stop_id"))
+        take_id = self._text_or_none(row.get("broker_take_id"))
+        ratcheted = self._is_ratcheted(row)
+        status = self._broker_stop_status(stop_id) if stop_id else None
+        if status == "STOP_ORDER_STATUS_EXECUTED":
+            return "trailing" if ratcheted else "stop"
+        if status == "STOP_ORDER_STATUS_ACTIVE":
+            # The stop never fired, so the take (or an external close) did.
+            return "take" if take_id else "broker"
+        actual = fill.get("exit_price_actual")
+        if actual is not None:
+            take_price = row.get("take_price")
+            stop_price = row.get("current_stop_price")
+            if stop_price is None or pd.isna(stop_price):
+                stop_price = row.get("stop_price")
+            if take_price is not None and not pd.isna(take_price):
+                if float(actual) >= float(take_price):
+                    return "take"
+            if stop_price is not None and not pd.isna(stop_price):
+                if float(actual) <= float(stop_price):
+                    return "trailing" if ratcheted else "stop"
+        if stop_id and not take_id:
+            return "stop"
+        if take_id and not stop_id:
+            return "take"
+        logger.warning(
+            "exit_reason_ambiguous position_id=%s stop_id=%s take_id=%s; "
+            "recording closed_broker",
+            position_id,
+            stop_id,
+            take_id,
+        )
+        return "broker"
+    def _schedule_oco_checks(self, row: Any) -> None:
+        """Queue the OCO check of a closed position's broker orders (#175).
+
+        Product Owner decision of 2026-09-22: the SDK has no linked OCO order, so
+        the surviving leg is detected by monitoring ``GetStopOrders`` /
+        ``GetOrders`` ``oco_check_delay_seconds`` after the close and cancelled
+        manually with a critical alert.
+        """
+        if self.shutdown_requested.is_set():
+            return
+        delay = float(self.config.get("oco_check_delay_seconds", 60) or 0)
+        due_at = self.clock() + delay
+        for kind, column in (("stop", "broker_stop_id"), ("take", "broker_take_id")):
+            order_id = self._text_or_none(row.get(column))
+            if order_id is None:
+                continue
+            self._oco_checks.append(
+                {
+                    "position_id": int(row["id"]),
+                    "ticker": str(row["ticker"]),
+                    "kind": kind,
+                    "order_id": order_id,
+                    "due_at": due_at,
+                    "attempts": 0,
+                }
+            )
+
+    def _process_oco_checks(self) -> int:
+        """Cancel orphaned stop/take orders left behind by a close (#175)."""
+        if not self._oco_checks:
+            return 0
+        now = self.clock()
+        due = [check for check in self._oco_checks if check["due_at"] <= now]
+        if not due:
+            return 0
+        for check in due:
+            self._oco_checks.remove(check)
+        attempts_limit = max(1, int(self.config.get("oco_check_attempts", 3) or 1))
+        delay = float(self.config.get("oco_check_delay_seconds", 60) or 0)
+        stop_ids: Optional[set] = None
+        order_ids: Optional[set] = None
+        changes = 0
+        for check in due:
+            check["attempts"] += 1
+            kind = str(check["kind"])
+            order_id = str(check["order_id"])
+            position_id = check["position_id"]
+            orphaned: Optional[bool]
+            try:
+                if kind == "stop":
+                    if stop_ids is None:
+                        stops = self._broker_call(
+                            "get_stop_orders", status="active", priority="protection"
+                        )
+                        stop_ids = {
+                            str(getattr(stop, "stop_order_id", ""))
+                            for stop in (stops or [])
+                        }
+                    orphaned = order_id in stop_ids
+                else:
+                    if order_ids is None:
+                        orders = self._broker_call("get_orders", priority="protection")
+                        order_ids = {
+                            str(getattr(order, "order_id", ""))
+                            for order in (orders or [])
+                        }
+                    orphaned = order_id in order_ids
+            except (SandboxAPIError, AttributeError) as exc:
+                orphaned = None
+                logger.warning(
+                    "OCO monitoring unavailable: position_id=%s kind=%s error_type=%s",
+                    position_id,
+                    kind,
+                    type(exc).__name__,
+                )
+            if orphaned:
+                cancelled = (
+                    self._safe_cancel_stop(order_id)
+                    if kind == "stop"
+                    else self._safe_cancel(order_id)
+                )
+                if cancelled:
+                    self.oco_orphans_cancelled_total += 1
+                logger.critical(
+                    "OCO monitoring: position_id=%s orphaned_%s_id=%s cancelled=%s",
+                    position_id,
+                    kind,
+                    order_id,
+                    cancelled,
+                )
+                changes += 1
+                continue
+            if orphaned is False:
+                logger.info(
+                    "OCO monitoring: position_id=%s no orphaned %s order (%s)",
+                    position_id,
+                    kind,
+                    order_id,
+                )
+                continue
+            if check["attempts"] < attempts_limit:
+                check["due_at"] = now + delay
+                self._oco_checks.append(check)
+                continue
+            logger.critical(
+                "OCO monitoring: position_id=%s orphaned_%s_id=%s cancelled=False "
+                "reason=verification_unavailable attempts=%d",
+                position_id,
+                kind,
+                order_id,
+                check["attempts"],
+            )
+        return changes
+
+    def _safe_cancel(self, order_id: Any) -> bool:
+        """Cancel a resting (non-stop) order, tolerating an already-gone one."""
+        text_id = self._text_or_none(order_id)
+        if text_id is None:
+            return False
+        try:
+            self._broker_call("cancel_order", text_id, priority="protection")
+            return True
         except SandboxAPIError:
-            logger.info("Order %s is no longer cancellable", order_id)
+            logger.info("Order %s is no longer cancellable", text_id)
+        except AttributeError:
+            logger.info("Broker client cannot cancel order %s", text_id)
+        return False
+
+    def _safe_cancel_stop(self, stop_order_id: Any) -> bool:
+        """Cancel a broker stop order, tolerating an already-gone stop (#175).
+
+        Returns True when the broker accepted the cancellation. Before #175
+        ``broker_stop_id`` held a resting sell-limit id, so a stop cancellation
+        the broker rejects (or a client without stop support) falls back to
+        ``cancel_order`` for such legacy rows.
+        """
+        text_id = self._text_or_none(stop_order_id)
+        if text_id is None:
+            return False
+        if callable(getattr(self.broker, "cancel_stop_order", None)):
+            try:
+                self._broker_call("cancel_stop_order", text_id, priority="protection")
+                return True
+            except SandboxAPIError:
+                logger.info(
+                    "Stop order %s is not cancellable as a stop; retrying as order",
+                    text_id,
+                )
+        return self._safe_cancel(text_id)
 
     def handle_sell_signal(self, ticker: str) -> int:
         """Close active ticker positions when an external SELL signal arrives."""
@@ -1254,7 +2159,7 @@ class LiveExecutor:
         ).to_dataframe()
         closed = 0
         for _, row in active.iterrows():
-            self._safe_cancel(row.get("broker_stop_id"))
+            self._safe_cancel_stop(row.get("broker_stop_id"))
             self._safe_cancel(row.get("broker_take_id"))
             if str(row["status"]) == "pending":
                 self._safe_cancel(row.get("broker_order_id"))
@@ -1313,6 +2218,16 @@ class LiveExecutor:
             "errors_total": self.errors_total,
             "errors_consecutive": self._consecutive_errors,
             "last_error_at": self.last_error_at,
+            # Issue #175: broker-side protection health.
+            "stops_armed_total": self.stops_armed_total,
+            "stop_amend_total": self.stop_amend_total,
+            "stop_amend_failed_total": self.stop_amend_failed_total,
+            "protection_failed_total": self.protection_failed_total,
+            "protection_failed_positions": sorted(self._protection_failed),
+            "invariant_violations_total": self.invariant_violations_total,
+            "oco_orphans_cancelled_total": self.oco_orphans_cancelled_total,
+            "oco_checks_pending": len(self._oco_checks),
+            "fills_reconciled_total": self.fills_reconciled_total,
         }
 
     def shutdown(self) -> None:
@@ -1326,13 +2241,13 @@ class LiveExecutor:
                 # there is no broker-side protection to preserve.
                 self._safe_cancel(row.get("broker_order_id"))
                 self._safe_cancel(row.get("broker_take_id"))
-                self._safe_cancel(row.get("broker_stop_id"))
+                self._safe_cancel_stop(row.get("broker_stop_id"))
                 self._mark_cancelled(int(row["id"]), "shutdown")
                 continue
             # From here: status == "open" (active position with protection)
             if close_positions:
                 # Flatten: cancel protections and market-sell the position
-                self._safe_cancel(row.get("broker_stop_id"))
+                self._safe_cancel_stop(row.get("broker_stop_id"))
                 self._safe_cancel(row.get("broker_take_id"))
                 order = self._broker_call(
                     "execute_order",
