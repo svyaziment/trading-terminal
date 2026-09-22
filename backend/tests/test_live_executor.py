@@ -1960,3 +1960,528 @@ def test_metrics_track_errors():
     assert metrics["errors_total"] == executor.errors_total
     assert metrics["last_error_at"] == executor.last_error_at
     assert metrics["errors_consecutive"] >= 1
+
+
+# --- Issue #175: broker stop orders, amend-trailing, OCO, fill reconciliation --
+
+
+def stop_item(stop_order_id, status="STOP_ORDER_STATUS_ACTIVE", **overrides):
+    data = {
+        "stop_order_id": stop_order_id,
+        "status": status,
+        "instrument_uid": "figi-sber",
+        "stop_price": Decimal("95"),
+        "price": Decimal("94.95"),
+    }
+    data.update(overrides)
+    return SimpleNamespace(**data)
+
+
+def sell_operation(
+    price="94.5",
+    quantity=100,
+    quantity_rest=0,
+    trades=None,
+    operation_type="OPERATION_TYPE_SELL",
+    operation_id="op-1",
+):
+    return SimpleNamespace(
+        id=operation_id,
+        operation_type=operation_type,
+        state="OPERATION_STATE_EXECUTED",
+        quantity=quantity,
+        quantity_rest=quantity_rest,
+        price=Decimal(price),
+        payment=Decimal("-9450"),
+        figi="figi-sber",
+        instrument_uid="figi-sber",
+        trades=trades or [],
+    )
+
+
+class StopFakeBroker(FakeBroker):
+    """Fake broker exposing the Issue #175 stop-order / operations surface."""
+
+    def __init__(
+        self,
+        positions=None,
+        balance=Decimal("50000"),
+        stop_orders=None,
+        operations=None,
+        resting_orders=None,
+        stop_error=None,
+        cancel_stop_error=None,
+        hide_posted_stops=False,
+    ):
+        super().__init__(positions=positions, balance=balance)
+        self.stop_orders = list(stop_orders or [])
+        self.operations = list(operations or [])
+        self.resting_orders = list(resting_orders or [])
+        self.stop_error = stop_error
+        self.cancel_stop_error = cancel_stop_error
+        self.hide_posted_stops = hide_posted_stops
+        self.stop_number = 0
+        self.posted_stops = []
+        self.cancelled_stops = []
+
+    def post_stop_order(self, **kwargs):
+        self.calls.append(("post_stop_order", kwargs))
+        if self.stop_error is not None:
+            raise self.stop_error
+        self.stop_number += 1
+        stop_id = f"stop-{self.stop_number}"
+        self.posted_stops.append(stop_id)
+        if not self.hide_posted_stops:
+            self.stop_orders.append(
+                stop_item(stop_id, instrument_uid=kwargs["instrument_id"])
+            )
+        return SimpleNamespace(stop_order_id=stop_id, order_request_id="req-1")
+
+    def get_stop_orders(self, status="active", **kwargs):
+        self.calls.append(("get_stop_orders", {"status": status, **kwargs}))
+        if status == "all":
+            return list(self.stop_orders)
+        return [
+            stop
+            for stop in self.stop_orders
+            if stop.status == "STOP_ORDER_STATUS_ACTIVE"
+        ]
+
+    def cancel_stop_order(self, stop_order_id):
+        self.calls.append(("cancel_stop_order", {"stop_order_id": stop_order_id}))
+        if self.cancel_stop_error is not None:
+            raise self.cancel_stop_error
+        self.cancelled_stops.append(stop_order_id)
+        self.stop_orders = [
+            stop
+            for stop in self.stop_orders
+            if stop.stop_order_id != stop_order_id
+        ]
+        return SimpleNamespace(stop_order_id=stop_order_id, cancelled_at=None)
+
+    def get_operations(self, **kwargs):
+        self.calls.append(("get_operations", kwargs))
+        return list(self.operations)
+
+    def get_orders(self):
+        self.calls.append(("get_orders", {}))
+        return list(self.resting_orders)
+
+
+def sber_position(current_price="100"):
+    """Broker portfolio entry for SBER (lot size 10 in the fixture)."""
+    return SimpleNamespace(
+        ticker="SBER",
+        figi="figi-sber",
+        instrument_uid="",
+        current_price=Decimal(current_price),
+    )
+
+
+
+def test_entry_arms_broker_stop_before_take_limit(caplog):
+    """Issue #175: a filled entry posts a broker STOP_LOSS before the take."""
+    db = FakeDB()
+    broker = StopFakeBroker()
+    executor = make_executor(db=db, broker=broker)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal(
+            "SBER",
+            {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
+            imbalance=1.5,
+        )
+
+    assert result["reason"] == "open"
+    assert [call[0] for call in broker.calls] == [
+        "check_balance",
+        "execute_order",
+        "post_stop_order",
+        "execute_order",
+    ]
+    stop_call = broker.calls[2][1]
+    assert stop_call["instrument_id"] == "figi-sber"
+    assert stop_call["quantity"] == 10
+    assert stop_call["direction"] == "sell"
+    assert stop_call["stop_order_type"] == "stop_loss"
+    assert stop_call["stop_price"] == 95.0
+    # trailing_protective_ticks=5 * min_price_increment=0.01 below the trigger
+    assert stop_call["price"] == pytest.approx(94.95)
+    assert stop_call["order_id"].startswith("live-stop-41-0-")
+    assert any(
+        "SET broker_stop_id=%s" in query and params == ("stop-1", 41)
+        for query, params in db.execute_calls
+    )
+    assert "broker_stop_armed ticker=SBER position_id=41" in caplog.text
+    assert executor.get_metrics()["stops_armed_total"] == 1
+
+
+def test_entry_stop_failure_alerts_and_schedules_backoff(caplog):
+    """Issue #175: a rejected PostStopOrder is alerted and retried with backoff."""
+    db = FakeDB()
+    broker = StopFakeBroker(stop_error=SandboxAPIError("invalid_price"))
+    executor = make_executor(db=db, broker=broker, protection_retry_seconds=30)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal(
+            "SBER",
+            {"action": "enter", "entry_price": 100, "stop": 95, "take": 110},
+            imbalance=1.5,
+        )
+
+    # The entry still completed and the take-profit limit is armed.
+    assert result["reason"] == "open"
+    assert any(
+        call[0] == "execute_order" and call[1]["order_type"] == "limit"
+        for call in broker.calls
+    )
+    assert "protection_failed ticker=SBER position_id=41" in caplog.text
+    assert "error_type=SandboxAPIError" in caplog.text
+    metrics = executor.get_metrics()
+    assert metrics["protection_failed_positions"] == [41]
+    assert metrics["protection_failed_total"] == 1
+    # Exponential backoff registered for the next arming attempt.
+    assert executor._protection_retry_at[41] > executor.clock()
+
+
+def test_monitor_arms_missing_broker_stop_and_alerts_invariant(caplog):
+    """Issue #175: an open position without broker_stop_id is re-armed."""
+    db = FakeDB(active=active_position())
+    broker = StopFakeBroker(positions=[sber_position("100")])
+    executor = make_executor(db=db, broker=broker)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        changes = executor.monitor_positions()
+
+    assert changes == 1
+    stop_call = next(call for call in broker.calls if call[0] == "post_stop_order")
+    assert stop_call[1]["stop_price"] == 95.0
+    assert stop_call[1]["price"] == pytest.approx(94.95)
+    assert (
+        "Invariant violation: position_id=41 ticker=SBER is open without "
+        "broker_stop_id" in caplog.text
+    )
+    metrics = executor.get_metrics()
+    assert metrics["invariant_violations_total"] == 1
+    assert metrics["stops_armed_total"] == 1
+
+
+def test_monitor_rearms_stop_that_disappeared_at_the_broker(caplog):
+    """Issue #175: broker_stop_id in DB but no active stop -> alert + re-arm."""
+    db = FakeDB(active=active_position(broker_stop_id="stop-old"))
+    broker = StopFakeBroker(positions=[sber_position("100")], stop_orders=[])
+    executor = make_executor(db=db, broker=broker)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        changes = executor.monitor_positions()
+
+    assert (
+        "Invariant violation: position_id=41 ticker=SBER has broker_stop_id="
+        "stop-old but no active stop order" in caplog.text
+    )
+    # The stale id is cancelled first: before #175 it could be a resting limit.
+    assert broker.cancelled_stops == ["stop-old"]
+    assert any("SET broker_stop_id=NULL" in query for query, _ in db.execute_calls)
+    assert any(
+        "SET broker_stop_id=%s" in query and params == ("stop-1", 41)
+        for query, params in db.execute_calls
+    )
+    assert changes == 1
+
+
+def test_trailing_ratchet_amends_broker_stop_by_duplication(caplog):
+    """Issue #175: post the higher stop, verify it, then cancel the lower one."""
+    db = FakeDB(active=trailing_position())
+    broker = StopFakeBroker(
+        positions=[sber_position("112")],
+        stop_orders=[stop_item("stop-old")],
+    )
+    executor = make_executor(db=db, broker=broker)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        executor.monitor_positions()
+
+    posted = [call for call in broker.calls if call[0] == "post_stop_order"]
+    assert len(posted) == 1
+    # Ladder step 1: trigger 2.0R (110) -> stop 1.0R (105), protective 5 ticks.
+    assert posted[0][1]["stop_price"] == pytest.approx(105.0)
+    assert posted[0][1]["price"] == pytest.approx(104.95)
+    assert posted[0][1]["order_id"].startswith("live-stop-41-1-")
+    # PO mechanic: PostStopOrder -> GetStopOrders -> CancelStopOrder.
+    call_names = [call[0] for call in broker.calls]
+    assert call_names.index("post_stop_order") < call_names.index("get_stop_orders")
+    assert call_names.index("get_stop_orders") < call_names.index("cancel_stop_order")
+    assert broker.cancelled_stops == ["stop-old"]
+    assert any(
+        "SET broker_stop_id=%s" in query and params == ("stop-1", 41)
+        for query, params in db.execute_calls
+    )
+    assert "trailing_amend_cancelled position_id=41" in caplog.text
+    metrics = executor.get_metrics()
+    assert metrics["stop_amend_total"] == 1
+    assert metrics["stop_amend_failed_total"] == 0
+    # Exactly one stop was armed and the invariant stayed intact.
+    assert metrics["stops_armed_total"] == 1
+    assert metrics["invariant_violations_total"] == 0
+
+
+def test_trailing_amend_keeps_old_stop_when_post_fails(caplog):
+    """Issue #175: a failed amend leaves the old stop armed (never naked)."""
+    db = FakeDB(active=trailing_position())
+    broker = StopFakeBroker(
+        positions=[sber_position("112")],
+        stop_orders=[stop_item("stop-old")],
+        stop_error=SandboxAPIError("invalid_price"),
+    )
+    executor = make_executor(db=db, broker=broker)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        executor.monitor_positions()
+
+    assert "trailing_amend_failed position_id=41" in caplog.text
+    assert broker.cancelled_stops == []
+    assert executor.get_metrics()["stop_amend_failed_total"] == 1
+    # The DB ratchet is kept — a stop never moves down — and the old id survives.
+    assert any(
+        "SET current_stop_price=%s, step_reached=%s" in query
+        for query, _ in db.execute_calls
+    )
+    assert not any(
+        "SET broker_stop_id=NULL" in query for query, _ in db.execute_calls
+    )
+
+
+def test_trailing_amend_defers_cancel_until_new_stop_is_visible(caplog):
+    """Issue #175: an unverified amend never cancels the old stop right away."""
+    clock = [0.0]
+    db = FakeDB(active=trailing_position())
+    broker = StopFakeBroker(
+        positions=[sber_position("112")],
+        stop_orders=[stop_item("stop-old")],
+        hide_posted_stops=True,
+    )
+    executor = make_executor(db=db, broker=broker, clock=lambda: clock[0])
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        executor.monitor_positions()
+
+    assert "trailing_amend_unverified position_id=41" in caplog.text
+    assert broker.cancelled_stops == []
+    assert 41 in executor._pending_stop_cancels
+
+    # A later cycle sees the new stop and only then removes the older one.
+    broker.stop_orders.append(stop_item("stop-1"))
+    clock[0] = 31.0
+    executor._stop_ids_cache = None
+    assert executor._cancel_pending_stops() == 1
+    assert broker.cancelled_stops == ["stop-old"]
+    assert executor._pending_stop_cancels == {}
+
+
+def test_pending_amend_cancel_fires_after_the_deadline(caplog):
+    """Issue #175: two active stops may not outlive the grace period."""
+    clock = [0.0]
+    db = FakeDB(active=trailing_position())
+    broker = StopFakeBroker(
+        positions=[sber_position("112")],
+        stop_orders=[stop_item("stop-old")],
+        hide_posted_stops=True,
+    )
+    executor = make_executor(
+        db=db, broker=broker, clock=lambda: clock[0], oco_check_delay_seconds=60
+    )
+
+    executor.monitor_positions()
+    assert broker.cancelled_stops == []
+
+    clock[0] = 61.0
+    executor._stop_ids_cache = None
+    with caplog.at_level("INFO", logger=module.__name__):
+        assert executor._cancel_pending_stops() == 1
+
+    assert broker.cancelled_stops == ["stop-old"]
+    assert "trailing_amend_cancel_retry position_id=41" in caplog.text
+
+
+def test_stop_prices_apply_trailing_protective_ticks():
+    """Issue #175: the protective limit sits trailing_protective_ticks below."""
+    executor = make_executor(
+        db=FakeDB(), broker=StopFakeBroker(), trailing_protective_ticks=10
+    )
+
+    assert executor._stop_prices("SBER", 95.007) == (95.0, 94.9)
+
+
+def test_broker_stop_disabled_skips_stop_arming():
+    """Issue #175: broker_stop_enabled=false keeps the synthetic fallback only."""
+    db = FakeDB(active=active_position())
+    broker = StopFakeBroker(positions=[sber_position("100")])
+    executor = make_executor(db=db, broker=broker, broker_stop_enabled=False)
+
+    executor.monitor_positions()
+
+    assert not any(call[0] == "post_stop_order" for call in broker.calls)
+    assert not any("SET broker_stop_id=NULL" in q for q, _ in db.execute_calls)
+
+
+def trailing_position(**overrides):
+    """Open SBER position with an armed broker stop and a trailing ladder."""
+    return active_position(
+        broker_stop_id="stop-old",
+        take_price=115.0,
+        trailing_enabled=True,
+        trailing_steps=json.dumps([{"trigger": 2.0, "stop": 1.0}]),
+        risk_r=5.0,
+        current_stop_price=95.0,
+        step_reached=0,
+        **overrides,
+    )
+
+
+def test_vanished_position_is_closed_with_real_broker_fill(caplog):
+    """Issue #175: exits are reconciled with real fills, not model prices."""
+    db = FakeDB(active=active_position(broker_stop_id="stop-1"))
+    broker = StopFakeBroker(
+        positions=[],
+        stop_orders=[stop_item("stop-1", status="STOP_ORDER_STATUS_EXECUTED")],
+        operations=[sell_operation(price="94.5", quantity=100)],
+    )
+    executor = make_executor(db=db, broker=broker)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        changes = executor.monitor_positions()
+
+    assert changes == 1
+    close = next(
+        params
+        for query, params in db.execute_calls
+        if "SET status=%s, exit_ts=%s" in query
+    )
+    assert close[0] == "closed_stop"
+    assert close[2] == pytest.approx(94.5)  # exit_price = the real fill
+    assert close[3] == "stop"
+    assert close[4] == pytest.approx(-550.0)  # (94.5 - 100) * 10 lots * 10 shares
+    assert close[5] == pytest.approx(95.0)  # exit_price_model
+    assert close[6] == pytest.approx(94.5)  # exit_price_actual
+    assert close[7] == pytest.approx(-52.6316, abs=1e-4)  # slippage_bp
+    assert close[8] is None  # slippage_r needs risk_r on the row
+    assert close[9] == 10  # 100 shares / lot_size 10
+    assert ("cancel_order", {"order_id": "take-1"}) in broker.calls
+    assert "fill_reconciled ticker=SBER position_id=41" in caplog.text
+    metrics = executor.get_metrics()
+    assert metrics["fills_reconciled_total"] == 1
+    # Both legs of the closed position are queued for OCO monitoring.
+    assert metrics["oco_checks_pending"] == 2
+
+
+def test_vanished_position_with_live_stop_is_closed_as_take():
+    """Issue #175: an ACTIVE stop proves the take-profit leg fired."""
+    db = FakeDB(active=active_position(broker_stop_id="stop-1"))
+    broker = StopFakeBroker(
+        positions=[],
+        stop_orders=[stop_item("stop-1")],
+        operations=[sell_operation(price="110.0", quantity=100)],
+    )
+    executor = make_executor(db=db, broker=broker)
+
+    changes = executor.monitor_positions()
+
+    assert changes == 1
+    close = next(
+        params
+        for query, params in db.execute_calls
+        if "SET status=%s, exit_ts=%s" in query
+    )
+    assert close[0] == "closed_take"
+    assert close[3] == "take"
+    assert close[5] == pytest.approx(110.0)
+    assert close[6] == pytest.approx(110.0)
+    # The surviving leg is the stop, cancelled through the stop API.
+    assert broker.cancelled_stops == ["stop-1"]
+
+
+def test_oco_monitoring_cancels_orphaned_stop_after_grace_period(caplog):
+    """Issue #175: a leg that survived the close is cancelled with an alert."""
+    clock = [0.0]
+    db = FakeDB(active=active_position(broker_stop_id="stop-1"))
+    broker = StopFakeBroker(stop_orders=[stop_item("stop-1")])
+    executor = make_executor(
+        db=db, broker=broker, clock=lambda: clock[0], oco_check_delay_seconds=60
+    )
+    row = db.active.iloc[0]
+
+    executor._close_db_position(row, "take", 110.0)
+    assert executor.get_metrics()["oco_checks_pending"] == 2
+
+    # Inside the grace period nothing is touched.
+    assert executor._process_oco_checks() == 0
+    assert broker.cancelled_stops == []
+
+    clock[0] = 61.0
+    with caplog.at_level("INFO", logger=module.__name__):
+        changes = executor._process_oco_checks()
+
+    assert changes == 1
+    assert broker.cancelled_stops == ["stop-1"]
+    assert (
+        "OCO monitoring: position_id=41 orphaned_stop_id=stop-1 cancelled=True"
+        in caplog.text
+    )
+    assert "no orphaned take order" in caplog.text
+    assert executor.get_metrics()["oco_orphans_cancelled_total"] == 1
+    assert executor._oco_checks == []
+
+
+def test_entry_priority_leaves_tokens_reserved_for_protection():
+    """Issue #175: protection > trailing > entry when the bucket runs dry."""
+    bucket = TokenBucket(rate_per_second=2.0, clock=lambda: 0.0)
+
+    assert bucket.try_acquire(reserve=1.0) is True
+    assert bucket.try_acquire(reserve=1.0) is False
+    # Protection calls ignore the reserve and still get the last token.
+    assert bucket.try_acquire() is True
+
+    executor = make_executor(db=FakeDB(), broker=FakeBroker(), entry_token_reserve=1.0)
+    executor.rate_limiter.tokens = 1.0
+    executor.rate_limiter.updated_at = executor.rate_limiter.clock()
+
+    assert (
+        executor._broker_call("check_balance", blocking=False, priority="entry")
+        is None
+    )
+    assert (
+        executor._broker_call("check_balance", blocking=False, priority="protection")
+        == Decimal("50000")
+    )
+
+
+def test_shutdown_cancels_broker_stop_through_the_stop_api():
+    """Issue #175: flattening on shutdown cancels the stop as a stop order."""
+    db = FakeDB(
+        active=active_position(broker_stop_id="stop-1", broker_take_id="take-1")
+    )
+    broker = StopFakeBroker()
+    executor = make_executor(db=db, broker=broker, close_positions_on_shutdown=True)
+
+    executor.shutdown()
+
+    assert broker.cancelled_stops == ["stop-1"]
+    assert ("cancel_order", {"order_id": "take-1"}) in broker.calls
+    assert any(
+        call[0] == "execute_order" and call[1]["direction"] == "sell"
+        for call in broker.calls
+    )
+
+
+def test_handle_sell_signal_cancels_broker_stop():
+    """Issue #175: an external SELL signal removes the broker stop first."""
+    db = FakeDB(active=active_position(broker_stop_id="stop-1"))
+    broker = StopFakeBroker()
+    executor = make_executor(db=db, broker=broker)
+
+    closed = executor.handle_sell_signal("SBER")
+
+    assert closed == 1
+    assert broker.cancelled_stops == ["stop-1"]
+    assert ("cancel_order", {"order_id": "take-1"}) in broker.calls
+
