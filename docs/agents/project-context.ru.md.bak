@@ -657,6 +657,3 @@ paper (#148) и песочница live (#151).
 
 
 
-
-
-**SSL-сертификаты для T-Bank gRPC:** на хосте Windows требуется явно задать `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH="$(pwd)/backend/certs/tbank-root.pem"` (автоматически устанавливается в `start_processes.sh`), иначе gRPC-подключение к `sandbox-invest-public-api.tbank.ru` падает с `CERTIFICATE_VERIFY_FAILED`.

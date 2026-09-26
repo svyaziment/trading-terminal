@@ -11,6 +11,7 @@ a position whose broker stop could not be armed, so protection is never absent
 while the executor is running.
 """
 
+import uuid
 from __future__ import annotations
 
 import json
@@ -24,7 +25,6 @@ from decimal import Decimal
 from typing import Any, Callable, Dict, Optional
 
 import pandas as pd
-import uuid
 
 from app.analytics.live_engine import (
     build_1m_context,
@@ -2442,7 +2442,6 @@ class LiveExecutor:
                 if callable(close_pool):
                     close_pool()
                 logger.info("Sandbox LiveExecutor stopped cleanly")
-
 
 
 if __name__ == "__main__":
