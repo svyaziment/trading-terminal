@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-09-19 (task-174); ранее 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -959,3 +959,107 @@ python -c "from app.broker.tinkoff_sandbox import TinkoffSandboxClient; print(Ti
 - `SandboxStopOrderState` имеет поле `lots_requested`, а не `quantity` (может вызвать AttributeError в `_active_stop_ids` или `_reconcile_protection`)
 
 **Статус:** Механизм работоспособен. Требуется финальный smoke в торговой сессии (понедельник 10:00 МСК) для подтверждения полного цикла через LiveExecutor.
+
+
+## 44. Эксплуатация риск-гейтов live equity (задача #176)
+
+### Зачем
+
+До #176 live-контур вообще не вёл учёт эквити: таблицы `trading.live_equity` не
+существовало, риск-лимиты из `config/settings.yaml` читал только paper-трейдер, а
+поведение при просадке счёта нигде не определялось. #176 добавляет снимок, гейты и
+порядок восстановления. Детали архитектуры — `project-context.ru.md` §22.
+
+### Что изменилось
+
+- `backend/alembic/versions/20260927_001_live_equity.py` — создаёт `trading.live_equity`
+  (16 колонок, 2 индекса) и засевает `live_risk_breach_reset` в `trading.app_settings`.
+- `backend/app/analytics/trading_config.py` — новая секция `LIVE_RISK`,
+  `get_live_risk_config()`, `get_live_risk_bounds()` и env-переопределения
+  `MAX_DAILY_LOSS_PCT` / `MAX_POSITION_SIZE` / `MAX_OPEN_POSITIONS` / `LIVE_EQUITY_SNAPSHOT`.
+  `get_live_trading_config()` теперь разрешает override `MAX_OPEN_POSITIONS`.
+- `backend/app/analytics/live_schema.py` — `ensure_live_equity_schema()` /
+  `ensure_live_runtime_schema()`, `REQUIRED_LIVE_EQUITY_COLUMNS`,
+  `LIVE_EQUITY_SCHEMA_STATEMENTS`, `RISK_BREACH_RESET_KEY`. Хранится в **отдельном**
+  кортеже операторов: `test_live_schema.py` проверяет, что в `LIVE_SCHEMA_STATEMENTS`
+  нет `DROP TABLE` / `DROP COLUMN`, а downgrade эквити именно их и использует.
+- `backend/app/analytics/live_executor.py` — `_write_live_equity()`, `_compute_live_equity()`,
+  `_daily_peak_equity()`, `_all_time_peak_equity()`, `_realized_pnl_rub()`,
+  `_risk_gate()`, `_activate_risk_breach()`, `_clear_risk_breach()`,
+  `_restore_risk_breach_state()`, `_refresh_risk_breach_reset()`, `_account_id()`;
+  приоритет rate-limit `equity`; два гейта в `process_signal()`; вызов снимка в `run()`;
+  риск-поля в `get_metrics()`.
+- `backend/app/api/live_trading_jobs.py` — `/api/live-trading/equity/current`,
+  `/latest` (алиас) и `/history`.
+- `.env.example` — четыре новые переменные.
+
+### Что обязан знать эксплуатант
+
+- Гейт **дневной**, а не пожизненный. `peak_equity_rub` сбрасывается вместе с
+  `session_key` (календарный день МСК), поэтому breach снимается сам на следующий
+  торговый день.
+- Breach блокирует **только новые входы**. Открытые позиции сохраняют брокерские стопы,
+  а цикл мониторинга продолжает довыставлять отсутствующие. Принудительного flatten нет.
+- Взведенный breach остаётся до конца дня МСК даже при полном восстановлении эквити.
+- Рестарт исполнителя **не** снимает breach: `initialize()` повторно взводит его из
+  последней строки `live_equity` текущего `session_key`.
+- До первого снимка в процессе гейт просадки **fail-open** (один раз логируется warning).
+  Отсутствие или отложение снимка входы не блокирует.
+- `LIVE_EQUITY_SNAPSHOT=off` отключает и снимок, **и** гейт просадки. Лимит нотила и
+  `max_open_positions` продолжают работать — они от эквити не зависят.
+- Сбой снимка торговлю не останавливает: растёт `equity_snapshot_errors_total` и пишется
+  warning. Следить нужно за этим счётчиком, а не за циклом.
+
+
+### Команды
+
+```bash
+# Применить миграцию (в образ backend alembic/ не входит — см. ограничения)
+cd backend && python -m alembic upgrade head
+python -m alembic current      # ожидается 20260927_001 (head)
+python -m alembic downgrade -1 # откат; удаляет trading.live_equity
+python -m alembic upgrade head
+
+# Проверить таблицу и засеянный переключатель сброса
+psql -c "SELECT count(*) FROM trading.live_equity;"
+psql -c "SELECT key, value FROM trading.app_settings ORDER BY key;"
+
+# Последний снимок и действующие лимиты
+curl -s http://localhost:8000/api/live-trading/equity/current | python -m json.tool
+curl -s "http://localhost:8000/api/live-trading/equity/history?limit=50"
+
+# Ручное снятие активного breach (флаг самопоглощающийся: исполнитель пишет false обратно)
+psql -c "UPDATE trading.app_settings SET value='true'::jsonb, updated_at=now() \
+         WHERE key='live_risk_breach_reset';"
+
+# Переопределить лимиты на один запуск без правки кода
+MAX_DAILY_LOSS_PCT=1.5 MAX_POSITION_SIZE=50000 MAX_OPEN_POSITIONS=3 \
+  python -m app.analytics.live_executor
+
+# Тесты (62)
+cd backend && python -m pytest tests/test_live_equity_risk_gates.py -q
+```
+
+### Известные ограничения
+
+- **`alembic` отсутствует в образе backend.** `backend/Dockerfile` копирует только `app/`
+  и `tests/`, поэтому `docker compose exec backend alembic ...` падает с
+  `No 'script_location' key found`. Миграции нужно запускать с хоста либо предварительно
+  скопировать `backend/alembic.ini` и `backend/alembic` в `/app` через `docker compose cp`.
+  Шаг деплоя `alembic upgrade head` — блок F (#178).
+- **`app/core/config.py:get_app_database_url()` читает только `POSTGRES_PASSWORD`**, тогда
+  как `docker-compose.yml` передаёт `PSTGRS_PWD`. Внутри контейнера alembic пытается
+  подключиться с паролем по умолчанию `app` и падает; ошибка выглядит как обманчивый
+  `UnicodeDecodeError` из psycopg2, потому что русское сообщение сервера не в UTF-8.
+  Обход, использованный при проверке:
+  `docker compose exec -T backend sh -c 'POSTGRES_PASSWORD="$PSTGRS_PWD" alembic upgrade head'`.
+  `config_manager.load_settings()` уже принимает оба имени — выравнивание
+  `app/core/config.py` с ним относится к #178.
+- `strategy_name` равен `NULL` в снимках, записанных вне полного прогона `initialize()`
+  (именно там исполнитель узнаёт стратегию).
+- Гейт просадки читает снимок из памяти текущего процесса. Если исполнитель не работает,
+  новые снимки не пишутся и гейт не может ужесточиться — по устаревшим данным он
+  ретроспективно не блокирует, кроме описанного выше восстановления при старте.
+- Telegram-алерт о `risk_breach` в #176 не входит; он появится в блоке E (#177) поверх
+  `get_metrics()` и уже издаваемого здесь `logger.critical` на переходе состояния.
+

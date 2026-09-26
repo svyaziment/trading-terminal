@@ -8,10 +8,79 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 
+from app.analytics.trading_config import (
+    get_live_risk_bounds,
+    get_live_risk_config,
+    get_live_trading_config,
+)
 from app.api.paper_trading_jobs import _json_safe
 from app.db.db_manager import DBManager
 
 TF_MAP = {"1h": "hour", "1d": "day", "1w": "week"}
+
+# Issue #176: columns of trading.live_equity served to the monitoring panel.
+# Listed once so the SELECT and the payload cannot drift apart.
+LIVE_EQUITY_COLUMNS = (
+    "id",
+    "timestamp",
+    "session_key",
+    "equity_rub",
+    "cash_rub",
+    "market_value_rub",
+    "realized_pnl_rub",
+    "unrealized_pnl_rub",
+    "peak_equity_rub",
+    "peak_equity_all_time_rub",
+    "drawdown_pct",
+    "open_positions",
+    "risk_breach",
+    "account_id",
+    "strategy_name",
+)
+
+_LIVE_EQUITY_SELECT = ", ".join(LIVE_EQUITY_COLUMNS)
+
+
+def _equity_unavailable(exc: Exception) -> HTTPException:
+    """One actionable error for a missing/unmigrated trading.live_equity."""
+    return HTTPException(
+        status_code=503,
+        detail=(
+            "trading.live_equity is not available "
+            f"({type(exc).__name__}); run `alembic upgrade head` "
+            "(migration 20260927_001_live_equity)"
+        ),
+    )
+
+
+def _risk_limits() -> dict:
+    """Effective live risk limits, so the panel never hardcodes a number."""
+    risk = get_live_risk_config()
+    live = get_live_trading_config()
+    return {
+        "max_daily_loss_pct": risk["max_daily_loss_pct"],
+        "max_position_size": risk["max_position_size"],
+        "max_open_positions": live["max_open_positions"],
+        "equity_snapshot_enabled": risk["equity_snapshot_enabled"],
+        "risk_breach_reset_key": risk["risk_breach_reset_key"],
+        "bounds": {
+            key: list(value) for key, value in get_live_risk_bounds().items()
+        },
+    }
+
+
+def _normalize_equity_row(row: dict) -> dict:
+    """Stable JSON shape for one live_equity row.
+
+    ``session_key`` is a DATE column, but pandas hands it back as a Timestamp,
+    which ``_json_safe`` renders as ``YYYY-MM-DDT00:00:00``. Trimming it keeps
+    the published contract a plain date whatever the driver returns.
+    """
+    safe = _json_safe(row)
+    value = safe.get("session_key")
+    if isinstance(value, str) and len(value) > 10:
+        safe["session_key"] = value[:10]
+    return safe
 
 
 def _get_db() -> DBManager:
@@ -219,3 +288,89 @@ def register_routes(app: FastAPI) -> None:
             "points": points,
             "cum_pnl_rub": round(cumulative, 2),
         }
+
+    # --- Issue #176: live equity and risk-gate monitoring --------------------
+
+    def _equity_current_payload() -> dict:
+        """Latest trading.live_equity row plus the limits it is judged against."""
+        db = _get_db()
+        try:
+            frame = db.select(
+                f"""
+                SELECT {_LIVE_EQUITY_SELECT}
+                FROM trading.live_equity
+                ORDER BY timestamp DESC, id DESC
+                LIMIT 1
+                """
+            ).to_dataframe()
+        except Exception as exc:  # noqa: BLE001 - unmigrated database
+            raise _equity_unavailable(exc) from exc
+        snapshot = (
+            _normalize_equity_row(frame.to_dict("records")[0]) if not frame.empty else None
+        )
+        return {
+            "available": True,
+            "snapshot": snapshot,
+            "risk_breach_active": bool((snapshot or {}).get("risk_breach")),
+            "risk": _risk_limits(),
+        }
+
+    @app.get("/api/live-trading/equity/current")
+    def equity_current():
+        """Newest live equity snapshot and the effective risk limits."""
+        return _equity_current_payload()
+
+    @app.get("/api/live-trading/equity/latest")
+    def equity_latest():
+        """Alias of ``/equity/current`` kept for the panel's naming."""
+        return _equity_current_payload()
+
+    @app.get("/api/live-trading/equity/history")
+    def equity_history(
+        session_key: Optional[date] = None,
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None,
+        limit: int = Query(500, ge=1, le=5000),
+        offset: int = Query(0, ge=0),
+    ):
+        """Live equity curve, newest first, filterable by MSK trading day."""
+        clauses = []
+        params: dict = {}
+        if session_key:
+            clauses.append("session_key = %(session_key)s")
+            params["session_key"] = session_key
+        if date_from:
+            clauses.append("session_key >= %(date_from)s")
+            params["date_from"] = date_from
+        if date_to:
+            clauses.append("session_key <= %(date_to)s")
+            params["date_to"] = date_to
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        db = _get_db()
+        try:
+            total = int(
+                db.select(
+                    f"SELECT COUNT(*) AS total FROM trading.live_equity{where}",
+                    params,
+                ).to_dataframe().iloc[0]["total"]
+            )
+            frame = db.select(
+                f"""
+                SELECT {_LIVE_EQUITY_SELECT}
+                FROM trading.live_equity{where}
+                ORDER BY timestamp DESC, id DESC
+                LIMIT %(limit)s OFFSET %(offset)s
+                """,
+                {**params, "limit": limit, "offset": offset},
+            ).to_dataframe()
+        except Exception as exc:  # noqa: BLE001 - unmigrated database
+            raise _equity_unavailable(exc) from exc
+        records = frame.to_dict("records") if not frame.empty else []
+        return {
+            "items": [_normalize_equity_row(row) for row in records],
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "risk": _risk_limits(),
+        }
+

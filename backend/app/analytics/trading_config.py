@@ -11,7 +11,10 @@ Central trading configuration - SINGLE SOURCE OF TRUTH for:
   8) levels state-machine breakout thresholds (Issue #106 / Epic #105);
   9) level_breakout_retest trigger constant (Issue #107; Lab params live in pattern_registry);
  10) stepped trailing-stop exit contract (Issue #144 / Epic #142 Block W - schema,
-     defaults, normalization and validation; StrategyEvaluator applies it since #145).
+     defaults, normalization and validation; StrategyEvaluator applies it since #145);
+  11) live equity risk gates (Issue #176 / Epic #172 task D - daily drawdown limit,
+     absolute position-notional cap and open-position cap, all env-overridable).
+
 
 Every module (data_refresher, online_data, online_signals, paper_trader, strategy_backtest)
 must import get_trading_universe() / get_strategy() from here instead of hardcoding
@@ -19,7 +22,8 @@ ticker lists or strategy parameters. LiveExecutor uses get_live_trading_universe
 """
 from __future__ import annotations
 import math
-from typing import Any, Dict, List, Optional
+import os
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # Non-secret defaults for the real-time order-book filter. A strategy can override
@@ -119,13 +123,166 @@ def get_moex_session_config() -> Dict[str, Any]:
     return cfg
 
 
+# --- Issue #176: live equity risk gates --------------------------------------
+# Absolute risk limits for the live contour (sandbox today, real account in
+# #178). They deliberately do NOT live in config_manager.RiskConfig: that object
+# is the *paper* risk policy read from config/settings.yaml and consumed by
+# paper_trader.write_equity(), and Epic #172 task D forbids touching the paper
+# contour. Trading policy belongs here (see the module docstring), so paper and
+# live each keep one clearly named source of truth.
+#
+# Every limit is overridable per environment without a code change:
+#   MAX_DAILY_LOSS_PCT, MAX_POSITION_SIZE, MAX_OPEN_POSITIONS,
+#   LIVE_EQUITY_SNAPSHOT.
+# An unparsable or out-of-range override raises ValueError at read time, so a
+# typo in .env fails fast instead of silently disabling a risk gate in
+# production (LiveExecutor.__init__ -> _validate_config surfaces it).
+LIVE_RISK: Dict[str, Any] = {
+    # Max intraday drawdown in percent of the *daily* peak equity. Reaching it
+    # blocks new entries (skip reason 'risk_breach') until the next MSK trading
+    # day or a manual reset; existing stops are preserved and re-armed. The
+    # default mirrors the paper limit already running in production.
+    'max_daily_loss_pct': 2.0,
+    # Max notional of a single position in RUB (size_lots * lot_size * price).
+    # An absolute cap on top of the relative POSITION_SIZING['max_position_pct']
+    # budget, so a growing account cannot grow one position without bound.
+    'max_position_size': 100_000,
+    # Write one trading.live_equity row per executor cycle. Turning this off
+    # also disables the drawdown gate (there is nothing to gate on), which
+    # makes it the dry-run switch for the whole risk contour.
+    'equity_snapshot_enabled': True,
+    # trading.app_settings key the operator sets to true to clear an active
+    # breach. The executor consumes it once and writes false back, following
+    # the trailing_kill_switch pattern from migration 20260916_001.
+    'risk_breach_reset_key': 'live_risk_breach_reset',
+}
+
+# Acceptable ranges. Float limits are (exclusive_low, inclusive_high]; the
+# integer limit is inclusive on both ends. Kept next to LIVE_RISK so a default
+# and its bound cannot drift apart unnoticed.
+MAX_DAILY_LOSS_PCT_RANGE: Tuple[float, float] = (0.0, 100.0)
+MAX_POSITION_SIZE_RANGE: Tuple[float, float] = (0.0, 1.0e12)
+MAX_OPEN_POSITIONS_RANGE: Tuple[int, int] = (1, 100)
+
+LIVE_RISK_BOUNDS: Dict[str, Tuple[float, float]] = {
+    'max_daily_loss_pct': MAX_DAILY_LOSS_PCT_RANGE,
+    'max_position_size': MAX_POSITION_SIZE_RANGE,
+    'max_open_positions': MAX_OPEN_POSITIONS_RANGE,
+}
+
+# env variable -> config key. MAX_OPEN_POSITIONS resolves into LIVE_TRADING
+# (its single source of truth); the other two resolve into LIVE_RISK.
+LIVE_RISK_ENV: Dict[str, str] = {
+    'MAX_DAILY_LOSS_PCT': 'max_daily_loss_pct',
+    'MAX_POSITION_SIZE': 'max_position_size',
+    'MAX_OPEN_POSITIONS': 'max_open_positions',
+}
+
+_TRUTH_WORDS = ('1', 'true', 'yes', 'on')
+
+
+def _env_raw(env_name: str) -> Optional[str]:
+    """Return a non-empty stripped env value, or None when unset/blank."""
+    raw = os.getenv(env_name)
+    if raw is None:
+        return None
+    raw = raw.strip()
+    return raw or None
+
+
+def _env_risk_float(env_name: str, key: str, default: float) -> float:
+    """Read a float risk limit from env, validating it against its range."""
+    raw = _env_raw(env_name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ValueError(f"{env_name} must be a number, got {raw!r}") from None
+    if not math.isfinite(value):
+        raise ValueError(f"{env_name} must be a finite number, got {raw!r}")
+    low, high = LIVE_RISK_BOUNDS[key]
+    if not low < value <= high:
+        raise ValueError(
+            f"{env_name} must be within ({low:g}, {high:g}], got {value:g}"
+        )
+    return value
+
+
+def _env_risk_int(env_name: str, key: str, default: int) -> int:
+    """Read an integer risk limit from env, validating it against its range."""
+    raw = _env_raw(env_name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise ValueError(f"{env_name} must be an integer, got {raw!r}") from None
+    low, high = LIVE_RISK_BOUNDS[key]
+    if not low <= value <= high:
+        raise ValueError(f"{env_name} must be within [{low}, {high}], got {value}")
+    return value
+
+
+def _env_bool(env_name: str, default: bool) -> bool:
+    """Read a boolean switch from env using the project's truth words."""
+    raw = _env_raw(env_name)
+    if raw is None:
+        return default
+    return raw.lower() in _TRUTH_WORDS
+
+
+def get_live_risk_config() -> Dict[str, Any]:
+    """Return an isolated copy of the live equity risk-gate policy.
+
+    Defaults come from :data:`LIVE_RISK`; ``MAX_DAILY_LOSS_PCT``,
+    ``MAX_POSITION_SIZE`` and ``LIVE_EQUITY_SNAPSHOT`` override them per
+    environment. Raises ``ValueError`` on an unparsable or out-of-range
+    override so a broken limit can never reach the executor silently.
+    """
+    config = dict(LIVE_RISK)
+    config['max_daily_loss_pct'] = _env_risk_float(
+        'MAX_DAILY_LOSS_PCT',
+        'max_daily_loss_pct',
+        float(LIVE_RISK['max_daily_loss_pct']),
+    )
+    config['max_position_size'] = _env_risk_float(
+        'MAX_POSITION_SIZE',
+        'max_position_size',
+        float(LIVE_RISK['max_position_size']),
+    )
+    config['equity_snapshot_enabled'] = _env_bool(
+        'LIVE_EQUITY_SNAPSHOT',
+        bool(LIVE_RISK['equity_snapshot_enabled']),
+    )
+    return config
+
+
+def get_live_risk_bounds() -> Dict[str, Tuple[float, float]]:
+    """Expose the validated ranges (diagnostics and API schema, Issue #176)."""
+    return dict(LIVE_RISK_BOUNDS)
+
+
+
+
 def get_live_trading_config() -> Dict[str, Any]:
-    """Return the complete sandbox live-executor policy."""
-    return {
+    """Return the complete sandbox live-executor policy.
+
+    Issue #176: ``max_open_positions`` keeps ``LIVE_TRADING`` as its single
+    source of truth (the executor gate in ``process_signal`` already reads it)
+    and only gains the ``MAX_OPEN_POSITIONS`` env override, resolved here.
+    """
+    config: Dict[str, Any] = {
         'risk_per_trade_pct': POSITION_SIZING['risk_per_trade_pct'],
         'max_position_pct': POSITION_SIZING['max_position_pct'],
         **LIVE_TRADING,
     }
+    config['max_open_positions'] = _env_risk_int(
+        'MAX_OPEN_POSITIONS',
+        'max_open_positions',
+        int(LIVE_TRADING['max_open_positions']),
+    )
+    return config
 
 
 # Secrets and the sandbox account id are intentionally loaded by config_manager from

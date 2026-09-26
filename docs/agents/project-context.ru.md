@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-09-19 (task-174); ранее 2026-09-18 (task-173); ранее 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-14 (task-147); 2026-09-09 (задача #146 — Lab умеет настраивать `config.trailing_stop`: переключатель и таблица ступеней, отрисованные из нового read-only `GET /api/strategies/trailing-schema`; ответ собирает `trading_config.get_trailing_stop_schema()` на основе `TRAILING_STOP` (handover §38). Ни одно поле или число трейлинга не продублировано в TSX, нетронутая стратегия по-прежнему сохраняется без ключа, а таблица сделок наконец отличает выход `trailing` от простого `stop`). Предыдущее обновление: 2026-09-08 (в §18 зафиксировано решение Product Owner: `ultra_late_tight` — самая поздняя и плотная лестница решётки `143-trailing-v3` — становится боевым дефолтом сетки трейлинг-стопа для #144; эпик #142 / roadmap Block W; контракт `config.trailing_stop` из #144 уже в коде — только валидация, полный контракт полей в §6, тесты `backend/tests/test_trailing_contract.py`). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-18 (task-173); ранее 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-14 (task-147); 2026-09-09 (задача #146 — Lab умеет настраивать `config.trailing_stop`: переключатель и таблица ступеней, отрисованные из нового read-only `GET /api/strategies/trailing-schema`; ответ собирает `trading_config.get_trailing_stop_schema()` на основе `TRAILING_STOP` (handover §38). Ни одно поле или число трейлинга не продублировано в TSX, нетронутая стратегия по-прежнему сохраняется без ключа, а таблица сделок наконец отличает выход `trailing` от простого `stop`). Предыдущее обновление: 2026-09-08 (в §18 зафиксировано решение Product Owner: `ultra_late_tight` — самая поздняя и плотная лестница решётки `143-trailing-v3` — становится боевым дефолтом сетки трейлинг-стопа для #144; эпик #142 / roadmap Block W; контракт `config.trailing_stop` из #144 уже в коде — только валидация, полный контракт полей в §6, тесты `backend/tests/test_trailing_contract.py`). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -154,6 +154,7 @@ trading-terminal/
 | **paper_positions** | ~704 | Позиции paper trading (A/B factors, limit/market, stop/take, PnL) |
 | **paper_equity** | ~2855 | Кривая equity (equity_rub, realized_pnl, drawdown_pct, open_positions) |
 | **live_positions** | runtime | Sandbox-ордера T-Bank, идентификаторы защиты, жизненный цикл и PnL |
+| **live_equity** | runtime | Снимок эквити live-счёта каждый цикл: кэш + рыночная стоимость, дневной/глобальный пик, drawdown, флаг risk-breach (задача #176) |
 | **trading_universe** | 15 | Торговая вселенная (ticker, rank, pf, source) - top-15 по PF |
 | **alerts** | ~72 | Онлайн-сигналы (details jsonb: price, support/take, factors) |
 | backtest_runs | ~300 | Метаданные прогонов backtest (legacy + levels matrix) |
@@ -167,6 +168,7 @@ trading-terminal/
 - `paper_positions`: id, ticker, entry_ts/price, stop_price, take_price, limit_price, limit_ts, size_lots, size_rub, lot_size, status (pending/open/closed_stop/closed_take/cancelled), signal_source, window_mode, rr_mode, rr_ratio, entry_mode (market/limit), signal_id, strategy_name, exit_ts/price/reason, pnl_rub, pnl_pct
 - `live_positions`: id, ticker, instrument_id, signal_ts, entry_price, lot_size, size_lots, stop_price, take_price, broker_order_id/stop_id/take_id, status, strategy_name, exit_ts/price/reason, pnl_rub
 - `paper_equity`: id, timestamp, equity_rub, realized_pnl, open_positions, drawdown_pct
+- `live_equity`: id, timestamp (naive MSK), session_key (календарный день МСК), equity_rub, cash_rub, market_value_rub, realized_pnl_rub, unrealized_pnl_rub, peak_equity_rub (дневной пик), peak_equity_all_time_rub, drawdown_pct, open_positions, risk_breach, account_id, strategy_name, created_at. `paper_equity` и её `write_equity` не затронуты (задача #176).
 - `trading_universe`: ticker (PK), rank, pf, source, notes, updated_at
 - `alerts`: id, alert_type, ticker, message, details (jsonb), created_at
 
@@ -217,6 +219,9 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/notifications/status | Кешированный статус конфигурации и подключения Telegram Bot API |
 | GET | /api/live-trading/positions | Sandbox live-позиции с текущей ценой, PnL, фильтрами, сортировкой и пагинацией; #149: + `trailing_enabled`, `current_stop_price`, `step_reached`, `risk_r`; `status=closed` включает `closed_trailing` |
 | GET | /api/live-trading/dynamics | Кумулятивный sandbox PnL с шагом 1h/1d/1w |
+| GET | /api/live-trading/equity/current | Последний снимок `live_equity` + `risk_breach_active` + действующие лимиты и их валидированные границы, чтобы панель не хардкодила числа (#176) |
+| GET | /api/live-trading/equity/latest | Алиас `/equity/current` (#176) |
+| GET | /api/live-trading/equity/history | Кривая эквити live, свежие первыми; фильтры `session_key`, `date_from`, `date_to`; пагинация (#176). 503 с подсказкой `alembic upgrade head`, если таблицы нет |
 
 Общий lock: jobs_state.py (in-process). Одновременно выполняется только одна тяжёлая задача; остальные возвращают 409.
 
@@ -654,6 +659,98 @@ paper (#148) и песочница live (#151).
 **Тестирование**: 68 тестов в `test_live_executor.py` (43 новых для #151). Покрытие: арминг, храповик, монотонность, kill switch, факты исполнения, слиппедж, rate limiter, валидация конфига.
 
 **Эксплуатация**: См. `docs/strategy/live-trading.ru.md` для пользовательской документации, handover §41 для операционных деталей.
+
+## 22. Live equity и риск-гейты (задача #176, эпик #172, блок D)
+
+Завершено 2026-09-27. Live-контур теперь ведёт собственный учёт эквити и применяет
+риск-лимиты до каждого входа. Paper-контур (`paper_equity`, `write_equity`,
+`config_manager.RiskConfig`) не затронут.
+
+**Формула эквити**: `equity = cash + market_value`, где `cash` — свободный RUB-остаток
+из `GetSandboxPositions`, а `market_value` оценивает каждую позицию из
+`GetSandboxPortfolio` по `current_price` (с откатом на `average_price`; позиция без
+цены исключается и логируется, а не выдумывается). Realized PnL **не** добавляется: он
+уже внутри брокерского кэша, поэтому повторное сложение задвоило бы его и занизило
+drawdown, по которому считается гейт. `realized_pnl_rub` (сумма `live_positions.pnl_rub`
+по закрытым строкам) и `unrealized_pnl_rub` (`market_value - cost_basis`) пишутся
+отдельными наблюдательными колонками.
+
+**Базис дневного убытка**: `session_key` — календарный день МСК снимка.
+`peak_equity_rub` — пик **в пределах этого `session_key`**, что и делает
+`max_daily_loss_pct` дневным лимитом; пожизненный пик превратил бы его в лимит
+просадки за всю историю и мог бы заблокировать входы навсегда.
+`peak_equity_all_time_rub` хранится отдельной колонкой для мониторинга.
+`drawdown_pct = (peak - equity) / peak * 100`.
+
+**Гейты** (все в `LiveExecutor.process_signal`, в таком порядке):
+1. `risk_breach` — гейт дневной просадки. Считается из снимка в памяти, поэтому не
+   требует ни брокерского вызова, ни запроса к БД, и выполняется до стакана и сайзинга.
+   При breach блокируются **только новые входы**: существующие позиции сохраняют
+   брокерские стопы, а `monitor_positions()` продолжает довыставлять отсутствующие.
+   **Принудительного flatten нет** (решение Product Owner от 2026-09-18).
+2. `max_open_positions` — существовавший гейт, не изменён; `LIVE_TRADING` остаётся его
+   единственным источником истины (#176 добавил лишь env-override `MAX_OPEN_POSITIONS`).
+3. `position_size_limit` — абсолютный лимит нотила
+   `size_lots * lot_size * entry_price > max_position_size`, применяется после
+   `calculate_position_size` и до `execute_order`. Считается по исполняемому ордеру, а не
+   по бюджету сайзера до округления, поэтому ветка `min_lot` (принудительно поднимающая
+   `size_lots` до 1) не может провести позицию больше лимита.
+
+**Восстановление после breach**: автоматически на следующий торговый день МСК (новый
+`session_key` начинает новый пик) либо вручную установкой
+`trading.app_settings.live_risk_breach_reset` в `true`. Флаг самопоглощающийся —
+исполнитель пишет обратно `false`, — поэтому зависший `true` не может снять более
+поздний breach. `initialize()` повторно взводит breach, уже истинный для текущего
+`session_key`, так что рестарт процесса нельзя использовать для обхода гейта.
+Взведенный breach остаётся `true` до конца дня даже при восстановлении эквити, поэтому
+сохранённый флаг и гейт не могут разойтись внутри одной сессии.
+
+**Конфигурация** (`trading_config.py`, секция `LIVE_RISK` + `get_live_risk_config()`):
+- `max_daily_loss_pct`: по умолчанию `2.0`, env `MAX_DAILY_LOSS_PCT`, диапазон `(0, 100]`.
+- `max_position_size`: по умолчанию `100000` RUB, env `MAX_POSITION_SIZE`, диапазон `(0, 1e12]`.
+- `equity_snapshot_enabled`: по умолчанию `true`, env `LIVE_EQUITY_SNAPSHOT`. Выключение
+  отключает и снимок, и гейт просадки — это dry-run-переключатель всего риск-контура.
+- `max_open_positions`: по умолчанию `5` в `LIVE_TRADING`, env `MAX_OPEN_POSITIONS`, диапазон `[1, 100]`.
+
+Непарсимое или внедиапазонное значение env бросает `ValueError` в момент чтения, поэтому
+опечатка в `.env` падает сразу, а не молча отключает риск-гейт.
+`LiveExecutor._validate_config` повторно проверяет те же границы, так что in-memory
+override не может протащить значение, которое `.env` отверг бы. Эти лимиты намеренно
+**не** живут в `config_manager.RiskConfig`: тот объект — paper-политика риска из
+`config/settings.yaml`, потребляемая `paper_trader.write_equity`.
+
+**База данных**: миграция `20260927_001_live_equity.py` (`down_revision = 20260916_001`)
+создаёт `trading.live_equity` с двумя индексами (`timestamp DESC` и
+`(session_key, timestamp DESC)`) и засевает `live_risk_breach_reset` в
+`trading.app_settings`. `live_schema.ensure_live_equity_schema()` — идемпотентная runtime-форма
+того же DDL, вызываемая из `initialize()`, поэтому автономный запуск исполнителя сходится
+на немигрированной БД. `timestamp` — `TIMESTAMP WITHOUT TIME ZONE` с naive MSK, как в
+`paper_equity.timestamp` и `live_positions.signal_ts`.
+
+**Отказоустойчивость**: `_write_live_equity()` вызывается один раз за цикл из `run()`,
+**до** `monitor_positions()` и `process_latest_bars()`, чтобы все гейты читали свежую
+просадку. Метод целиком обёрнут в `try/except`: сбой снимка увеличивает
+`equity_snapshot_errors_total`, пишет warning и никогда не пробрасывается в цикл и не
+трогает `_consecutive_errors`. Его два брокерских вызова используют новый приоритет
+rate-limit `equity` с `blocking=False` и тем же резервом токена, что `entry`, поэтому
+снимок откладывается (счётчик `equity_snapshot_skipped_total`), а не отнимает токен,
+нужный постановке или amend стопа. До первого снимка гейт просадки **fail-open** и один
+раз пишет warning: блокировать все входы из-за заминки rate-limit хуже, чем отторговать
+один цикл без свежего значения.
+
+**Алерты**: переход в breach один раз пишет `logger.critical` (не каждый цикл) и отдаёт
+счётчики через `get_metrics()`: `risk_breach_active`, `risk_breach_total`,
+`risk_breach_resets_total`, `risk_gate_rejections_total`, `position_size_rejections_total`,
+`equity_snapshots_total`, `equity_snapshot_errors_total`, `equity_snapshot_skipped_total`,
+`last_equity_rub`, `last_drawdown_pct`, `last_peak_equity_rub`, `last_equity_session_key`
+и действующие лимиты. Telegram-доставка `risk_breach` — блок E (#177), зависящий от этого.
+
+**Тестирование**: `backend/tests/test_live_equity_risk_gates.py` (62 теста) покрывает
+контракт схемы и цепочку миграций, дефолты / env-override / валидацию диапазонов, формулу
+эквити и отсутствие двойного счёта, дневной и глобальный пик, взведение и снятие breach
+(авто, ручное, рестарт), оба гейта входа, отложение по rate-limit, изоляцию сбоев,
+`get_metrics()` и три эндпоинта.
+
 
 
 

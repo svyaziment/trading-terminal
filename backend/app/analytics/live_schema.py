@@ -4,7 +4,9 @@ Alembic is the source of truth for ``trading.live_positions``:
 
 * ``20260915_002_live_trailing`` adds the trailing-stop columns;
 * ``20260916_001_live_trailing_runtime`` widens the status CHECK to seven
-  values, adds the execution-fact columns and creates ``trading.app_settings``.
+  values, adds the execution-fact columns and creates ``trading.app_settings``;
+* ``20260927_001_live_equity`` creates ``trading.live_equity`` (Issue #176) and
+  seeds the ``live_risk_breach_reset`` switch.
 
 The runtime DDL in :func:`ensure_live_positions_schema` is an idempotent
 superset of those migrations, so starting the executor standalone on a fresh
@@ -209,6 +211,104 @@ def ensure_live_positions_schema(db: Any) -> None:
     """
     for statement in LIVE_SCHEMA_STATEMENTS:
         db.execute(statement)
+
+
+# --- Issue #176: live equity snapshots and the risk-breach reset switch ------
+# Alembic (20260927_001_live_equity) is the source of truth; the statements
+# below are its idempotent runtime form so a standalone executor start on a
+# fresh database converges to the migrated shape, exactly as
+# LIVE_SCHEMA_STATEMENTS does for live_positions.
+LIVE_EQUITY_TABLE = "trading.live_equity"
+LIVE_EQUITY_TS_INDEX_NAME = "idx_live_equity_timestamp"
+LIVE_EQUITY_SESSION_INDEX_NAME = "idx_live_equity_session"
+#: trading.app_settings key the operator sets to true to clear an active breach.
+RISK_BREACH_RESET_KEY = "live_risk_breach_reset"
+
+#: Columns required by 20260927_001_live_equity, in DDL order (16 total).
+REQUIRED_LIVE_EQUITY_COLUMNS: tuple[str, ...] = (
+    "id",
+    "timestamp",
+    "session_key",
+    "equity_rub",
+    "cash_rub",
+    "market_value_rub",
+    "realized_pnl_rub",
+    "unrealized_pnl_rub",
+    "peak_equity_rub",
+    "peak_equity_all_time_rub",
+    "drawdown_pct",
+    "open_positions",
+    "risk_breach",
+    "account_id",
+    "strategy_name",
+    "created_at",
+)
+
+_CREATE_LIVE_EQUITY_SQL = f"""
+CREATE TABLE IF NOT EXISTS {LIVE_EQUITY_TABLE} (
+    id BIGSERIAL PRIMARY KEY,
+    timestamp TIMESTAMP NOT NULL,
+    session_key DATE NOT NULL,
+    equity_rub NUMERIC(20, 4) NOT NULL,
+    cash_rub NUMERIC(20, 4),
+    market_value_rub NUMERIC(20, 4),
+    realized_pnl_rub NUMERIC(20, 4),
+    unrealized_pnl_rub NUMERIC(20, 4),
+    peak_equity_rub NUMERIC(20, 4),
+    peak_equity_all_time_rub NUMERIC(20, 4),
+    drawdown_pct NUMERIC(10, 4),
+    open_positions INTEGER,
+    risk_breach BOOLEAN NOT NULL DEFAULT false,
+    account_id VARCHAR(64),
+    strategy_name TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+_CREATE_LIVE_EQUITY_TS_INDEX_SQL = f"""
+CREATE INDEX IF NOT EXISTS {LIVE_EQUITY_TS_INDEX_NAME}
+ON {LIVE_EQUITY_TABLE} (timestamp DESC)
+"""
+
+_CREATE_LIVE_EQUITY_SESSION_INDEX_SQL = f"""
+CREATE INDEX IF NOT EXISTS {LIVE_EQUITY_SESSION_INDEX_NAME}
+ON {LIVE_EQUITY_TABLE} (session_key, timestamp DESC)
+"""
+
+_SEED_RISK_BREACH_RESET_SQL = f"""
+INSERT INTO {APP_SETTINGS_TABLE} (key, value, updated_at)
+VALUES ('{RISK_BREACH_RESET_KEY}', 'false'::jsonb, CURRENT_TIMESTAMP)
+ON CONFLICT (key) DO NOTHING
+"""
+
+#: Ordered idempotent DDL for the live-equity contract. ``app_settings`` is
+#: (re)created first so this list is safe to apply on its own, without
+#: LIVE_SCHEMA_STATEMENTS having run.
+LIVE_EQUITY_SCHEMA_STATEMENTS: tuple[str, ...] = (
+    _CREATE_SCHEMA_SQL,
+    _CREATE_APP_SETTINGS_SQL,
+    _CREATE_LIVE_EQUITY_SQL,
+    _CREATE_LIVE_EQUITY_TS_INDEX_SQL,
+    _CREATE_LIVE_EQUITY_SESSION_INDEX_SQL,
+    _SEED_RISK_BREACH_RESET_SQL,
+)
+
+
+def ensure_live_equity_schema(db: Any) -> None:
+    """Apply the idempotent runtime form of ``20260927_001_live_equity``.
+
+    Never drops anything: the statements are a superset of the migration, so
+    re-running on an already migrated database is a no-op.
+    """
+    for statement in LIVE_EQUITY_SCHEMA_STATEMENTS:
+        db.execute(statement)
+
+
+def ensure_live_runtime_schema(db: Any) -> None:
+    """Converge every live-trading runtime table (Issues #173 + #176)."""
+    ensure_live_positions_schema(db)
+    ensure_live_equity_schema(db)
+
 
 
 _TABLES_SQL = """
