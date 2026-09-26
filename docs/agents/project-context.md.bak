@@ -668,6 +668,3 @@ Completed 2026-09-16. Live/sandbox trailing-stop with ratchet, restart safety, a
 
 
 
-
-
-**SSL certificates for T-Bank gRPC:** on a Windows host you must explicitly set `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH="$(pwd)/backend/certs/tbank-root.pem"` (set automatically in `start_processes.sh`), otherwise the gRPC connection to `sandbox-invest-public-api.tbank.ru` fails with `CERTIFICATE_VERIFY_FAILED`.

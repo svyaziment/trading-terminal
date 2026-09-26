@@ -24,7 +24,6 @@ from decimal import Decimal
 from typing import Any, Callable, Dict, Optional
 
 import pandas as pd
-import uuid
 
 from app.analytics.live_engine import (
     build_1m_context,
@@ -1462,7 +1461,10 @@ class LiveExecutor:
             )
             return None
         self._stop_attempt_seq += 1
-        order_key = str(uuid.uuid4())
+        order_key = str(uuid.uuid5(
+            uuid.NAMESPACE_DNS,
+            f"live-stop-{position_id}-{int(step_reached)}-{self._stop_attempt_seq}"
+        ))
         try:
             stop = self._broker_call(
                 "post_stop_order",
@@ -2441,9 +2443,9 @@ class LiveExecutor:
                 logger.info("Sandbox LiveExecutor stopped cleanly")
 
 
-
 if __name__ == "__main__":
     import sys
+import uuid
 
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     duration = int(sys.argv[1]) if len(sys.argv) > 1 else None

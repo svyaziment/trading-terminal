@@ -6,7 +6,7 @@
 # CERTIFICATE_VERIFY_FAILED при подключении к sandbox-invest-public-api.tbank.ru.
 CERT_PATH="$(pwd)/backend/certs/tbank-root.pem"
 if [ -f "${CERT_PATH}" ]; then
-  export GRPC_DEFAULT_SSL_ROOTS_FILE_PATH="$(cygpath -w "${CERT_PATH}")"
+  export GRPC_DEFAULT_SSL_ROOTS_FILE_PATH="${CERT_PATH}"
   echo "SSL: using ${CERT_PATH}"
 else
   echo "WARNING: ${CERT_PATH} not found; gRPC will use system defaults"
