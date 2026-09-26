@@ -1462,10 +1462,7 @@ class LiveExecutor:
             )
             return None
         self._stop_attempt_seq += 1
-        order_key = str(uuid.uuid5(
-            uuid.NAMESPACE_DNS,
-            f"live-stop-{position_id}-{int(step_reached)}-{self._stop_attempt_seq}"
-        ))
+        order_key = str(uuid.uuid4())
         try:
             stop = self._broker_call(
                 "post_stop_order",

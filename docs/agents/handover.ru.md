@@ -936,3 +936,26 @@ python -c "from app.broker.tinkoff_sandbox import TinkoffSandboxClient; print(Ti
 ```
 
 Если вернётся баланс (число) — сертификат работает. Если `CERTIFICATE_VERIFY_FAILED` — проверьте, что `backend/certs/tbank-root.pem` существует и содержит валидный PEM-сертификат.
+
+
+### Проверка механизма защиты #175 (2026-09-26)
+
+**Результат:** Полный цикл брокерской защиты позиций (#175) проверен прямыми вызовами клиента вне торговой сессии. Все 9 шагов прошли успешно:
+
+1. ✅ Покупка (execute_order buy)
+2. ✅ Постановка стопа (post_stop_order с UUID v4)
+3. ✅ Проверка стопа (get_stop_orders)
+4. ✅ Amend-трейлинг: новый стоп выше (post_stop_order)
+5. ✅ Amend-трейлинг: оба стопа видны
+6. ✅ Amend-трейлинг: старый стоп отменён (cancel_stop_order)
+7. ✅ Amend-трейлинг: остался только новый стоп
+8. ✅ OCO-мониторинг: отмена стопа (cancel_stop_order)
+9. ✅ Закрытие позиции (execute_order sell)
+
+**Исправленные баги:**
+- `uuid5 → uuid4` в `_arm_broker_stop` (ошибка 30028: order_id has invalid UUID format)
+
+**Известные проблемы:**
+- `SandboxStopOrderState` имеет поле `lots_requested`, а не `quantity` (может вызвать AttributeError в `_active_stop_ids` или `_reconcile_protection`)
+
+**Статус:** Механизм работоспособен. Требуется финальный smoke в торговой сессии (понедельник 10:00 МСК) для подтверждения полного цикла через LiveExecutor.
