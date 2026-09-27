@@ -3522,6 +3522,25 @@ class LiveExecutor:
         """
         self.install_signal_handlers()
         try:
+            self._notify(
+                "live_start",
+                "Live-контур запущен (песочница)",
+                [
+                    ("Стратегия", self.strategy_name or None),
+                    ("Тикеров", len(self.config.get('tickers', []))),
+                    ("Тикеры", ",".join(sorted(self.config.get('tickers', []))) or None),
+                    ("До конца сессии", until_session_end),
+                    ("Интервал проверки", f"{check_interval:.0f} с"),
+                    ("Порог ошибок подряд", self._max_consecutive_errors),
+                    (
+                        "Алерты",
+                        "Telegram" if self.notifier is not None else "только лог",
+                    ),
+                ],
+                icon="🚀",
+            )
+            self._last_heartbeat_at = self.clock()
+
             if until_session_end:
                 self.wait_for_session_open()
                 if self.shutdown_requested.is_set():
@@ -3547,26 +3566,6 @@ class LiveExecutor:
             )
             # Issue #177: the operator must see the process come up - and whether
             # it came up with Telegram credentials or in the log-only contour.
-            self._notify(
-                "live_start",
-                "Live-контур запущен (песочница)",
-                [
-                    ("Стратегия", self.strategy_name or None),
-                    ("Тикеров", len(self.evaluators)),
-                    ("Тикеры", ",".join(sorted(self.evaluators)) or None),
-                    ("До конца сессии", until_session_end),
-                    ("Интервал проверки", f"{check_interval:.0f} с"),
-                    ("Порог ошибок подряд", self._max_consecutive_errors),
-                    (
-                        "Алерты",
-                        "Telegram" if self.notifier is not None else "только лог",
-                    ),
-                ],
-                icon="🚀",
-            )
-            # The start alert already proves the process is alive, so the first
-            # heartbeat is due a full interval later.
-            self._last_heartbeat_at = self.clock()
             entry_closed_logged = False
             while not self.shutdown_requested.is_set():
                 now_msk = self.now_fn()
