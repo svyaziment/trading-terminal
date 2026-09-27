@@ -11,7 +11,8 @@ def test_live_filters_target_closed_positions_ticker_and_dates() -> None:
         date_to=date(2026, 8, 17),
     )
 
-    assert "status IN ('closed_stop','closed_take')" in where
+    # Issue #149: "closed" also covers trailing-stop exits.
+    assert "status IN ('closed_stop','closed_take','closed_trailing')" in where
     assert "ticker = %(ticker)s" in where
     assert "COALESCE(signal_ts, created_at)::date >= %(date_from)s" in where
     assert params["ticker"] == "SBER"

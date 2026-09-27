@@ -11,7 +11,8 @@ def test_monitoring_filters_support_closed_group_ticker_and_dates() -> None:
         date_to=date(2026, 8, 17),
     )
 
-    assert "status IN ('closed_stop','closed_take')" in where
+    # Issue #149: "closed" also covers trailing-stop exits.
+    assert "status IN ('closed_stop','closed_take','closed_trailing')" in where
     assert "ticker = %(ticker)s" in where
     assert "COALESCE(entry_ts, created_at)::date >= %(date_from)s" in where
     assert "COALESCE(entry_ts, created_at)::date <= %(date_to)s" in where
