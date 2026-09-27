@@ -1348,3 +1348,216 @@ class TestLifecycleAlerts:
 
 
 
+# --- Issue #177 step 5: throttled metrics persistence (decision D5) -------------
+
+
+class MetricsDB(FakeDB):
+    """FakeDB that records ``trading.app_settings`` upserts and can fail them."""
+
+    def __init__(self, fail=False, **kwargs):
+        super().__init__(**kwargs)
+        self.fail = fail
+        self.metrics_writes = []
+
+    def execute(self, query, params=None):
+        normalized = " ".join(query.split())
+        if "INSERT INTO trading.app_settings" in normalized:
+            if self.fail:
+                raise RuntimeError("db down")
+            self.metrics_writes.append(params)
+        return super().execute(query, params)
+
+    @property
+    def keys(self):
+        return [params[0] for params in self.metrics_writes]
+
+    @property
+    def payloads(self):
+        return [json.loads(params[1]) for params in self.metrics_writes]
+
+
+def make_metrics_executor(*, db=None, clock=None, notifier=None, **alerting):
+    """Executor on a recording db with a controllable flush interval."""
+    return make_hook_executor(
+        db=db if db is not None else MetricsDB(),
+        clock=clock if clock is not None else FakeClock(),
+        notifier=notifier,
+        **alerting,
+    )
+
+
+class TestMetricsFlush:
+    """The persisted snapshot behind GET /api/live-trading/metrics (#177)."""
+
+    def test_the_snapshot_is_upserted_under_the_configured_key(self):
+        db = MetricsDB()
+        executor = make_metrics_executor(db=db)
+        executor.iterations_total = 7
+        executor.errors_total = 2
+        executor.alerts_sent_total = 3
+
+        assert executor._flush_metrics() is True
+
+        assert db.keys == ["live_executor_metrics"]
+        statement = db.execute_calls[0][0]
+        assert "INSERT INTO trading.app_settings (key, value, updated_at)" in statement
+        assert "ON CONFLICT (key)" in statement
+        assert "DO UPDATE SET value = EXCLUDED.value" in statement
+        payload = db.payloads[0]
+        assert payload["schema_version"] == 1
+        assert payload["iterations_total"] == 7
+        assert payload["errors_total"] == 2
+        assert payload["alerts_sent_total"] == 3
+        assert payload["strategy"] == "active-strategy"
+        assert payload["notifier_configured"] is False
+        assert payload["telegram_alerts_enabled"] is True
+        assert payload["kill_switch"] is False
+        assert payload["kill_switch_source"] == "startup"
+        assert payload["persisted_at"]
+        assert executor.metrics_flushes_total == 1
+        assert executor.metrics_flush_errors_total == 0
+
+    def test_the_snapshot_keeps_the_risk_gate_fields_of_previous_issues(self):
+        db = MetricsDB()
+        executor = make_metrics_executor(db=db)
+        executor._risk_breach_active = True
+        executor.risk_breach_total = 2
+
+        assert executor._flush_metrics() is True
+
+        payload = db.payloads[0]
+        assert payload["risk_breach_active"] is True
+        assert payload["risk_breach_total"] == 2
+        assert payload["max_daily_loss_pct"] == pytest.approx(
+            executor.config["max_daily_loss_pct"]
+        )
+
+    def test_datetimes_survive_the_json_roundtrip(self):
+        db = MetricsDB()
+        executor = make_metrics_executor(db=db)
+        executor.heartbeat_ts = executor.now_fn()
+        executor.last_error_at = executor.now_fn()
+
+        assert executor._flush_metrics() is True
+
+        payload = db.payloads[0]
+        assert isinstance(payload["heartbeat_ts"], str)
+        assert isinstance(payload["last_error_at"], str)
+
+    def test_the_periodic_write_is_throttled_by_the_configured_interval(self):
+        clock = FakeClock()
+        db = MetricsDB()
+        executor = make_metrics_executor(db=db, clock=clock, metrics_flush_seconds=60)
+
+        assert executor._flush_metrics() is True
+        assert executor._flush_metrics() is False
+
+        clock.advance(59)
+        assert executor._flush_metrics() is False
+
+        clock.advance(1)
+        assert executor._flush_metrics() is True
+        assert len(db.metrics_writes) == 2
+        assert executor.metrics_flushes_total == 2
+
+    def test_force_bypasses_the_throttle(self):
+        clock = FakeClock()
+        db = MetricsDB()
+        executor = make_metrics_executor(db=db, clock=clock, metrics_flush_seconds=3600)
+
+        assert executor._flush_metrics() is True
+        assert executor._flush_metrics(force=True) is True
+        assert len(db.metrics_writes) == 2
+
+    def test_a_non_positive_interval_disables_only_the_periodic_write(self):
+        db = MetricsDB()
+        executor = make_metrics_executor(db=db, metrics_flush_seconds=0)
+
+        assert executor._flush_metrics() is False
+        assert db.metrics_writes == []
+
+        assert executor._flush_metrics(force=True) is True
+        assert len(db.metrics_writes) == 1
+
+    def test_a_custom_metrics_key_is_honoured(self):
+        db = MetricsDB()
+        executor = make_metrics_executor(db=db, metrics_key="live_metrics_canary")
+
+        assert executor._flush_metrics(force=True) is True
+        assert db.keys == ["live_metrics_canary"]
+
+    def test_a_failing_write_is_counted_and_never_raises(self, caplog):
+        db = MetricsDB(fail=True)
+        executor = make_metrics_executor(db=db)
+
+        with caplog.at_level("WARNING"):
+            assert executor._flush_metrics(force=True) is False
+
+        assert executor.metrics_flush_errors_total == 1
+        assert executor.metrics_flushes_total == 0
+        assert "Failed to persist live executor metrics" in caplog.text
+
+    def test_a_delivered_heartbeat_persists_the_snapshot(self):
+        clock = FakeClock()
+        db = MetricsDB()
+        notifier = FakeNotifier()
+        executor = make_metrics_executor(
+            db=db,
+            clock=clock,
+            notifier=notifier,
+            heartbeat_interval_seconds=60,
+            metrics_flush_seconds=3600,
+        )
+
+        assert executor._maybe_send_heartbeat() is True
+        assert len(db.metrics_writes) == 1
+        assert db.payloads[0]["heartbeats_sent_total"] == 1
+
+        clock.advance(60)
+        assert executor._maybe_send_heartbeat() is True
+        assert len(db.metrics_writes) == 2
+        assert db.payloads[-1]["heartbeats_sent_total"] == 2
+
+    def test_an_undelivered_heartbeat_does_not_persist(self):
+        db = MetricsDB()
+        notifier = FakeNotifier(result=False)
+        executor = make_metrics_executor(
+            db=db,
+            notifier=notifier,
+            heartbeat_interval_seconds=60,
+            metrics_flush_seconds=3600,
+        )
+
+        assert executor._maybe_send_heartbeat() is False
+        assert db.metrics_writes == []
+        assert executor.metrics_flushes_total == 0
+
+    def test_a_kill_switch_transition_persists_the_snapshot(self):
+        db = MetricsDB(app_settings={"trailing_kill_switch": True})
+        executor = make_metrics_executor(db=db, metrics_flush_seconds=3600)
+
+        executor._refresh_kill_switch()
+
+        assert db.keys == ["live_executor_metrics"]
+        assert db.payloads[0]["kill_switch"] is True
+        assert db.payloads[0]["kill_switch_source"] == "app_settings"
+
+        # A steady state neither alerts nor writes.
+        executor._refresh_kill_switch()
+        assert len(db.metrics_writes) == 1
+
+    def test_graceful_shutdown_persists_the_final_snapshot(self):
+        db = MetricsDB()
+        executor = make_metrics_executor(db=db, metrics_flush_seconds=3600)
+        executor.config["close_positions_on_shutdown"] = False
+        executor.iterations_total = 12
+        executor.errors_total = 1
+
+        executor.shutdown()
+
+        assert len(db.metrics_writes) == 1
+        payload = db.payloads[0]
+        assert payload["iterations_total"] == 12
+        assert payload["errors_total"] == 1
+        assert executor.metrics_flushes_total == 1
+

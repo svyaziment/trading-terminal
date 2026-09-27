@@ -110,6 +110,13 @@ LIVE_EQUITY_INSERT_COLUMNS: tuple[str, ...] = (
     "strategy_name",
 )
 
+#: Issue #177 (decision D1): the monitoring snapshot lives in a single JSONB row
+#: of ``trading.app_settings`` - no new table and no migration. ``schema_version``
+#: lets the step 6 API tell an old row apart after a format change, and the key is
+#: configurable through ``LIVE_ALERTING.metrics_key``.
+LIVE_METRICS_KEY = "live_executor_metrics"
+LIVE_METRICS_SCHEMA_VERSION = 1
+
 
 def _coerce_bool(value: Any) -> bool:
     """Normalise a JSONB / str / bool setting value to a strict boolean.
@@ -641,14 +648,109 @@ class LiveExecutor:
         )
         if sent:
             self.heartbeats_sent_total += 1
+            # Decision D5: a delivered heartbeat is the natural persistence point
+            # for the monitoring snapshot, so the API never shows counters older
+            # than the last "the loop is alive" message.
+            self._flush_metrics(force=True)
         return sent
 
-    def _flush_metrics(self, *, force: bool = False) -> None:
-        """Persist the monitoring counters to ``live_trading_metrics``.
+    def _metrics_payload(self) -> Dict[str, Any]:
+        """Build the JSONB snapshot persisted for the monitoring API (#177).
 
-        Throttled by ``metrics_flush_interval_seconds``; ``force`` writes
-        immediately (process shutdown). Step 5 of Issue #177 fills in the write.
+        ``get_metrics()`` (#174-#176) stays the in-process contract. This adds
+        the alerting half of Issue #177 plus the provenance fields an operator
+        needs to tell "the process is idle" apart from "the process is dead":
+        schema version, wall-clock write time, kill-switch source and whether
+        Telegram was configured at all.
         """
+        payload: Dict[str, Any] = dict(self.get_metrics())
+        payload.update(
+            {
+                "schema_version": LIVE_METRICS_SCHEMA_VERSION,
+                "persisted_at": self.now_fn().isoformat(timespec="seconds"),
+                "strategy": self.strategy_name or None,
+                "tickers": sorted(self.evaluators),
+                "ticker_count": len(self.evaluators),
+                "notifier_configured": self.notifier is not None,
+                "telegram_alerts_enabled": bool(
+                    self.alerting.get("telegram_alerts_enabled", True)
+                ),
+                "max_consecutive_errors": self._max_consecutive_errors,
+                "heartbeat_interval_seconds": _finite_float(
+                    self.alerting.get("heartbeat_interval_seconds"), 0.0
+                ),
+                "heartbeat_stale_seconds": _finite_float(
+                    self.alerting.get("heartbeat_stale_seconds"), 0.0
+                ),
+                "alerts_attempted_total": self.alerts_attempted_total,
+                "alerts_sent_total": self.alerts_sent_total,
+                "alerts_failed_total": self.alerts_failed_total,
+                "alerts_suppressed_total": self.alerts_suppressed_total,
+                "alerts_skipped_total": self.alerts_skipped_total,
+                "heartbeats_sent_total": self.heartbeats_sent_total,
+                "metrics_flushes_total": self.metrics_flushes_total,
+                "metrics_flush_errors_total": self.metrics_flush_errors_total,
+                "kill_switch": bool(self.config.get("trailing_kill_switch", False)),
+                "kill_switch_source": self._kill_switch_source,
+            }
+        )
+        return payload
+
+    def _flush_metrics(self, *, force: bool = False) -> bool:
+        """Persist the monitoring snapshot to ``trading.app_settings`` (#177).
+
+        Decision D1: one JSONB row keyed by ``LIVE_ALERTING.metrics_key``, so no
+        new table and no migration. Decision D5: the periodic write is throttled
+        by ``LIVE_ALERTING.metrics_flush_seconds`` and forced on the events an
+        operator must not lose - a delivered heartbeat, a kill-switch transition
+        and graceful shutdown.
+
+        Best effort like every other monitoring path: a failing write increments
+        ``metrics_flush_errors_total`` and never propagates into the loop.
+
+        Returns:
+            True only when the row was written.
+        """
+        interval = _finite_float(self.alerting.get("metrics_flush_seconds"), 0.0)
+        now = self.clock()
+        if not force:
+            if interval <= 0:
+                # A non-positive interval disables the periodic write; an
+                # explicit force=True (shutdown, kill switch) still persists.
+                return False
+            if now - self._last_metrics_flush_at < interval:
+                return False
+        key = str(self.alerting.get("metrics_key") or LIVE_METRICS_KEY)
+        try:
+            self.db.execute(
+                """
+                INSERT INTO trading.app_settings (key, value, updated_at)
+                VALUES (%s, %s::jsonb, now())
+                ON CONFLICT (key)
+                DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+                """,
+                (
+                    key,
+                    json.dumps(
+                        self._metrics_payload(), ensure_ascii=False, default=str
+                    ),
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 - metrics must never break the loop
+            self.metrics_flush_errors_total += 1
+            logger.warning(
+                "Failed to persist live executor metrics to trading.app_settings.%s: %s: %s",
+                key,
+                type(exc).__name__,
+                exc,
+            )
+            return False
+        self._last_metrics_flush_at = now
+        self.metrics_flushes_total += 1
+        logger.debug(
+            "Persisted live executor metrics to trading.app_settings.%s", key
+        )
+        return True
 
     def _broker_call(
         self,
@@ -877,6 +979,9 @@ class LiveExecutor:
             ],
             critical=current,
         )
+        # Decision D5: the kill switch is exactly the state the monitoring API is
+        # asked about, so the persisted snapshot must not lag behind the alert.
+        self._flush_metrics(force=True)
 
     def _read_kill_switch(self) -> None:
         """Read trailing_kill_switch from trading.app_settings (Issue #151).
@@ -3374,6 +3479,11 @@ class LiveExecutor:
                 self._lock_conn = None
                 self._advisory_lock_acquired = False
 
+        # Issue #177 (decision D5): graceful shutdown is the last chance to leave
+        # a truthful snapshot behind - after it the counters are final and the
+        # monitoring API would otherwise keep serving the previous cycle.
+        self._flush_metrics(force=True)
+
     def wait_for_session_open(self) -> None:
         """Sleep until the MOEX entry window, logging progress, honoring SIGTERM."""
         session = get_moex_session_config()
@@ -3570,6 +3680,9 @@ class LiveExecutor:
                     self.iterations_total += 1
                     # Issue #177: paced "still alive" message for the operator.
                     self._maybe_send_heartbeat()
+                    # Issue #177 (decision D5): throttled persistence of the
+                    # monitoring snapshot consumed by /api/live-trading/metrics.
+                    self._flush_metrics()
                 self.sleep_fn(min(1.0, check_interval))
         finally:
             try:
