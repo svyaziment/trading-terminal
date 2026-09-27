@@ -13,7 +13,10 @@ Central trading configuration - SINGLE SOURCE OF TRUTH for:
  10) stepped trailing-stop exit contract (Issue #144 / Epic #142 Block W - schema,
      defaults, normalization and validation; StrategyEvaluator applies it since #145);
   11) live equity risk gates (Issue #176 / Epic #172 task D - daily drawdown limit,
-     absolute position-notional cap and open-position cap, all env-overridable).
+     absolute position-notional cap and open-position cap, all env-overridable);
+  12) live alerting and heartbeat monitoring (Issue #177 / Epic #172 block E -
+     Telegram heartbeat cadence, staleness window, alert debounce, slippage
+     threshold and the metrics-flush contract, all env-overridable).
 
 
 Every module (data_refresher, online_data, online_signals, paper_trader, strategy_backtest)
@@ -190,8 +193,17 @@ def _env_raw(env_name: str) -> Optional[str]:
     return raw or None
 
 
-def _env_risk_float(env_name: str, key: str, default: float) -> float:
-    """Read a float risk limit from env, validating it against its range."""
+def _env_bounded_float(
+    env_name: str,
+    key: str,
+    default: float,
+    bounds: Dict[str, Tuple[float, float]],
+) -> float:
+    """Read a float from env and validate it against ``bounds[key]``.
+
+    Shared by the live risk gates (#176) and the live alerting policy (#177) so
+    both keep one message shape and both fail fast on a typo in ``.env``.
+    """
     raw = _env_raw(env_name)
     if raw is None:
         return default
@@ -201,7 +213,7 @@ def _env_risk_float(env_name: str, key: str, default: float) -> float:
         raise ValueError(f"{env_name} must be a number, got {raw!r}") from None
     if not math.isfinite(value):
         raise ValueError(f"{env_name} must be a finite number, got {raw!r}")
-    low, high = LIVE_RISK_BOUNDS[key]
+    low, high = bounds[key]
     if not low < value <= high:
         raise ValueError(
             f"{env_name} must be within ({low:g}, {high:g}], got {value:g}"
@@ -209,8 +221,18 @@ def _env_risk_float(env_name: str, key: str, default: float) -> float:
     return value
 
 
-def _env_risk_int(env_name: str, key: str, default: int) -> int:
-    """Read an integer risk limit from env, validating it against its range."""
+def _env_risk_float(env_name: str, key: str, default: float) -> float:
+    """Read a float risk limit from env, validating it against its range."""
+    return _env_bounded_float(env_name, key, default, LIVE_RISK_BOUNDS)
+
+
+def _env_bounded_int(
+    env_name: str,
+    key: str,
+    default: int,
+    bounds: Dict[str, Tuple[float, float]],
+) -> int:
+    """Read an integer from env and validate it against ``bounds[key]``."""
     raw = _env_raw(env_name)
     if raw is None:
         return default
@@ -218,10 +240,15 @@ def _env_risk_int(env_name: str, key: str, default: int) -> int:
         value = int(raw)
     except ValueError:
         raise ValueError(f"{env_name} must be an integer, got {raw!r}") from None
-    low, high = LIVE_RISK_BOUNDS[key]
+    low, high = bounds[key]
     if not low <= value <= high:
         raise ValueError(f"{env_name} must be within [{low}, {high}], got {value}")
     return value
+
+
+def _env_risk_int(env_name: str, key: str, default: int) -> int:
+    """Read an integer risk limit from env, validating it against its range."""
+    return _env_bounded_int(env_name, key, default, LIVE_RISK_BOUNDS)
 
 
 def _env_bool(env_name: str, default: bool) -> bool:
@@ -261,6 +288,106 @@ def get_live_risk_config() -> Dict[str, Any]:
 def get_live_risk_bounds() -> Dict[str, Tuple[float, float]]:
     """Expose the validated ranges (diagnostics and API schema, Issue #176)."""
     return dict(LIVE_RISK_BOUNDS)
+
+
+# --- Issue #177: live alerting, heartbeat and operator monitoring -------------
+# Notification policy for the live contour. Like LIVE_RISK it lives here (not in
+# config_manager) because it is trading policy, and like LIVE_RISK every value
+# is env-overridable and range-validated so a typo in .env fails fast instead of
+# silently muting an operator alert.
+#
+# Secrets are NOT part of this section: the Telegram credentials come from
+# config_manager.load_settings().telegram (TGM_TOKEN / TGM_CHAT_ID or
+# backend/config/settings.yaml), which TelegramNotifier already reads.
+LIVE_ALERTING: Dict[str, Any] = {
+    # Send one Telegram heartbeat every N seconds while the loop is alive. The
+    # heartbeat is the "process is alive" signal an external monitor watches.
+    'heartbeat_interval_seconds': 3600,
+    # A heartbeat older than this makes the monitoring API report
+    # heartbeat_stale=true. Deliberately shorter than the interval above would
+    # be a permanent alert, so the default pairs 3600s sends with a 300s
+    # staleness window only meaningful right after a crash or a missed send.
+    'heartbeat_stale_seconds': 300,
+    # Minimum gap between two alerts sharing one dedup key. Repeating criticals
+    # (protection_failed, invariant violation, equity snapshot errors) are
+    # debounced; rare one-shot events bypass it (decision D2).
+    'alert_debounce_seconds': 300,
+    # Exit slippage worth waking the operator for, in basis points.
+    'slippage_alert_bp': 50.0,
+    # Consecutive loop errors that both stop the executor and alert. Decision
+    # D3: this key replaces the hardcoded MAX_CONSECUTIVE_ERRORS module
+    # constant as the single source of truth (default keeps the old behaviour).
+    'max_consecutive_errors': 5,
+    # Persist the metrics snapshot into trading.app_settings at most every N
+    # seconds, plus on heartbeat, kill-switch transition and graceful shutdown
+    # (decision D5 - writing every 30s cycle would be ~2880 UPDATE/day).
+    'metrics_flush_seconds': 300,
+    # trading.app_settings key holding the JSONB metrics snapshot. The executor
+    # writes it, GET /api/live-trading/metrics reads it (decision D1).
+    'metrics_key': 'live_executor_metrics',
+    # Master switch. false keeps every event in the logs only, which is the
+    # safe default for a local run without a Telegram chat.
+    'telegram_alerts_enabled': True,
+}
+
+# Acceptable ranges, same convention as LIVE_RISK_BOUNDS: float keys are
+# (exclusive_low, inclusive_high], integer keys are inclusive on both ends.
+LIVE_ALERTING_BOUNDS: Dict[str, Tuple[float, float]] = {
+    'heartbeat_interval_seconds': (1.0, 86400.0),
+    'heartbeat_stale_seconds': (1.0, 86400.0),
+    'alert_debounce_seconds': (0.0, 86400.0),
+    'slippage_alert_bp': (0.0, 10000.0),
+    'max_consecutive_errors': (1.0, 100.0),
+    'metrics_flush_seconds': (1.0, 86400.0),
+}
+
+# env variable -> LIVE_ALERTING key. ``telegram_alerts_enabled`` and
+# ``metrics_key`` are intentionally absent: the first is a plain boolean switch
+# handled by _env_bool, the second is a contract name, not a tunable.
+LIVE_ALERTING_ENV: Dict[str, str] = {
+    'LIVE_HEARTBEAT_INTERVAL_SECONDS': 'heartbeat_interval_seconds',
+    'LIVE_HEARTBEAT_STALE_SECONDS': 'heartbeat_stale_seconds',
+    'LIVE_ALERT_DEBOUNCE_SECONDS': 'alert_debounce_seconds',
+    'LIVE_SLIPPAGE_ALERT_BP': 'slippage_alert_bp',
+    'LIVE_MAX_CONSECUTIVE_ERRORS': 'max_consecutive_errors',
+    'LIVE_METRICS_FLUSH_SECONDS': 'metrics_flush_seconds',
+}
+
+
+def get_live_alerting_config() -> Dict[str, Any]:
+    """Return an isolated copy of the live alerting policy (Issue #177).
+
+    Defaults come from :data:`LIVE_ALERTING`; every key in
+    :data:`LIVE_ALERTING_ENV` is overridable per environment and
+    ``LIVE_TELEGRAM_ALERTS`` toggles the master switch. Raises ``ValueError`` on
+    an unparsable or out-of-range override, exactly like
+    :func:`get_live_risk_config`, so a broken threshold can never reach the
+    executor silently.
+    """
+    config = dict(LIVE_ALERTING)
+    for env_name, key in LIVE_ALERTING_ENV.items():
+        default = config[key]
+        # bool before int: bool is a subclass of int in Python.
+        if isinstance(default, bool):
+            config[key] = _env_bool(env_name, default)
+        elif isinstance(default, int):
+            config[key] = _env_bounded_int(
+                env_name, key, default, LIVE_ALERTING_BOUNDS
+            )
+        else:
+            config[key] = _env_bounded_float(
+                env_name, key, float(default), LIVE_ALERTING_BOUNDS
+            )
+    config['telegram_alerts_enabled'] = _env_bool(
+        'LIVE_TELEGRAM_ALERTS',
+        bool(LIVE_ALERTING['telegram_alerts_enabled']),
+    )
+    return config
+
+
+def get_live_alerting_bounds() -> Dict[str, Tuple[float, float]]:
+    """Expose the validated alerting ranges (diagnostics and API schema)."""
+    return dict(LIVE_ALERTING_BOUNDS)
 
 
 
