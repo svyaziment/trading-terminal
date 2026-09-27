@@ -35,6 +35,11 @@ class ApiConfig(BaseConfig):
     sandbox_token: str = ""
     account_id: str = ""
     sandbox_account_id: str = ""
+    # Issue #178: credentials of the REAL T-Bank contour. TINVEST_TOKEN /
+    # TINVEST_ACC stay market-data-only and TINVEST_SANDBOX* stay sandbox-only,
+    # so a real-money token can never be picked up by the wrong client.
+    live_token: str = ""
+    live_account_id: str = ""
 
 
 class TerminalConfig(BaseConfig):
@@ -127,6 +132,11 @@ def load_settings() -> Settings:
         sandbox_account_id=_env_str(
             "TINVEST_SANDBOX_ACC",
             str(api_yaml.get("sandbox_account_id", "")),
+        ),
+        live_token=_env_str("TINVEST_LIVE_TOKEN", str(api_yaml.get("live_token", ""))),
+        live_account_id=_env_str(
+            "TINVEST_LIVE_ACC",
+            str(api_yaml.get("live_account_id", "")),
         ),
     )
 

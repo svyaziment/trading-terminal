@@ -18,13 +18,28 @@ def _build_url(user: str, password: str, host: str, port: str, db: str) -> str:
     return f"postgresql://{user}:{encoded_password}@{host}:{port}/{db}"
 
 
+def _db_password() -> str:
+    """Resolve the application database password.
+
+    Issue #178: ``docker-compose.yml`` and ``start_processes.sh`` have always
+    passed the password as ``PSTGRS_PWD`` - the name :mod:`app.core.config_manager`
+    reads first - while this module only knew ``POSTGRES_PASSWORD``. The two
+    disagreed silently until migrations moved into the deploy: inside the
+    container ``alembic upgrade head`` would connect as ``app:app`` and fail
+    authentication. ``POSTGRES_PASSWORD`` keeps priority so an explicit standard
+    name always wins; the historical ``PSTGRS_PWD`` is the fallback and ``app``
+    stays the last-resort default for a local docker-compose postgres.
+    """
+    return _env("POSTGRES_PASSWORD") or _env("PSTGRS_PWD") or "app"
+
+
 def get_app_database_url() -> str:
     url = _env("APP_DATABASE_URL")
     if url:
         return url
 
     user = _env("POSTGRES_USER", "app")
-    password = _env("POSTGRES_PASSWORD", "app")
+    password = _db_password()
     host = _env("POSTGRES_HOST", "postgres")
     port = _env("POSTGRES_PORT", "5432")
     db = _env("POSTGRES_DB", "trading_terminal")

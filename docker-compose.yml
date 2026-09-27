@@ -1,5 +1,50 @@
 name: trading-terminal
 
+# Issue #178: ONE environment block for the API and for the migration job.
+# Alembic resolves its DSN through app.core.config.get_app_database_url(), the
+# same function the application uses, so sharing the block is what keeps
+# "migrate ran against the same database the backend serves" true by
+# construction instead of by coincidence.
+x-backend-env: &backend-env
+  ENVIRONMENT: dev
+  TINVEST_TOKEN: ${TINVEST_TOKEN:-}
+  TINVEST_SANDBOX: ${TINVEST_SANDBOX:-}
+  TINVEST_ACC: ${TINVEST_ACC:-}
+  TINVEST_SANDBOX_ACC: ${TINVEST_SANDBOX_ACC:-}
+  # Real T-Bank contour (#178). The gate stays CLOSED unless .env opens it
+  # explicitly; with ALLOW_REAL_TRADING=true the executor trades real money.
+  TINVEST_LIVE_TOKEN: ${TINVEST_LIVE_TOKEN:-}
+  TINVEST_LIVE_ACC: ${TINVEST_LIVE_ACC:-}
+  ALLOW_REAL_TRADING: ${ALLOW_REAL_TRADING:-false}
+  TGM_TOKEN: ${TGM_TOKEN:-}
+  TGM_CHAT: ${TGM_CHAT:-}
+  TGM_CHAT_ID: ${TGM_CHAT_ID:-}
+  TGM_APP_ID: ${TGM_APP_ID:-}
+  TGM_APP_HASH: ${TGM_APP_HASH:-}
+  PSTGRS_PWD: ${PSTGRS_PWD:-}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+  POSTGRES_HOST: ${POSTGRES_HOST:-host.docker.internal}
+  POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+  POSTGRES_USER: ${POSTGRES_USER:-postgres}
+  POSTGRES_DB: ${POSTGRES_DB:-postgres}
+  MARKET_DATA_DATABASE_URL: ${MARKET_DATA_DATABASE_URL:-}
+  MARKET_DATA_SCHEMA: ${MARKET_DATA_SCHEMA:-trading}
+  # Live risk gates (#176): empty means "use the trading_config default".
+  MAX_DAILY_LOSS_PCT: ${MAX_DAILY_LOSS_PCT:-}
+  MAX_POSITION_SIZE: ${MAX_POSITION_SIZE:-}
+  MAX_OPEN_POSITIONS: ${MAX_OPEN_POSITIONS:-}
+  LIVE_EQUITY_SNAPSHOT: ${LIVE_EQUITY_SNAPSHOT:-}
+  # Live alerting and monitoring (#177).
+  LIVE_TELEGRAM_ALERTS: ${LIVE_TELEGRAM_ALERTS:-}
+  LIVE_HEARTBEAT_INTERVAL_SECONDS: ${LIVE_HEARTBEAT_INTERVAL_SECONDS:-}
+  LIVE_HEARTBEAT_STALE_SECONDS: ${LIVE_HEARTBEAT_STALE_SECONDS:-}
+  LIVE_ALERT_DEBOUNCE_SECONDS: ${LIVE_ALERT_DEBOUNCE_SECONDS:-}
+  LIVE_SLIPPAGE_ALERT_BP: ${LIVE_SLIPPAGE_ALERT_BP:-}
+  LIVE_MAX_CONSECUTIVE_ERRORS: ${LIVE_MAX_CONSECUTIVE_ERRORS:-}
+  LIVE_METRICS_FLUSH_SECONDS: ${LIVE_METRICS_FLUSH_SECONDS:-}
+  PGCLIENTENCODING: "UTF8"
+  PGOPTIONS: "-c client_encoding=UTF8 -c lc_messages=C"
+
 services:
   agent:
     build:
@@ -15,35 +60,39 @@ services:
     stdin_open: true
     tty: true
 
+  # Issue #178: schema migrations are an explicit deploy step (decision D4) -
+  # a one-shot job the API waits for. There is no auto-migration in application
+  # code, so a failed migration stops the deploy instead of being discovered by
+  # the executor mid-trade (assert_live_schema would abort it anyway).
+  #
+  #   docker compose up -d --build backend   # builds, migrates, then serves
+  #   docker compose run --rm migrate        # migrate only
+  #   docker compose run --rm migrate alembic downgrade -1   # documented rollback
+  migrate:
+    image: trading-terminal-backend
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: trading-terminal-migrate
+    working_dir: /app
+    command: ["alembic", "upgrade", "head"]
+    environment: *backend-env
+    restart: "no"
+
   backend:
     volumes:
       - ./reports:/app/reports
+    image: trading-terminal-backend
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: trading-terminal-backend
     ports:
       - "8000:8000"
-    environment:
-      ENVIRONMENT: dev
-      TINVEST_TOKEN: ${TINVEST_TOKEN:-}
-      TINVEST_SANDBOX: ${TINVEST_SANDBOX:-}
-      TINVEST_ACC: ${TINVEST_ACC:-}
-      TINVEST_SANDBOX_ACC: ${TINVEST_SANDBOX_ACC:-}
-      TGM_TOKEN: ${TGM_TOKEN:-}
-      TGM_CHAT: ${TGM_CHAT:-}
-      TGM_CHAT_ID: ${TGM_CHAT_ID:-}
-      TGM_APP_ID: ${TGM_APP_ID:-}
-      TGM_APP_HASH: ${TGM_APP_HASH:-}
-      PSTGRS_PWD: ${PSTGRS_PWD:-}
-      POSTGRES_HOST: ${POSTGRES_HOST:-host.docker.internal}
-      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-postgres}
-      MARKET_DATA_DATABASE_URL: ${MARKET_DATA_DATABASE_URL:-}
-      MARKET_DATA_SCHEMA: ${MARKET_DATA_SCHEMA:-trading}
-      PGCLIENTENCODING: "UTF8"
-      PGOPTIONS: "-c client_encoding=UTF8 -c lc_messages=C"
+    environment: *backend-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s

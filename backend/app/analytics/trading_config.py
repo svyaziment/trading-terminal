@@ -75,6 +75,17 @@ LIVE_TRADING: Dict[str, Any] = {
     # live_trailing_enabled=false disables trailing arming for new positions
     # but does not cancel already armed ladders.
     'live_trailing_enabled': True,
+    # Issue #178: GLOBAL live kill switch - the emergency stop of the whole
+    # live contour. true rejects every new entry (skip reason 'kill_switch')
+    # while existing positions keep their broker-side protection: no flatten,
+    # no stop cancellation.
+    #
+    # The in-memory default is deliberately the FAIL-SAFE value: a process that
+    # has not read trading.app_settings.live_kill_switch yet (migration
+    # 20260928_001 seeds it to false) must not enter. initialize() reads the
+    # stored value before the first loop iteration, so a migrated database
+    # starts with entries allowed and no "transition" alert.
+    'live_kill_switch': True,
     # Number of protective ticks (min_price_increment) added to the stop
     # price when submitting a stop-triggered marketable sell limit.
     'trailing_protective_ticks': 5,
@@ -182,6 +193,7 @@ LIVE_RISK_ENV: Dict[str, str] = {
 }
 
 _TRUTH_WORDS = ('1', 'true', 'yes', 'on')
+_FALSE_WORDS = ('0', 'false', 'no', 'off')
 
 
 def _env_raw(env_name: str) -> Optional[str]:
@@ -257,6 +269,33 @@ def _env_bool(env_name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.lower() in _TRUTH_WORDS
+
+
+def _env_strict_bool(env_name: str, default: bool) -> bool:
+    """Read a safety-critical boolean from env, rejecting ambiguous values.
+
+    Issue #178. :func:`_env_bool` maps an unknown word to the default, which is
+    the right behaviour for a tunable. For the switch that decides whether real
+    money may be traded an unparsable value must fail fast instead of silently
+    picking a contour: ``ALLOW_REAL_TRADING=ture`` has to stop the process, not
+    quietly mean "sandbox" (or worse, "real").
+
+    Raises:
+        ValueError: when the variable is set to something that is neither a
+            truth word nor a false word.
+    """
+    raw = _env_raw(env_name)
+    if raw is None:
+        return default
+    lowered = raw.lower()
+    if lowered in _TRUTH_WORDS:
+        return True
+    if lowered in _FALSE_WORDS:
+        return False
+    raise ValueError(
+        f"{env_name} must be one of "
+        f"{', '.join(_TRUTH_WORDS + _FALSE_WORDS)}, got {raw!r}"
+    )
 
 
 def get_live_risk_config() -> Dict[str, Any]:
@@ -469,10 +508,14 @@ def get_live_trading_config() -> Dict[str, Any]:
 
 # Secrets and the sandbox account id are intentionally loaded by config_manager from
 # TINVEST_SANDBOX / TINVEST_SANDBOX_ACC. TINVEST_TOKEN / TINVEST_ACC remain
-# market-data-only.
+# market-data-only. The REAL contour (Issue #178) reads TINVEST_LIVE_TOKEN /
+# TINVEST_LIVE_ACC through the same config_manager, so no secret lives here.
 # Only non-secret execution policy lives here.
 SANDBOX_TRADING: Dict[str, Any] = {
     'enabled': True,
+    # Red line: this stays False in code. It is the single source of truth for
+    # which contour the executor trades on and can only be turned on per
+    # deployment through ALLOW_REAL_TRADING (see get_sandbox_trading_config).
     'allow_real_trading': False,
     'initial_capital_rub': 50_000,
     'default_currency': 'rub',
@@ -483,8 +526,24 @@ SANDBOX_TRADING: Dict[str, Any] = {
 
 
 def get_sandbox_trading_config() -> Dict[str, Any]:
-    """Return an isolated copy of the T-Bank sandbox execution policy."""
-    return dict(SANDBOX_TRADING)
+    """Return an isolated copy of the T-Bank execution policy.
+
+    Issue #178: ``allow_real_trading`` keeps :data:`SANDBOX_TRADING` as its
+    single source of truth (``False`` in code) and gains the
+    ``ALLOW_REAL_TRADING`` env override, resolved here. The override is parsed
+    strictly: an unparsable value raises ``ValueError`` at read time so a typo in
+    ``.env`` can never silently select a contour.
+
+    The retry policy, the default currency and the account-discovery switch in
+    this dict are shared by both clients - :class:`TinkoffLiveClient` is the
+    mirror of :class:`TinkoffSandboxClient`, not a second policy.
+    """
+    config = dict(SANDBOX_TRADING)
+    config['allow_real_trading'] = _env_strict_bool(
+        'ALLOW_REAL_TRADING',
+        bool(SANDBOX_TRADING['allow_real_trading']),
+    )
+    return config
 
 
 # Issue #106: in-memory support/resistance lifecycle (breakout + role reversal).

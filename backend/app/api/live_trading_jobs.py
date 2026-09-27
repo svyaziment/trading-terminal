@@ -1,15 +1,24 @@
-"""Read-only monitoring API for sandbox live positions."""
+"""Monitoring API for the live contour.
+
+Read-only by design, with one deliberate exception added by Issue #178:
+``POST /api/live-trading/kill-switch`` writes the global emergency stop. It is
+the only write in this module, it touches a single boolean row of
+``trading.app_settings``, and it reads the value back before reporting success.
+"""
 
 from __future__ import annotations
 
 import ast
 import json
+import logging
 import math
 from datetime import date, datetime
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException, Query
+from pydantic import BaseModel, Field
 
+from app.analytics.live_schema import LIVE_KILL_SWITCH_KEY
 from app.analytics.moex_session import now_msk_naive
 from app.analytics.trading_config import (
     get_live_alerting_config,
@@ -20,7 +29,15 @@ from app.analytics.trading_config import (
 from app.api.paper_trading_jobs import _json_safe
 from app.db.db_manager import DBManager
 
+
+logger = logging.getLogger(__name__)
+
 TF_MAP = {"1h": "hour", "1d": "day", "1w": "week"}
+
+#: Max length of the audit note accepted by the kill-switch endpoint. It is
+#: logged, not stored: ``trading.app_settings`` keeps one boolean per key so the
+#: executor's read stays a single-column select.
+KILL_SWITCH_REASON_MAX = 200
 
 # Issue #176: columns of trading.live_equity served to the monitoring panel.
 # Listed once so the SELECT and the payload cannot drift apart.
@@ -372,6 +389,59 @@ def _metrics_kill_switch(db: DBManager, snapshot: dict) -> dict:
     }
 
 
+def _metrics_global_kill_switch(db: DBManager, snapshot: dict) -> dict:
+    """GLOBAL entry kill switch (Issue #178), read live with a snapshot fallback.
+
+    Same shape as :func:`_metrics_kill_switch` - the row the executor reads is the
+    row the panel shows - with one difference that matters: an absent or
+    unreadable ``live_kill_switch`` row is reported as **active**, because that is
+    exactly what the executor does (fail-safe, decision D2). ``found`` tells the
+    operator whether ``active`` came from a stored ``true`` or from that rule, and
+    ``reason`` names the rule that applied.
+    """
+    found = False
+    live_active: Optional[bool] = None
+    error: Optional[str] = None
+    try:
+        frame = db.select(
+            """
+            SELECT value FROM trading.app_settings
+            WHERE key = %s
+            """,
+            (LIVE_KILL_SWITCH_KEY,),
+        ).to_dataframe()
+        if not frame.empty:
+            found = True
+            live_active = _metrics_bool(frame.to_dict("records")[0].get("value"))
+    except Exception as exc:  # noqa: BLE001 - the snapshot value still answers
+        error = f"{type(exc).__name__}: {exc}"
+
+    # The snapshot default is True: an executor that never published the field is
+    # an old build, and "unknown" must not read as "entries allowed".
+    snapshot_active = _metrics_bool(snapshot.get("live_kill_switch"), True)
+    if found:
+        active = bool(live_active)
+        reason = None
+    elif error is not None:
+        active = True
+        reason = "unreadable_row"
+    else:
+        active = True
+        reason = "missing_row"
+    return {
+        "active": active,
+        "found": found,
+        "reason": reason,
+        "from_live_row": found,
+        "live_active": live_active,
+        "snapshot_active": snapshot_active,
+        "snapshot_source": _metrics_text(snapshot.get("live_kill_switch_source")),
+        "rejections_total": _metrics_int(snapshot.get("kill_switch_rejections_total")),
+        "key": LIVE_KILL_SWITCH_KEY,
+        "error": error,
+    }
+
+
 def _metrics_positions(db: DBManager) -> dict:
     """Open live positions split into protected / unprotected (Issue #177).
 
@@ -446,16 +516,24 @@ def _metrics_state(
     heartbeat: dict,
     kill_switch: dict,
     risk_breach: bool,
+    global_kill_switch: Optional[dict] = None,
 ) -> str:
     """One word an operator (or a dashboard tile) can act on.
 
     Order is deliberate: first "is the process alive at all", then the trading
     states. ``unknown`` means there is no readable snapshot, so nothing about the
     loop can be claimed.
+
+    Issue #178: both kill switches map to the same word - ``kill_switch`` means
+    "an operator lever is stopping this contour". Which lever is on is answered
+    by the ``kill_switch`` (trailing) and ``global_kill_switch`` (entries)
+    sections, so the published state vocabulary stays stable for consumers.
     """
     if snapshot is None:
         return "unknown"
     if kill_switch["active"]:
+        return "kill_switch"
+    if global_kill_switch is not None and global_kill_switch.get("active"):
         return "kill_switch"
     if not heartbeat["known"]:
         return "no_heartbeat"
@@ -477,6 +555,7 @@ _METRICS_SNAPSHOT_FIELDS = frozenset(
         # source
         "schema_version",
         "persisted_at",
+        "broker_contour",
         # loop
         "strategy",
         "tickers",
@@ -494,6 +573,10 @@ _METRICS_SNAPSHOT_FIELDS = frozenset(
         # kill switch
         "kill_switch",
         "kill_switch_source",
+        # global entry kill switch (#178)
+        "live_kill_switch",
+        "live_kill_switch_source",
+        "kill_switch_rejections_total",
         # broker-side protection (#175)
         "stops_armed_total",
         "stop_amend_total",
@@ -548,6 +631,10 @@ def _metrics_source_section(
         "schema_version": _metrics_int(snapshot.get("schema_version")),
         "persisted_at": persisted_at.isoformat(timespec="seconds") if persisted_at else None,
         "age_seconds": _metrics_age_seconds(persisted_at, now),
+        # Issue #178: which broker contour wrote this snapshot - "sandbox" or
+        # "real". An operator reading metrics must never have to guess whether
+        # the numbers describe paper-like sandbox trades or real money.
+        "broker_contour": _metrics_text(snapshot.get("broker_contour")),
     }
 
 
@@ -689,6 +776,7 @@ def _metrics_endpoint_payload(*, now: Optional[datetime] = None) -> dict:
     snap = snapshot or {}
     heartbeat = _metrics_heartbeat(snap, moment, alerting)
     kill_switch = _metrics_kill_switch(db, snap)
+    global_kill_switch = _metrics_global_kill_switch(db, snap)
     risk_breach = _metrics_bool(snap.get("risk_breach_active"))
     source = _metrics_source_section(
         snap,
@@ -711,12 +799,14 @@ def _metrics_endpoint_payload(*, now: Optional[datetime] = None) -> dict:
             heartbeat=heartbeat,
             kill_switch=kill_switch,
             risk_breach=risk_breach,
+            global_kill_switch=global_kill_switch,
         ),
         "generated_at": moment.isoformat(timespec="seconds"),
         "source": source,
         "loop": _metrics_loop_section(snap, alerting),
         "heartbeat": heartbeat,
         "kill_switch": kill_switch,
+        "global_kill_switch": global_kill_switch,
         "protection": _metrics_protection_section(snap),
         "risk": _metrics_risk_section(snap),
         "alerting": _metrics_alerting_section(snap, alerting),
@@ -727,6 +817,97 @@ def _metrics_endpoint_payload(*, now: Optional[datetime] = None) -> dict:
             for name, value in snap.items()
             if str(name) not in _METRICS_SNAPSHOT_FIELDS
         },
+    }
+
+
+# --- Issue #178: the global emergency stop ------------------------------------
+#
+# One boolean row of ``trading.app_settings`` (``live_kill_switch``, seeded by
+# migration 20260928_001) is the contract between the operator and the executor:
+# the loop re-reads it every iteration, so a flip takes effect within
+# ``LIVE_TRADING.check_interval_seconds`` without a restart. This endpoint is the
+# supported way to write that row - editing SQL by hand stays possible and means
+# the same thing.
+
+
+class KillSwitchIn(BaseModel):
+    """Body of ``POST /api/live-trading/kill-switch``."""
+
+    #: ``true`` blocks every new entry; ``false`` lets the contour trade again.
+    enabled: bool
+    #: Optional audit note. Logged, not stored (see KILL_SWITCH_REASON_MAX).
+    reason: Optional[str] = Field(default=None, max_length=KILL_SWITCH_REASON_MAX)
+
+
+def _kill_switch_unavailable(exc: Exception) -> HTTPException:
+    """One actionable error for an unwritable ``trading.app_settings``."""
+    return HTTPException(
+        status_code=503,
+        detail=(
+            "trading.app_settings is not writable "
+            f"({type(exc).__name__}); the global kill switch was NOT changed - "
+            "run `alembic upgrade head` "
+            "(migration 20260928_001_live_trading_kill_switch)"
+        ),
+    )
+
+
+def _set_kill_switch_payload(
+    enabled: bool,
+    reason: Optional[str] = None,
+    *,
+    now: Optional[datetime] = None,
+) -> dict:
+    """Write ``live_kill_switch`` and answer with the state read back.
+
+    Module level (like the metrics helpers) so the tests drive it without a
+    TestClient and the endpoint keeps exactly one code path.
+
+    The write is an upsert: on a database where the seed row is missing the
+    endpoint still works, which is exactly the situation an operator is in when
+    they need the switch most. Success is reported only after the value has been
+    read back - an unconfirmed emergency stop is worse than an error.
+    """
+    db = _get_db()
+    moment = now if now is not None else now_msk_naive()
+    note = (reason or "").strip()[:KILL_SWITCH_REASON_MAX] or None
+    try:
+        db.execute(
+            """
+            INSERT INTO trading.app_settings (key, value, updated_at)
+            VALUES (%s, %s::jsonb, now())
+            ON CONFLICT (key)
+            DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+            """,
+            (LIVE_KILL_SWITCH_KEY, "true" if enabled else "false"),
+        )
+    except Exception as exc:  # noqa: BLE001 - reported as 503, never as a 500
+        raise _kill_switch_unavailable(exc) from exc
+
+    state = _metrics_global_kill_switch(db, {})
+    confirmed = bool(state["found"]) and bool(state["live_active"]) == bool(enabled)
+    # An emergency stop is an audit event: who/what/when belongs in the log even
+    # when Telegram is not configured.
+    log = logger.warning if enabled else logger.info
+    log(
+        "Global live kill switch set to %s (confirmed=%s reason=%s)",
+        "ON" if enabled else "OFF",
+        confirmed,
+        note or "-",
+    )
+    return {
+        "ok": confirmed,
+        "enabled": bool(enabled),
+        "confirmed": confirmed,
+        "reason": note,
+        "kill_switch": state,
+        "generated_at": moment.isoformat(timespec="seconds"),
+        "effect": (
+            "new entries are rejected with reason 'kill_switch'; open positions "
+            "keep their broker stops"
+            if enabled
+            else "new entries are allowed again"
+        ),
     }
 
 
@@ -1033,4 +1214,20 @@ def register_routes(app: FastAPI) -> None:
         down.
         """
         return _metrics_endpoint_payload()
+
+    @app.post("/api/live-trading/kill-switch")
+    def set_live_kill_switch(payload: KillSwitchIn):
+        """Global emergency stop of the live contour (Issue #178).
+
+        ``{"enabled": true}`` blocks every new entry from the next loop iteration
+        (``LIVE_TRADING.check_interval_seconds``, 30 s by default) without a
+        restart; ``{"enabled": false}`` lets the contour trade again. Open
+        positions are never touched - their broker stops stay armed and nothing
+        is flattened.
+
+        The response echoes the state read back from ``trading.app_settings``, so
+        ``ok=true`` means the executor will see the new value. An unwritable
+        settings table answers ``503`` with the migration to run.
+        """
+        return _set_kill_switch_payload(payload.enabled, payload.reason)
 

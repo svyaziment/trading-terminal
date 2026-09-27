@@ -108,6 +108,7 @@ class RiskFakeDB:
         equity_rows=None,
         live_equity_missing=False,
         select_error=None,
+        seeded_kill_switch=False,
     ):
         self.active = active if active is not None else pd.DataFrame()
         self.instruments = (
@@ -118,6 +119,8 @@ class RiskFakeDB:
         self.equity_rows = list(equity_rows or [])
         self.live_equity_missing = live_equity_missing
         self.select_error = select_error
+        # Issue #178: see FakeDB - the fake is a migrated database by default.
+        self.seeded_kill_switch = seeded_kill_switch
         self.select_calls = []
         self.execute_calls = []
         # Issue #174: dedicated connection used for the advisory lock.
@@ -184,6 +187,11 @@ class RiskFakeDB:
             key = params[0] if params else None
             if key in self.app_settings:
                 return Result(pd.DataFrame([{"key": key, "value": self.app_settings[key]}]))
+            if key == "live_kill_switch" and self.seeded_kill_switch is not None:
+                # Issue #178: a database migrated with 20260928_001 has the row.
+                return Result(
+                    pd.DataFrame([{"key": key, "value": self.seeded_kill_switch}])
+                )
             return Result()
         return Result()
 
@@ -326,6 +334,8 @@ def make_risk_executor(*, db=None, broker=None, now_fn=None, clock=None, sleep_f
             "api_rate_limit": 10,
             "entry_token_reserve": 0.0,
             "broker_stop_enabled": False,
+            # Issue #178: a migrated database with no emergency stop pulled.
+            "live_kill_switch": False,
             **config,
         },
         now_fn=now_fn or (lambda: SESSION_NOW),

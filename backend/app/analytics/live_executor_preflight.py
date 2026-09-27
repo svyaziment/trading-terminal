@@ -1,4 +1,12 @@
-"""Read-only preflight for the first sandbox LiveExecutor canary."""
+"""Read-only preflight for a LiveExecutor canary (sandbox or real contour).
+
+Issue #178: the balance probe is built by
+:func:`app.broker.client_factory.create_execution_client`, so the same preflight
+validates whichever contour ``ALLOW_REAL_TRADING`` selects. The expected contour
+is announced through ``PREFLIGHT_EXPECT_CONTOUR`` (default ``sandbox``); a
+go-live run sets it to ``real`` so the report stays green by intent rather than
+by omission.
+"""
 
 from __future__ import annotations
 
@@ -22,7 +30,11 @@ from app.analytics.trading_config import (
     get_sandbox_trading_config,
     get_trading_universe,
 )
-from app.broker.tinkoff_sandbox import TinkoffSandboxClient
+from app.broker.client_factory import (
+    SANDBOX_CONTOUR,
+    contour_name,
+    create_execution_client,
+)
 from app.db.db_manager import DBManager
 
 
@@ -33,6 +45,14 @@ PAPER_PROCESSES = (
     "run_live_engine",
     "run_paper_trader",
 )
+#: Env var naming the contour this preflight run is expected to validate.
+#: Defaults to the sandbox canary; a go-live run sets it to ``real``.
+EXPECTED_CONTOUR_ENV = "PREFLIGHT_EXPECT_CONTOUR"
+
+
+def _expected_contour() -> str:
+    value = os.getenv(EXPECTED_CONTOUR_ENV, "").strip().lower()
+    return value or SANDBOX_CONTOUR
 
 
 def _now_msk_naive() -> datetime:
@@ -120,7 +140,10 @@ def collect_preflight() -> dict[str, Any]:
             for _, row in strategies.iterrows()
         ]
         process_counts = _process_counts()
-        free_rub = float(TinkoffSandboxClient().check_balance())
+        # Issue #178: the balance is read from whichever contour is configured,
+        # so a go-live preflight validates the real account instead of crashing
+        # on the sandbox client's allow_real_trading guard.
+        free_rub = float(create_execution_client().check_balance())
         latest_equity = (
             None
             if paper_equity.empty
@@ -148,9 +171,11 @@ def collect_preflight() -> dict[str, Any]:
             ),
             "paper_processes": all(count == 1 for count in process_counts.values()),
             "trading_universe_top15": len(universe) == 15,
-            "real_trading_disabled": not bool(
-                get_sandbox_trading_config()["allow_real_trading"]
-            ),
+            # Issue #178: replaces the hardcoded `real_trading_disabled` check.
+            # The preflight validates the contour the operator announced through
+            # PREFLIGHT_EXPECT_CONTOUR (default: sandbox), so a go-live run is a
+            # pass rather than a permanent failure.
+            "contour_matches_expectation": contour_name() == _expected_contour(),
         }
         return {
             "ok": all(checks.values()),
@@ -164,6 +189,8 @@ def collect_preflight() -> dict[str, Any]:
                 "orderbooks": orderbooks,
                 "paper_processes": process_counts,
                 "trading_universe_count": len(universe),
+                "contour": contour_name(),
+                "expected_contour": _expected_contour(),
                 "allow_real_trading": get_sandbox_trading_config()[
                     "allow_real_trading"
                 ],

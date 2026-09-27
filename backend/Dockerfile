@@ -22,6 +22,11 @@ RUN pip install --no-cache-dir \
 
 COPY app ./app
 COPY tests ./tests
+# Issue #178: migrations travel with the image. Without them the compose
+# `migrate` one-shot service has nothing to run and `alembic upgrade head` is
+# only possible from a developer checkout.
+COPY alembic.ini ./
+COPY alembic ./alembic
 
 # Чистка артефактов (Windows CRLF, __pycache__)
 RUN find /app -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true

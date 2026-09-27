@@ -6,7 +6,9 @@ Alembic is the source of truth for ``trading.live_positions``:
 * ``20260916_001_live_trailing_runtime`` widens the status CHECK to seven
   values, adds the execution-fact columns and creates ``trading.app_settings``;
 * ``20260927_001_live_equity`` creates ``trading.live_equity`` (Issue #176) and
-  seeds the ``live_risk_breach_reset`` switch.
+  seeds the ``live_risk_breach_reset`` switch;
+* ``20260928_001_live_trading_kill_switch`` seeds the global ``live_kill_switch``
+  entry stop (Issue #178).
 
 The runtime DDL in :func:`ensure_live_positions_schema` is an idempotent
 superset of those migrations, so starting the executor standalone on a fresh
@@ -31,6 +33,11 @@ LIVE_POSITIONS_TABLE = "trading.live_positions"
 APP_SETTINGS_TABLE = "trading.app_settings"
 STATUS_CHECK_NAME = "live_positions_status_check"
 ACTIVE_INDEX_NAME = "idx_live_positions_active"
+
+#: ``trading.app_settings`` key of the global live kill switch (Issue #178,
+#: migration 20260928_001). ``true`` blocks every new entry; the executor reads
+#: a missing or unreadable row as ``true`` (fail-safe).
+LIVE_KILL_SWITCH_KEY = "live_kill_switch"
 
 #: Columns required by the migration chain, in migration order (30 total).
 REQUIRED_LIVE_POSITIONS_COLUMNS: tuple[str, ...] = (
@@ -80,10 +87,13 @@ REQUIRED_LIVE_POSITIONS_STATUSES: tuple[str, ...] = (
     "cancelled",
 )
 
-#: ``trading.app_settings`` keys seeded by 20260916_001 and read every loop.
+#: ``trading.app_settings`` keys seeded by the migrations and read every loop.
+#: ``live_kill_switch`` (20260928_001, Issue #178) is the global entry stop;
+#: a missing row is treated as ON by the executor (fail-safe, decision D2).
 REQUIRED_APP_SETTINGS_KEYS: tuple[str, ...] = (
     "trailing_kill_switch",
     "live_trailing_enabled",
+    LIVE_KILL_SWITCH_KEY,
 )
 
 _STATUS_LIST_SQL = ", ".join(
@@ -182,7 +192,8 @@ _SEED_APP_SETTINGS_SQL = f"""
 INSERT INTO {APP_SETTINGS_TABLE} (key, value, updated_at)
 VALUES
     ('trailing_kill_switch', 'false'::jsonb, CURRENT_TIMESTAMP),
-    ('live_trailing_enabled', 'true'::jsonb, CURRENT_TIMESTAMP)
+    ('live_trailing_enabled', 'true'::jsonb, CURRENT_TIMESTAMP),
+    ('{LIVE_KILL_SWITCH_KEY}', 'false'::jsonb, CURRENT_TIMESTAMP)
 ON CONFLICT (key) DO NOTHING
 """
 
