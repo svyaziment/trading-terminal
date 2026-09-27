@@ -3549,7 +3549,6 @@ class LiveExecutor:
             started_at = self.clock()
             last_check = float("-inf")
             last_context_refresh = self.clock()
-            check_interval = float(self.config["check_interval_seconds"])
             context_interval = float(self.config["context_refresh_seconds"])
             session_end = (
                 session_end_for_run(self.now_fn()) if until_session_end else None
@@ -3564,6 +3563,10 @@ class LiveExecutor:
                 until_session_end,
                 session_end.strftime("%Y-%m-%d %H:%M") if session_end else "none",
             )
+                        # Issue #177 (fix): `check_interval` was previously defined after
+            # `self.initialize()`; computing it here so the early start alert
+            # can reference it before `wait_for_session_open` returns.
+            check_interval = float(self.config["check_interval_seconds"])
             # Issue #177: the operator must see the process come up - and whether
             # it came up with Telegram credentials or in the log-only contour.
             entry_closed_logged = False
