@@ -119,10 +119,10 @@ if [[ "${START_LIVE_EXECUTOR:-0}" == "1" ]]; then
     mkdir -p reports/live-executor
     if [[ "${SESSION_AWARE}" == "1" ]]; then
         echo "LiveExecutor: until_session_end (entries 10:00-19:00 MSK, stop/take until flat)"
-        nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.live_executor import LiveExecutor; LiveExecutor().run(until_session_end=True)" > reports/live-executor/executor.log 2>&1 &
+        nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.live_executor import run_live_executor; run_live_executor(until_session_end=True)" > reports/live-executor/executor.log 2>&1 &
     else
         echo "LiveExecutor: duration_minutes=${DURATION} from launch"
-        nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.live_executor import LiveExecutor; LiveExecutor().run(duration_minutes=${DURATION})" > reports/live-executor/executor.log 2>&1 &
+        nohup docker compose exec -T backend python -u -c "import logging,sys; logging.basicConfig(level=logging.INFO,stream=sys.stdout,format='%(asctime)s %(levelname)s %(message)s'); from app.analytics.live_executor import run_live_executor; run_live_executor(duration_minutes=${DURATION})" > reports/live-executor/executor.log 2>&1 &
     fi
     sleep 1
 else

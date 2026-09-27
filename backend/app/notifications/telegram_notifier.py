@@ -1,4 +1,4 @@
-"""Best-effort Telegram notifications for paper trading events."""
+"""Best-effort Telegram notifications for paper and sandbox-live trading events."""
 
 from __future__ import annotations
 
@@ -15,12 +15,22 @@ from app.core.config_manager import TelegramConfig, load_settings
 logger = logging.getLogger(__name__)
 
 
-def _escape_markdown(value: Any) -> str:
-    """Escape dynamic values for Telegram's legacy Markdown parser."""
+def escape_markdown(value: Any) -> str:
+    """Escape dynamic values for Telegram's legacy Markdown parser.
+
+    Public since Issue #177: the live contour builds its own alert payload in
+    ``LiveExecutor._notify`` and must escape tickers, reasons and broker error
+    strings exactly like the paper-trading helpers below do, because
+    ``send_message`` always requests ``parse_mode=Markdown``.
+    """
     text = str(value).replace("\\", "\\\\")
     for character in ("_", "*", "[", "`"):
         text = text.replace(character, f"\\{character}")
     return text
+
+
+#: Private alias kept for the helpers below and for any existing caller.
+_escape_markdown = escape_markdown
 
 
 class TelegramNotifier:

@@ -21,7 +21,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 import pandas as pd
 import uuid
@@ -54,15 +54,18 @@ from app.analytics.strategy_engine import StrategyEvaluator
 from app.analytics.trailing_stop import resolve_trailing_stop
 from app.analytics.trading_config import (
     LIVE_RISK_BOUNDS,
+    get_live_alerting_config,
     get_live_risk_config,
     get_live_trading_config,
     get_live_trading_universe,
     get_moex_session_config,
     get_orderbook_imbalance_config,
+    validate_live_alerting_values,
 )
 from app.broker.tinkoff_sandbox import SandboxAPIError, TinkoffSandboxClient
 from app.core.config_manager import load_settings
 from app.db.db_manager import DBManager
+from app.notifications.telegram_notifier import TelegramNotifier, escape_markdown
 
 
 logger = logging.getLogger(__name__)
@@ -73,6 +76,10 @@ ACTIVE_STATUSES = ("pending", "open")
 # After reaching this threshold, the executor logs a critical error and
 # performs a safe shutdown to avoid infinite retry loops on persistent
 # failures (e.g. DB down, broker API outage).
+# Issue #177 (decision D3): the runtime threshold now comes from
+# ``LIVE_ALERTING.max_consecutive_errors`` (env ``LIVE_MAX_CONSECUTIVE_ERRORS``).
+# The constant survives as the import-time default and as the fallback for a
+# caller-supplied partial ``alerting`` dict, so existing imports keep working.
 MAX_CONSECUTIVE_ERRORS = 5
 
 # Issue #176: skip reasons added by the live equity risk gates. They join the
@@ -129,6 +136,31 @@ def _finite_float(value: Any, default: float = 0.0) -> float:
     except (TypeError, ValueError):
         return default
     return number if math.isfinite(number) else default
+
+
+def _alert_text(
+    icon: str,
+    title: str,
+    lines: Sequence[Tuple[str, Any]],
+    *,
+    critical: bool = False,
+) -> str:
+    """Render one Telegram alert body for the live contour (Issue #177).
+
+    Every dynamic value passes through ``escape_markdown`` because
+    ``TelegramNotifier.send_message`` always requests ``parse_mode=Markdown``:
+    an underscore in a ticker or in a broker error string would otherwise turn
+    the message into a 400 and the operator would see nothing at all. ``None``
+    values are dropped so a caller can pass optional fields unconditionally.
+    """
+    parts = [f"{icon} *{escape_markdown(title)}*"]
+    if critical:
+        parts.append("*Уровень:* `critical`")
+    for label, value in lines:
+        if value is None:
+            continue
+        parts.append(f"*{escape_markdown(label)}:* `{escape_markdown(value)}`")
+    return "\n".join(parts)
 
 
 
@@ -293,6 +325,8 @@ class LiveExecutor:
         db: Optional[Any] = None,
         broker: Optional[Any] = None,
         config: Optional[Dict[str, Any]] = None,
+        notifier: Optional[TelegramNotifier] = None,
+        alerting: Optional[Dict[str, Any]] = None,
         evaluator_factory: Callable[[dict], StrategyEvaluator] = StrategyEvaluator,
         clock: Callable[[], float] = time.monotonic,
         sleep_fn: Callable[[float], None] = time.sleep,
@@ -307,6 +341,36 @@ class LiveExecutor:
             **(config or {}),
         }
         self._validate_config()
+        # Issue #177: operator alerting. The notifier is injected by the process
+        # entry points (``run_live_executor`` / start_processes.sh); ``None``
+        # keeps every event in the logs, which is what the unit tests rely on so
+        # a container with real TGM_TOKEN credentials can never spam the chat.
+        self.notifier = notifier
+        self.alerting: Dict[str, Any] = dict(
+            alerting if alerting is not None else get_live_alerting_config()
+        )
+        self._validate_alerting()
+        # Decision D3: the loop threshold is policy, not a module constant.
+        # _validate_alerting() above has already range-checked it.
+        self._max_consecutive_errors = int(
+            self.alerting.get("max_consecutive_errors", MAX_CONSECUTIVE_ERRORS)
+        )
+        # Alert bookkeeping surfaced through get_metrics(): attempted (every
+        # _notify call), sent (Telegram accepted), failed (raised or rejected),
+        # suppressed (debounced, decision D2) and skipped (disabled/notifier
+        # absent, i.e. log-only by design).
+        self._alert_last_sent: Dict[str, float] = {}
+        self.alerts_attempted_total = 0
+        self.alerts_sent_total = 0
+        self.alerts_failed_total = 0
+        self.alerts_suppressed_total = 0
+        self.alerts_skipped_total = 0
+        # Heartbeat and metrics-flush throttles (decision D5).
+        self.heartbeats_sent_total = 0
+        self._last_heartbeat_at: float = float("-inf")
+        self._last_metrics_flush_at: float = float("-inf")
+        self.metrics_flushes_total = 0
+        self.metrics_flush_errors_total = 0
         self.rate_limiter = TokenBucket(
             float(self.config["api_rate_limit"]),
             clock=clock,
@@ -439,6 +503,94 @@ class LiveExecutor:
         snapshot_enabled = self.config.get("equity_snapshot_enabled", True)
         if not isinstance(snapshot_enabled, bool):
             raise ValueError("equity_snapshot_enabled must be a boolean")
+
+    def _validate_alerting(self) -> None:
+        """Reject an out-of-range alerting override (Issue #177).
+
+        Delegates to :func:`validate_live_alerting_values` so an in-memory
+        ``alerting=`` dict obeys exactly the ranges ``.env`` enforces through
+        ``LIVE_ALERTING_BOUNDS``: a caller cannot smuggle in a value that the
+        config loader would have refused, and a typo can never silently mute an
+        operator alert or set a nonsense debounce window.
+        """
+        validate_live_alerting_values(self.alerting)
+
+    def _notify(
+        self,
+        event: str,
+        title: str,
+        lines: Optional[Sequence[Tuple[str, Any]]] = None,
+        *,
+        critical: bool = False,
+        dedupe: bool = False,
+        icon: Optional[str] = None,
+    ) -> bool:
+        """Send one best-effort Telegram alert (Issue #177).
+
+        The trading loop depends on three guarantees:
+
+        * it never raises - a Telegram outage must not stop stop/take
+          protection or the equity gate;
+        * it is a no-op without a notifier (or with ``telegram_alerts_enabled``
+          off), so the tests and a local run without credentials keep every
+          event in the logs only;
+        * with ``dedupe=True`` a repeating critical is throttled to one message
+          per ``LIVE_ALERTING.alert_debounce_seconds`` (decision D2). Rare
+          one-shot events (start/stop, entry, exit, stop move, kill switch)
+          keep ``dedupe=False`` and are always delivered.
+
+        Args:
+            event: machine key used for debouncing and diagnostics.
+            title: human-readable headline rendered in the message.
+            lines: ``(label, value)`` fields; ``None`` values are skipped.
+            critical: marks the alert as an operator-actionable incident.
+            dedupe: apply the debounce window for this ``event`` key.
+            icon: overrides the default ℹ️ / 🚨 marker.
+
+        Returns:
+            True only when Telegram accepted the message.
+        """
+        self.alerts_attempted_total += 1
+        if not bool(self.alerting.get("telegram_alerts_enabled", True)):
+            self.alerts_skipped_total += 1
+            return False
+        notifier = self.notifier
+        if notifier is None or not bool(getattr(notifier, "enabled", True)):
+            # Log-only contour: the caller has already logged the event itself.
+            self.alerts_skipped_total += 1
+            return False
+        debounce = _finite_float(self.alerting.get("alert_debounce_seconds"), 0.0)
+        if dedupe and debounce > 0:
+            now = self.clock()
+            last = self._alert_last_sent.get(event)
+            if last is not None and now - last < debounce:
+                self.alerts_suppressed_total += 1
+                return False
+        text = _alert_text(
+            icon or ("🚨" if critical else "ℹ️"),
+            title,
+            list(lines or ()),
+            critical=critical,
+        )
+        try:
+            sent = bool(notifier.send_message(text))
+        except Exception as exc:
+            # Defensive: send_message already swallows delivery errors, but a
+            # custom notifier must never be able to break the executor loop.
+            self.alerts_failed_total += 1
+            logger.warning(
+                "Telegram alert '%s' raised %s; continuing without notification",
+                event,
+                type(exc).__name__,
+            )
+            return False
+        self._alert_last_sent[event] = self.clock()
+        if sent:
+            self.alerts_sent_total += 1
+        else:
+            self.alerts_failed_total += 1
+            logger.warning("Telegram alert '%s' was not delivered", event)
+        return sent
 
     def _broker_call(
         self,
@@ -2986,10 +3138,10 @@ class LiveExecutor:
                         logger.warning(
                             "monitor_positions() failed (attempt %d/%d): %s",
                             self._consecutive_errors,
-                            MAX_CONSECUTIVE_ERRORS,
+                            self._max_consecutive_errors,
                             exc,
                         )
-                        if self._consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                        if self._consecutive_errors >= self._max_consecutive_errors:
                             logger.critical(
                                 "Too many consecutive errors (%d); stopping LiveExecutor",
                                 self._consecutive_errors,
@@ -3006,10 +3158,13 @@ class LiveExecutor:
                             logger.warning(
                                 "process_latest_bars() failed (attempt %d/%d): %s",
                                 self._consecutive_errors,
-                                MAX_CONSECUTIVE_ERRORS,
+                                self._max_consecutive_errors,
                                 exc,
                             )
-                            if self._consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                            if (
+                                self._consecutive_errors
+                                >= self._max_consecutive_errors
+                            ):
                                 logger.critical(
                                     "Too many consecutive errors (%d); stopping LiveExecutor",
                                     self._consecutive_errors,
@@ -3045,12 +3200,53 @@ class LiveExecutor:
 
 
 
+def build_default_notifier() -> Optional[TelegramNotifier]:
+    """Create the live Telegram notifier from settings (Issue #177).
+
+    Returns ``None`` when the credentials are missing or unreadable so the
+    executor still starts and keeps alerting through the logs: a monitoring gap
+    must never block the trading contour. Decision D4 - no new env variables;
+    the token and chat id come from ``config_manager.load_settings().telegram``
+    (``TGM_TOKEN`` / ``TGM_CHAT_ID`` or ``backend/config/settings.yaml``), the
+    same source ``run_paper_trader`` and ``/api/notifications/status`` use.
+    """
+    try:
+        notifier = TelegramNotifier(load_settings().telegram)
+    except Exception as exc:
+        logger.warning(
+            "Telegram notifier unavailable (%s); live alerts stay in the logs",
+            type(exc).__name__,
+        )
+        return None
+    if not notifier.enabled:
+        logger.info("Telegram credentials absent; live alerts stay in the logs only")
+        return None
+    return notifier
+
+
+def run_live_executor(
+    duration_minutes: Optional[int] = None,
+    until_session_end: bool = False,
+) -> LiveExecutor:
+    """Process entry point used by start_processes.sh and ``python -m``.
+
+    Wires the Telegram notifier (Issue #177) and returns the executor so a
+    caller - or a canary script - can read ``get_metrics()`` after the run.
+    """
+    executor = LiveExecutor(notifier=build_default_notifier())
+    executor.run(
+        duration_minutes=duration_minutes,
+        until_session_end=until_session_end,
+    )
+    return executor
+
+
 if __name__ == "__main__":
     import sys
 
     logging.basicConfig(level=logging.INFO, stream=sys.stdout)
     duration = int(sys.argv[1]) if len(sys.argv) > 1 else None
-    LiveExecutor().run(
+    run_live_executor(
         duration_minutes=duration,
         until_session_end=duration is None,
     )

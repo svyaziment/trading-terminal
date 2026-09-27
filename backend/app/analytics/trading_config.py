@@ -390,6 +390,61 @@ def get_live_alerting_bounds() -> Dict[str, Tuple[float, float]]:
     return dict(LIVE_ALERTING_BOUNDS)
 
 
+def validate_live_alerting_values(values: Dict[str, Any]) -> None:
+    """Validate an in-memory alerting override (Issue #177).
+
+    ``LiveExecutor`` accepts an ``alerting=`` dict so the tests (and a future
+    settings screen) can retune the policy per process. This guard makes such a
+    dict obey exactly the ranges :data:`LIVE_ALERTING_BOUNDS` enforces on
+    ``.env``, so a typo can never silently mute an operator alert or set a
+    nonsense debounce window. The expected type comes from the
+    :data:`LIVE_ALERTING` default rather than from the value passed in: an
+    ``int`` ``0`` for the float key ``slippage_alert_bp`` is still out of range.
+    Missing keys and ``None`` are allowed - they fall back to the defaults.
+
+    Raises:
+        ValueError: on a wrong type, a non-finite number or an out-of-range
+            value. The message always names the offending key.
+    """
+    for key, default in LIVE_ALERTING.items():
+        if key not in values or values[key] is None:
+            continue
+        value = values[key]
+        # bool before int: bool is a subclass of int in Python.
+        if isinstance(default, bool):
+            if not isinstance(value, bool):
+                raise ValueError(f"{key} must be a boolean, got {value!r}")
+            continue
+        if key not in LIVE_ALERTING_BOUNDS:
+            if key == 'metrics_key':
+                # Contract name, not a tunable; bounded by the VARCHAR(64)
+                # trading.app_settings.key column it is stored under.
+                text = str(value)
+                if not text.strip() or len(text) > 64:
+                    raise ValueError(
+                        f"{key} must be 1..64 characters, got {len(text)}"
+                    )
+            continue
+        if isinstance(value, bool):
+            raise ValueError(f"{key} must be a number, got {value!r}")
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{key} must be a number, got {value!r}") from None
+        if not math.isfinite(number):
+            raise ValueError(f"{key} must be a finite number, got {value!r}")
+        low, high = LIVE_ALERTING_BOUNDS[key]
+        if isinstance(default, int):
+            if not low <= number <= high:
+                raise ValueError(
+                    f"{key} must be within [{low:g}, {high:g}], got {number:g}"
+                )
+        elif not low < number <= high:
+            raise ValueError(
+                f"{key} must be within ({low:g}, {high:g}], got {number:g}"
+            )
+
+
 
 
 def get_live_trading_config() -> Dict[str, Any]:
