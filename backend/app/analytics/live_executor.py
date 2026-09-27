@@ -371,6 +371,10 @@ class LiveExecutor:
         self._last_metrics_flush_at: float = float("-inf")
         self.metrics_flushes_total = 0
         self.metrics_flush_errors_total = 0
+        # Issue #177: provenance of the last kill-switch read, rendered in the
+        # transition alert so the operator sees whether the flag came from
+        # trading.app_settings or from the fail-safe default after a DB error.
+        self._kill_switch_source = "startup"
         self.rate_limiter = TokenBucket(
             float(self.config["api_rate_limit"]),
             clock=clock,
@@ -592,6 +596,60 @@ class LiveExecutor:
             logger.warning("Telegram alert '%s' was not delivered", event)
         return sent
 
+    def _maybe_send_heartbeat(self) -> bool:
+        """Send the periodic "the loop is alive" message (Issue #177).
+
+        ``LIVE_ALERTING.heartbeat_interval_seconds`` paces it; a value ``<= 0``
+        disables the Telegram heartbeat while the in-memory ``heartbeat_ts`` from
+        #174 keeps updating every cycle for the monitoring API. The open-position
+        count is best effort: a failing DB read must never break the loop, so the
+        heartbeat is rendered without that field instead.
+
+        Returns:
+            True only when Telegram accepted the heartbeat message.
+        """
+        interval = _finite_float(
+            self.alerting.get("heartbeat_interval_seconds"), 0.0
+        )
+        if interval <= 0:
+            return False
+        now = self.clock()
+        if now - self._last_heartbeat_at < interval:
+            return False
+        self._last_heartbeat_at = now
+        open_positions: Optional[int] = None
+        try:
+            open_positions = int(len(self._active_positions()))
+        except Exception:  # noqa: BLE001 - heartbeat must never break the loop
+            logger.debug("heartbeat: open position count unavailable")
+        sent = self._notify(
+            "heartbeat",
+            "Live-контур жив",
+            [
+                ("Итераций", self.iterations_total),
+                ("Ошибок всего", self.errors_total),
+                ("Ошибок подряд", self._consecutive_errors),
+                ("Открытых позиций", open_positions),
+                ("Блокировка просадки", "да" if self._risk_breach_active else "нет"),
+                (
+                    "Kill switch",
+                    "ON" if self.config.get("trailing_kill_switch") else "OFF",
+                ),
+                ("Алертов отправлено", self.alerts_sent_total),
+            ],
+            icon="💓",
+        )
+        if sent:
+            self.heartbeats_sent_total += 1
+        return sent
+
+    def _flush_metrics(self, *, force: bool = False) -> None:
+        """Persist the monitoring counters to ``live_trading_metrics``.
+
+        Throttled by ``metrics_flush_interval_seconds``; ``force`` writes
+        immediately (process shutdown). Step 5 of Issue #177 fills in the write.
+        """
+
     def _broker_call(
         self,
         method: str,
@@ -791,6 +849,36 @@ class LiveExecutor:
         }
 
     def _refresh_kill_switch(self) -> None:
+        """Read the kill switch and alert on every transition (#151 / #177).
+
+        The flag itself is owned by :meth:`_read_kill_switch`. This wrapper adds
+        the operator-visible half required by Issue #177: a kill switch that
+        flips silently is the worst failure mode of the trailing contour, because
+        it stops every stop ratchet while protection still looks healthy. The
+        transition alert is a one-shot event (decision D2 - no debounce), and
+        ``critical`` only for the ON direction.
+        """
+        previous = bool(self.config.get("trailing_kill_switch", False))
+        self._read_kill_switch()
+        current = bool(self.config.get("trailing_kill_switch", False))
+        if current == previous:
+            return
+        self._notify(
+            "kill_switch_on" if current else "kill_switch_off",
+            "Kill switch ВКЛЮЧЁН" if current else "Kill switch ВЫКЛЮЧЕН",
+            [
+                (
+                    "Эффект",
+                    "трейлинг-переносы остановлены, выставленные стопы сохранены"
+                    if current
+                    else "трейлинг-переносы снова разрешены",
+                ),
+                ("Источник", self._kill_switch_source),
+            ],
+            critical=current,
+        )
+
+    def _read_kill_switch(self) -> None:
         """Read trailing_kill_switch from trading.app_settings (Issue #151).
 
         Updates self.config['trailing_kill_switch'] from DB.
@@ -809,6 +897,7 @@ class LiveExecutor:
                     "defaulting to False"
                 )
                 self.config["trailing_kill_switch"] = False
+                self._kill_switch_source = "app_settings:missing_key"
             else:
                 value = result.iloc[0]["value"]
                 # value is JSONB, may be bool or string
@@ -818,6 +907,7 @@ class LiveExecutor:
                     self.config["trailing_kill_switch"] = value.lower() == "true"
                 else:
                     self.config["trailing_kill_switch"] = bool(value)
+                self._kill_switch_source = "app_settings"
         except Exception as exc:
             logger.warning(
                 "Failed to read trailing_kill_switch from DB: %s; "
@@ -825,6 +915,7 @@ class LiveExecutor:
                 exc,
             )
             self.config["trailing_kill_switch"] = True
+            self._kill_switch_source = f"db_error:{type(exc).__name__}"
 
     # --- Issue #176: live equity snapshots and daily drawdown gate -----------
 
@@ -999,6 +1090,21 @@ class LiveExecutor:
             session_key,
             self.config.get("risk_breach_reset_key") or RISK_BREACH_RESET_KEY,
         )
+        # Issue #177: the latch already fires once per session, so the alert is
+        # a one-shot event and needs no debounce (decision D2).
+        self._notify(
+            "risk_breach",
+            "Превышен дневной лимит убытка",
+            [
+                ("Просадка", f"{drawdown_pct:.4f}%"),
+                ("Лимит", f"{max_daily_loss_pct:.4f}%"),
+                ("Equity", f"{equity:.2f} RUB"),
+                ("Пик дня", f"{peak:.2f} RUB"),
+                ("Сессия", session_key),
+                ("Эффект", "новые входы заблокированы, стопы сохранены"),
+            ],
+            critical=True,
+        )
 
     def _clear_risk_breach(self, *, reason: str) -> None:
         """Release a latched breach; idempotent and logged on transition only."""
@@ -1012,6 +1118,17 @@ class LiveExecutor:
             "risk breach cleared: reason=%s previous_session_key=%s",
             reason,
             previous_session_key,
+        )
+        # Issue #177: recovery is as important as the breach - without it the
+        # operator keeps guessing whether entries are still blocked.
+        self._notify(
+            "risk_breach_cleared",
+            "Блокировка по дневной просадке снята",
+            [
+                ("Причина", reason),
+                ("Предыдущая сессия", previous_session_key),
+                ("Эффект", "новые входы снова разрешены"),
+            ],
         )
 
     def _restore_risk_breach_state(self) -> None:
@@ -1045,14 +1162,30 @@ class LiveExecutor:
             return
         self._risk_breach_active = True
         self._risk_breach_session_key = session_key
+        drawdown_pct = self._scalar(frame, "drawdown_pct", None)
+        equity_rub = self._scalar(frame, "equity_rub", None)
+        peak_equity_rub = self._scalar(frame, "peak_equity_rub", None)
         logger.critical(
             "Restored active risk breach for session_key=%s "
             "(drawdown_pct=%s equity_rub=%s peak_equity_rub=%s) - "
             "new entries stay blocked until the next MSK day or a manual reset",
             session_key,
-            self._scalar(frame, "drawdown_pct", None),
-            self._scalar(frame, "equity_rub", None),
-            self._scalar(frame, "peak_equity_rub", None),
+            drawdown_pct,
+            equity_rub,
+            peak_equity_rub,
+        )
+        # Issue #177: a restart must not hide an already-latched breach.
+        self._notify(
+            "risk_breach_restored",
+            "После перезапуска восстановлена блокировка по просадке",
+            [
+                ("Сессия", session_key),
+                ("Просадка", drawdown_pct),
+                ("Equity", equity_rub),
+                ("Пик дня", peak_equity_rub),
+                ("Эффект", "новые входы заблокированы до следующего дня MSK"),
+            ],
+            critical=True,
         )
 
     def _refresh_risk_breach_reset(self) -> None:
@@ -1238,6 +1371,20 @@ class LiveExecutor:
             self.equity_snapshot_errors_total += 1
             logger.warning(
                 "live equity snapshot failed: %s: %s", type(exc).__name__, exc
+            )
+            # Issue #177: a dead equity snapshot blinds the daily drawdown gate,
+            # so it is an operator event. It repeats every cycle while the fault
+            # lasts - exactly the case the debounce window was added for (#176).
+            self._notify(
+                "equity_snapshot_error",
+                "Снимок equity не записан: гейт просадки ослеплён",
+                [
+                    ("Ошибка", type(exc).__name__),
+                    ("Сбоев всего", self.equity_snapshot_errors_total),
+                    ("Эффект", "дневной лимит убытка не пересчитывается"),
+                ],
+                critical=True,
+                dedupe=True,
             )
             return None
 
@@ -1529,15 +1676,18 @@ class LiveExecutor:
             step_reached=step_reached,
         )
 
+        stop_armed = False
         if status == "open":
             # Issue #175: protection first — the broker STOP_LOSS is armed before
             # the take-profit limit, so the position is never left naked.
-            self._arm_broker_stop(
-                position_id=position_id,
-                ticker=ticker,
-                instrument_id=instrument["instrument_id"],
-                quantity=stored_lots,
-                stop_price=float(current_stop),
+            stop_armed = bool(
+                self._arm_broker_stop(
+                    position_id=position_id,
+                    ticker=ticker,
+                    instrument_id=instrument["instrument_id"],
+                    quantity=stored_lots,
+                    stop_price=float(current_stop),
+                )
             )
             try:
                 self._place_take_order(
@@ -1554,6 +1704,21 @@ class LiveExecutor:
                     position_id,
                     type(exc).__name__,
                 )
+                # Issue #177: the stop is already armed, so this is not an
+                # unprotected position - but a missing take changes the exit plan
+                # and the operator must see it with the entry.
+                self._notify(
+                    f"protection_pending:{ticker}",
+                    "Вход исполнен, тейк-профит не выставлен",
+                    [
+                        ("Тикер", ticker),
+                        ("Позиция", position_id),
+                        ("Ошибка", type(exc).__name__),
+                        ("Стоп", "выставлен" if stop_armed else "НЕ выставлен"),
+                        ("Тейк", f"{float(take_price):.4f}"),
+                    ],
+                    critical=True,
+                )
                 return {
                     "executed": True,
                     "reason": "protection_pending",
@@ -1566,6 +1731,22 @@ class LiveExecutor:
             status,
             stored_lots,
             position_id,
+        )
+        # Issue #177: an entry is a rare one-shot event - no debounce (decision D2).
+        self._notify(
+            "live_entry",
+            "Открыта live-позиция (песочница)",
+            [
+                ("Тикер", ticker),
+                ("Статус", status),
+                ("Цена входа", f"{float(stored_entry_price):.4f}"),
+                ("Размер", f"{stored_lots} лот."),
+                ("Стоп", f"{float(stop_price):.4f}"),
+                ("Тейк", f"{float(take_price):.4f}"),
+                ("Трейлинг", "включён" if trailing_enabled else "выключен"),
+                ("Позиция", position_id),
+            ],
+            icon="📈",
         )
         return {
             "executed": True,
@@ -2004,6 +2185,20 @@ class LiveExecutor:
             new_step,
             new_stop,
         )
+        # Issue #177 / decision D2: stop moves are rare and every one of them
+        # changes the exit plan, so they are delivered without debounce.
+        self._notify(
+            "trailing_step",
+            "Трейлинг: стоп перенесён",
+            [
+                ("Тикер", row["ticker"]),
+                ("Позиция", position_id),
+                ("Ступень", new_step),
+                ("Новый стоп", f"{new_stop:.6f}"),
+                ("Kill switch", "ON" if self.config.get("trailing_kill_switch") else "OFF"),
+            ],
+            icon="🪜",
+        )
 
         # Issue #175: move the broker stop together with the model stop. The DB
         # ratchet is kept even when the amend fails — a stop never moves down —
@@ -2117,6 +2312,55 @@ class LiveExecutor:
                 int(row["size_lots"]),
                 lots_executed,
                 int(row["id"]),
+            )
+
+        # Issue #177: every close is a one-shot operator event (decision D2). The
+        # slippage threshold from LIVE_ALERTING escalates a bad fill to critical.
+        slippage_alert_bp = _finite_float(self.alerting.get("slippage_alert_bp"), 0.0)
+        exit_icon = {
+            "stop": "🛑",
+            "take": "✅",
+            "trailing": "🪜",
+        }.get(str(reason), "📉")
+        self._notify(
+            "live_exit",
+            "Закрыта live-позиция (песочница)",
+            [
+                ("Тикер", row["ticker"]),
+                ("Причина", reason),
+                ("Статус", final_status),
+                ("Цена модели", f"{float(exit_price):.4f}"),
+                (
+                    "Цена факта",
+                    None if exit_price_actual is None else f"{float(exit_price_actual):.4f}",
+                ),
+                ("PnL", f"{round(pnl_rub, 2):+.2f} RUB"),
+                (
+                    "Slippage",
+                    None if slippage_bp is None else f"{float(slippage_bp):+.2f} bp",
+                ),
+                ("Slippage R", slippage_r),
+                ("Лотов исполнено", lots_executed),
+                ("Позиция", int(row["id"])),
+            ],
+            icon=exit_icon,
+        )
+        if (
+            slippage_bp is not None
+            and slippage_alert_bp > 0
+            and abs(float(slippage_bp)) >= slippage_alert_bp
+        ):
+            self._notify(
+                f"slippage_high:{row['ticker']}",
+                "Проскальзывание выхода выше порога",
+                [
+                    ("Тикер", row["ticker"]),
+                    ("Порог", f"{slippage_alert_bp:.2f} bp"),
+                    ("Факт", f"{float(slippage_bp):+.2f} bp"),
+                    ("Причина выхода", reason),
+                    ("Позиция", int(row["id"])),
+                ],
+                critical=True,
             )
 
         # Issue #175: OCO — the leg that survived the close (stop or take) is
@@ -2289,6 +2533,24 @@ class LiveExecutor:
             attempts,
             delay,
         )
+        # Issue #177: an unprotected position is the top-priority incident of the
+        # live contour. The retries can fire every backoff cycle, so the alert is
+        # debounced per ticker (decision D2) while the log line stays unfiltered.
+        self._notify(
+            f"protection_failed:{ticker}",
+            "Стоп не выставлен: позиция без защиты",
+            [
+                ("Тикер", ticker),
+                ("Позиция", position_id),
+                ("Операция", "post_stop_order"),
+                ("Ошибка", error_type),
+                ("Цена стопа", f"{stop_price:.6f}"),
+                ("Попытка", attempts),
+                ("Повтор через", f"{delay:.0f} с"),
+            ],
+            critical=True,
+            dedupe=True,
+        )
 
     def _protection_retry_due(self, position_id: int) -> bool:
         """True when the backoff of a failed stop arming has elapsed (#175)."""
@@ -2395,6 +2657,21 @@ class LiveExecutor:
                     ticker,
                     stop_id,
                 )
+                # Issue #177: debounced per ticker - the reconcile pass runs
+                # every cycle and would otherwise spam one message per pass.
+                self._notify(
+                    f"invariant_violation:{ticker}",
+                    "Инвариант нарушен: стоп id есть, но у брокера стопа нет",
+                    [
+                        ("Тикер", ticker),
+                        ("Позиция", position_id),
+                        ("broker_stop_id", stop_id),
+                        ("Позиция у брокера", "открыта" if present else "отсутствует"),
+                        ("Действие", "id снимается, стоп будет перевыставлен"),
+                    ],
+                    critical=True,
+                    dedupe=True,
+                )
                 if not present:
                     # Keep the id as exit evidence for fill reconciliation.
                     continue
@@ -2417,6 +2694,19 @@ class LiveExecutor:
                 "broker_stop_id",
                 position_id,
                 ticker,
+            )
+            # Issue #177: same debounce key as the sibling invariant above - the
+            # operator needs "this ticker is naked", not one message per cycle.
+            self._notify(
+                f"invariant_violation:{ticker}",
+                "Инвариант нарушен: открытая позиция без стопа",
+                [
+                    ("Тикер", ticker),
+                    ("Позиция", position_id),
+                    ("Действие", "повторная постановка стоп-ордера"),
+                ],
+                critical=True,
+                dedupe=True,
             )
             if self._arm_broker_stop_for_row(row):
                 changes += 1
@@ -2467,6 +2757,22 @@ class LiveExecutor:
                 new_step,
                 new_stop,
                 old_stop_id,
+            )
+            # Issue #177: the DB ratchet moved but the broker stop did not, so the
+            # position is protected at the older, lower level until the retry.
+            self._notify(
+                f"trailing_amend_failed:{ticker}",
+                "Трейлинг: брокерский стоп не перенесён",
+                [
+                    ("Тикер", ticker),
+                    ("Позиция", position_id),
+                    ("Ступень", new_step),
+                    ("Новый стоп", f"{new_stop:.6f}"),
+                    ("Старый стоп id", old_stop_id),
+                    ("Эффект", "действует предыдущий, более низкий стоп"),
+                ],
+                critical=True,
+                dedupe=True,
             )
             return None
         self.stop_amend_total += 1
@@ -2806,6 +3112,20 @@ class LiveExecutor:
                     order_id,
                     cancelled,
                 )
+                # Issue #177: an orphaned leg can fill against a closed position,
+                # so the operator gets one debounced message per monitoring sweep.
+                self._notify(
+                    "oco_orphan",
+                    "OCO: обнаружен осиротевший ордер",
+                    [
+                        ("Позиция", position_id),
+                        ("Тип ордера", kind),
+                        ("Ордер", order_id),
+                        ("Снят", "да" if cancelled else "нет"),
+                    ],
+                    critical=True,
+                    dedupe=True,
+                )
                 changes += 1
                 continue
             if orphaned is False:
@@ -2827,6 +3147,20 @@ class LiveExecutor:
                 kind,
                 order_id,
                 check["attempts"],
+            )
+            # Issue #177: retries are exhausted - this needs a human decision.
+            self._notify(
+                "oco_orphan_unverified",
+                "OCO: ордер не проверен, попытки исчерпаны",
+                [
+                    ("Позиция", position_id),
+                    ("Тип ордера", kind),
+                    ("Ордер", order_id),
+                    ("Попытки", check["attempts"]),
+                    ("Действие", "проверить ордер у брокера вручную"),
+                ],
+                critical=True,
+                dedupe=True,
             )
         return changes
 
@@ -3101,6 +3435,28 @@ class LiveExecutor:
                 until_session_end,
                 session_end.strftime("%Y-%m-%d %H:%M") if session_end else "none",
             )
+            # Issue #177: the operator must see the process come up - and whether
+            # it came up with Telegram credentials or in the log-only contour.
+            self._notify(
+                "live_start",
+                "Live-контур запущен (песочница)",
+                [
+                    ("Стратегия", self.strategy_name or None),
+                    ("Тикеров", len(self.evaluators)),
+                    ("Тикеры", ",".join(sorted(self.evaluators)) or None),
+                    ("До конца сессии", until_session_end),
+                    ("Интервал проверки", f"{check_interval:.0f} с"),
+                    ("Порог ошибок подряд", self._max_consecutive_errors),
+                    (
+                        "Алерты",
+                        "Telegram" if self.notifier is not None else "только лог",
+                    ),
+                ],
+                icon="🚀",
+            )
+            # The start alert already proves the process is alive, so the first
+            # heartbeat is due a full interval later.
+            self._last_heartbeat_at = self.clock()
             entry_closed_logged = False
             while not self.shutdown_requested.is_set():
                 now_msk = self.now_fn()
@@ -3146,6 +3502,18 @@ class LiveExecutor:
                                 "Too many consecutive errors (%d); stopping LiveExecutor",
                                 self._consecutive_errors,
                             )
+                            self._notify(
+                                "consecutive_errors",
+                                "Live-контур остановлен: серия ошибок",
+                                [
+                                    ("Фаза", "monitor_positions"),
+                                    ("Ошибок подряд", self._consecutive_errors),
+                                    ("Порог", self._max_consecutive_errors),
+                                    ("Ошибок всего", self.errors_total),
+                                    ("Последняя ошибка", self.last_error_at),
+                                ],
+                                critical=True,
+                            )
                             break
                     if is_entry_window(now_msk):
                         try:
@@ -3169,6 +3537,18 @@ class LiveExecutor:
                                     "Too many consecutive errors (%d); stopping LiveExecutor",
                                     self._consecutive_errors,
                                 )
+                                self._notify(
+                                    "consecutive_errors",
+                                    "Live-контур остановлен: серия ошибок",
+                                    [
+                                        ("Фаза", "process_latest_bars"),
+                                        ("Ошибок подряд", self._consecutive_errors),
+                                        ("Порог", self._max_consecutive_errors),
+                                        ("Ошибок всего", self.errors_total),
+                                        ("Последняя ошибка", self.last_error_at),
+                                    ],
+                                    critical=True,
+                                )
                                 break
                     elif session_closed:
                         if not entry_closed_logged:
@@ -3188,6 +3568,8 @@ class LiveExecutor:
                     # Issue #174: update heartbeat and iteration counter
                     self.heartbeat_ts = self.now_fn()
                     self.iterations_total += 1
+                    # Issue #177: paced "still alive" message for the operator.
+                    self._maybe_send_heartbeat()
                 self.sleep_fn(min(1.0, check_interval))
         finally:
             try:
@@ -3197,6 +3579,23 @@ class LiveExecutor:
                 if callable(close_pool):
                     close_pool()
                 logger.info("Sandbox LiveExecutor stopped cleanly")
+                # Issue #177: the stop alert is the counterpart of live_start; it
+                # is sent after shutdown() so the counters are already final.
+                self._notify(
+                    "live_stop",
+                    "Live-контур остановлен",
+                    [
+                        ("Итераций", self.iterations_total),
+                        ("Ошибок всего", self.errors_total),
+                        ("Heartbeat отправлено", self.heartbeats_sent_total),
+                        ("Алертов отправлено", self.alerts_sent_total),
+                        ("Алертов подавлено", self.alerts_suppressed_total),
+                        (
+                            "Блокировка просадки",
+                            "да" if self._risk_breach_active else "нет",
+                        ),
+                    ],
+                )
 
 
 
