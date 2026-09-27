@@ -2,6 +2,7 @@ from decimal import Decimal
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 import json
+import uuid
 
 import pandas as pd
 import pytest
@@ -2107,7 +2108,11 @@ def test_entry_arms_broker_stop_before_take_limit(caplog):
     assert stop_call["stop_price"] == 95.0
     # trailing_protective_ticks=5 * min_price_increment=0.01 below the trigger
     assert stop_call["price"] == pytest.approx(94.95)
-    assert stop_call["order_id"].startswith("live-stop-41-0-")
+    # Issue #175 (PR #185): the stop order id is a random uuid4. The former
+    # deterministic "live-stop-<position>-<step>-" prefix (uuid5) was dropped so
+    # that every arming attempt stays unique at the broker; only the shape of
+    # the id is assertable now.
+    assert uuid.UUID(stop_call["order_id"]).version == 4
     assert any(
         "SET broker_stop_id=%s" in query and params == ("stop-1", 41)
         for query, params in db.execute_calls
@@ -2206,7 +2211,8 @@ def test_trailing_ratchet_amends_broker_stop_by_duplication(caplog):
     # Ladder step 1: trigger 2.0R (110) -> stop 1.0R (105), protective 5 ticks.
     assert posted[0][1]["stop_price"] == pytest.approx(105.0)
     assert posted[0][1]["price"] == pytest.approx(104.95)
-    assert posted[0][1]["order_id"].startswith("live-stop-41-1-")
+    # Issue #175 (PR #185): random uuid4, see test_entry_arms_broker_stop.
+    assert uuid.UUID(posted[0][1]["order_id"]).version == 4
     # PO mechanic: PostStopOrder -> GetStopOrders -> CancelStopOrder.
     call_names = [call[0] for call in broker.calls]
     assert call_names.index("post_stop_order") < call_names.index("get_stop_orders")

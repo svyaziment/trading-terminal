@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -225,6 +225,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/live-trading/equity/current | Latest `live_equity` snapshot + `risk_breach_active` + the effective limits and their validated bounds, so the panel never hardcodes a number (#176) |
 | GET | /api/live-trading/equity/latest | Alias of `/equity/current` (#176) |
 | GET | /api/live-trading/equity/history | Live equity curve, newest first; filters `session_key`, `date_from`, `date_to`; pagination (#176). 503 with an `alembic upgrade head` hint when the table is missing |
+| GET | /api/live-trading/metrics | `LiveExecutor` metrics snapshot from `trading.app_settings['live_executor_metrics']`: `state` (unknown/kill_switch/no_heartbeat/stale/error_threshold/risk_breach/running), snapshot and heartbeat age, loop/protection/risk/alerting counters, kill switch from the live row, open positions with and without broker protection (#177). Degrades to `available=false` + `reason` instead of a 500 |
 
 Shared lock: jobs_state.py (in-process). Only one heavy job runs at a time; others return 409.
 
@@ -381,11 +382,15 @@ Every broker API attempt, including internal retries and account discovery, pass
 
 Delivery is serialized and limited to one attempt per second. Network/API errors are logged and returned as `False`, never propagated into the trading loop. `paper_trader.py` emits alerts after successful DB writes for market and limit opens and for every close (including stop/take). Equity updates emit a critical alert only when drawdown first crosses `risk.max_daily_loss_pct`, or when equity first reaches zero (GAME OVER), preventing repeated alerts on every loop.
 
+Since #177 (Epic #172 task E) the **live contour** uses the same notifier: `LiveExecutor._notify()` sends event alerts (start/stop, entry, exit with slippage, stop ratchet, `protection_failed`, invariant violations, OCO orphans, `risk_breach` and its recovery, kill switch, consecutive-error threshold) plus a periodic "the loop is alive" heartbeat. The policy lives in the `LIVE_ALERTING` section of `trading_config.py`, the credentials are unchanged (`TGM_TOKEN` / `TGM_CHAT_ID` through `config_manager.load_settings().telegram`), and a missing token keeps every event in the log only. Details: §23 and `handover.md` §45.
+
 ## 15. Live Trading Monitoring Panel
 
 `frontend/src/components/LiveTradingPanel.tsx` is available from the `Live Trading` tab. It polls `trading.live_positions` through the live monitoring API every 10 seconds and shows open positions with the latest best bid (best ask fallback), unrealized RUB/% PnL, paginated and sortable trade history, cumulative realized PnL, and Telegram connectivity. Both tables use the shared `ui/DataTable` and `FilterChips`; date filters use the shared `ui/DatePicker` extracted from Strategy Lab.
 
 `/api/live-trading/positions` and `/api/live-trading/dynamics` keep sandbox execution data separate from paper trading. They support ticker/date/status filters; the special `status=closed` value selects stop, take, and trailing closures (#149). `/api/notifications/status` performs a read-only Telegram `getMe` probe and caches the result for 30 seconds. It never returns credentials. See `docs/strategy/live-trading.md` for the full contour (safety contract, synthetic stop, schema-ready trailing columns).
+
+Since #177 the panel also has a source for the executor's own health: `GET /api/live-trading/metrics` serves the persisted `LiveExecutor` snapshot (loop state, heartbeat age, error and alert counters, risk status, kill switch, open positions with and without broker protection) and is meant for a status tile and for external monitoring. The endpoint does not require a running executor and degrades to `available=false` + `reason` instead of a 500 (§23).
 
 ## 16. SignalEngine AND-filters in StrategyEvaluator
 
@@ -752,8 +757,8 @@ exposes counters through `get_metrics()`: `risk_breach_active`, `risk_breach_tot
 `risk_breach_resets_total`, `risk_gate_rejections_total`, `position_size_rejections_total`,
 `equity_snapshots_total`, `equity_snapshot_errors_total`, `equity_snapshot_skipped_total`,
 `last_equity_rub`, `last_drawdown_pct`, `last_peak_equity_rub`, `last_equity_session_key`
-and the effective limits. Telegram delivery for `risk_breach` is task E (#177), which
-depends on this one.
+and the effective limits. Telegram delivery for `risk_breach` is implemented by task E
+(#177): see §23.
 
 **Testing**: `backend/tests/test_live_equity_risk_gates.py` (62 tests) covers the schema
 contract and migration chain, config defaults / env overrides / range validation, the
@@ -765,5 +770,126 @@ failure containment, `get_metrics()` and the three endpoints.
 
 
 
+
+## 23. Live Telegram alerting and executor metrics (Issue #177, Epic #172 task E)
+
+Completed 2026-09-27. The live executor now reports outward: event-driven Telegram alerts,
+a periodic heartbeat, and a persisted metrics snapshot served by
+`GET /api/live-trading/metrics`. The paper contour (`paper_trader`) and `TelegramNotifier`
+itself are unchanged - live uses the notifier as a library. Operational details and commands:
+`handover.md` §45.
+
+**Why this shape**: before #177 everything the live contour knew stayed in the container log,
+and the #174 heartbeat lived in process memory only, so "the executor crashed" and "the
+executor is idle" were indistinguishable. Snapshot persistence (decision D1) went into
+`trading.app_settings` as a single JSONB row `live_executor_metrics` - no new table, no
+migration: the key (21 characters) fits `key VARCHAR(64)` and `value JSONB NOT NULL` fits as
+is; `test_live_schema.py` only checks `REQUIRED_APP_SETTINGS_KEYS`, so a new key does not
+break it.
+
+**Configuration** (`trading_config.py`, the `LIVE_ALERTING` section + `get_live_alerting_config()`):
+- `heartbeat_interval_seconds`: `3600`, env `LIVE_HEARTBEAT_INTERVAL_SECONDS`, range `(1, 86400]`.
+- `heartbeat_stale_seconds`: `300`, env `LIVE_HEARTBEAT_STALE_SECONDS`, range `(1, 86400]`.
+- `alert_debounce_seconds`: `300`, env `LIVE_ALERT_DEBOUNCE_SECONDS`, range `(0, 86400]`.
+- `slippage_alert_bp`: `50.0`, env `LIVE_SLIPPAGE_ALERT_BP`, range `(0, 10000]`.
+- `max_consecutive_errors`: `5`, env `LIVE_MAX_CONSECUTIVE_ERRORS`, range `[1, 100]` - the
+  single source of truth replacing the hardcoded `MAX_CONSECUTIVE_ERRORS` constant (decision
+  D3; the constant survives as the fallback default, behaviour without config is unchanged).
+- `metrics_flush_seconds`: `300`, env `LIVE_METRICS_FLUSH_SECONDS`, range `(1, 86400]`.
+- `metrics_key`: `live_executor_metrics` - the row-name contract, not env-overridable.
+- `telegram_alerts_enabled`: `true`, env `LIVE_TELEGRAM_ALERTS` - the master switch; `false`
+  keeps every event in the log only.
+
+An unparsable or out-of-range env value raises `ValueError` at read time (the same convention
+as #176's `LIVE_RISK`), so a typo in `.env` can never silently mute an operator alert. An
+in-memory override `LiveExecutor(alerting={...})` passes exactly the same bounds through
+`validate_live_alerting_values()`.
+
+**Credentials** (decision D4): no new env variables. The source is
+`config_manager.load_settings().telegram`, i.e. `TGM_TOKEN` / `TGM_CHAT_ID` (legacy `TGM_CHAT`)
+from the environment or `backend/config/settings.yaml` - the same source `run_paper_trader`
+and `/api/notifications/status` use. `build_default_notifier()` returns `None` when the
+credentials are missing or unreadable, so the executor still starts and keeps the events in
+the log: a monitoring gap must never block the trading contour.
+
+**Delivery** - `LiveExecutor._notify(event, title, lines, critical=False, dedupe=False, icon=None)`:
+it never raises into the trading loop, it is a no-op without a notifier or with the master
+switch off, and it keeps the `alerts_attempted/sent/failed/suppressed/skipped_total` counters.
+Debouncing (decision D2) applies only to repeating criticals (`equity_snapshot_error`,
+`protection_failed:{ticker}`, `invariant_violation:{ticker}` - both invariants,
+`trailing_amend_failed:{ticker}`, `oco_orphan`, `oco_orphan_unverified`); the key includes the
+ticker, so the windows of different instruments are independent. Rare and one-shot events -
+start/stop, entry, exit with slippage, stop ratchet, kill switch, `risk_breach` and its
+recovery, heartbeat - are always delivered, so "the process is alive" gets through even during
+a storm of criticals. `_alert_text()` renders the body and passes every value through
+`escape_markdown`: `send_message` always requests `parse_mode=Markdown`, and an underscore in a
+ticker or in a broker error string would otherwise turn the message into a 400.
+
+**Heartbeat**: `_maybe_send_heartbeat()` runs once per `run()` cycle and sends the 💓 "the live
+contour is alive" message at most every `heartbeat_interval_seconds`; a delivered heartbeat
+immediately calls `_flush_metrics(force=True)`, so the API never shows counters older than the
+last "process alive". An interval `<= 0` disables the send while keeping the in-memory
+`heartbeat_ts` from #174.
+**Persistence** (decision D5): `_flush_metrics()` writes the snapshot on a
+`metrics_flush_seconds` schedule rather than every cycle, plus forcibly at three points - a
+delivered heartbeat, a kill-switch transition and graceful shutdown (after the advisory lock
+is released). The reason: with `check_interval_seconds=30`, writing every cycle would mean
+~2880 UPDATEs/day into the table that `_refresh_risk_breach_reset` reads and writes every
+cycle anyway. The snapshot is `get_metrics()` (#174-#176) plus provenance fields
+(`schema_version=1`, `persisted_at`, `strategy`, `tickers`, `notifier_configured`, the
+heartbeat windows, the alert and flush counters, `kill_switch_source`). A failing write
+increments `metrics_flush_errors_total`, logs a warning and never propagates into the loop.
+
+**The `GET /api/live-trading/metrics` endpoint** (`live_trading_jobs.py`) reads the
+`app_settings` row, computes freshness **at read time** (`source.age_seconds` and `flush_stale`
+when the age exceeds `2 × metrics_flush_seconds`; `heartbeat.age_seconds` and `stale` from the
+window in the snapshot with a fallback to the current config), reads the kill switch from the
+live `trading.trailing_kill_switch` row with priority over the snapshot, adds open positions
+from `trading.live_positions` (`open_total`, `protected_total`, `unprotected_total`,
+`unprotected_tickers`, `trailing_total`, `items[]`, where protection means "a `broker_stop_id`
+exists", #175) and publishes `state` as one word in the order `unknown` → `kill_switch` →
+`no_heartbeat` → `stale` → `error_threshold` → `risk_breach` → `running`. Next to it sit
+`risk.limits` (the current config) and `risk.snapshot_limits` (what the executor actually ran
+with): a difference means the process trades on stale limits, and that is visible instead of
+hidden.
+
+A missing, corrupted or empty snapshot is **not** an error: `available=false` plus a `reason`
+(`no_snapshot` / `malformed_snapshot` / `empty_snapshot`), because a monitoring endpoint that
+500s is worse than one that honestly says "I have nothing". `503` remains the only hard
+failure - when `trading.app_settings` cannot be read at all.
+
+**Two reading pitfalls** found only against the real database (every fake-backed unit test was
+green):
+1. `SelectResult.to_dataframe()` normalizes JSONB with `astype(str)`, so the snapshot arrives
+   as a Python repr (`"{'schema_version': 1, ...}"` - single quotes, `True`/`None` instead of
+   `true`/`null`) and `json.loads` fails → a permanent `malformed_snapshot` in production.
+   `_loads_metrics_text()` tries `json.loads`, then `ast.literal_eval` (literals only, executes
+   no code); a broken repr still yields `malformed_snapshot`.
+2. pandas returns SQL `NULL` as `NaN`/`pd.NA`, and without a guard a missing `broker_stop_id`
+   was published as the string `"nan"` while `_metrics_bool(nan)` returned
+   `trailing_enabled=true` - an unprotected position looked protected. `_metrics_is_missing()`
+   (None/NaN/NA/NaT, no pandas import) is applied in every `_metrics_int/_float/_bool/_text/_datetime`
+   coercer and in the `status` filter.
+
+**Anti-drift**: `_METRICS_SNAPSHOT_FIELDS` is the single list of consumed fields; everything
+else is published in `extra` through `_json_safe`, so a new executor field is never dropped
+silently. `test_the_reader_covers_every_key_the_executor_persists` runs a real
+`_flush_metrics(force=True)` and requires `set(written) <= _METRICS_SNAPSHOT_FIELDS` and
+`extra == {}`, while `test_the_executor_snapshot_survives_the_dataframe_round_trip` reproduces
+the `to_dataframe()` repr path. The web layer deliberately does **not** import
+`app.analytics.live_executor`: the shared contract is the row name from
+`LIVE_ALERTING.metrics_key`, not the trading-loop code.
+
+**Failure containment**: neither an alert nor a snapshot write can stop trading - both paths are
+wrapped in `try/except`, log a warning and increment their own error counter.
+`alerts_failed_total` and `metrics_flush_errors_total` are what an operator watches, not the
+loop.
+
+**Testing**: `backend/tests/test_live_alerting.py` (160 tests) covers `LIVE_ALERTING` defaults
+and env overrides, range validation and `validate_live_alerting_values()`, the `_notify()`
+guarantees (a raising notifier, `enabled=False`, the master switch off, per-event-key
+debouncing), every event hook, the heartbeat and its throttle, `_flush_metrics()` (throttle,
+force points, write failure), the full endpoint response and all of its degradations. The whole
+`backend/tests` suite - 765 passed.
 
 **SSL certificates for T-Bank gRPC:** on a Windows host you must explicitly set `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH="$(pwd)/backend/certs/tbank-root.pem"` (set automatically in `start_processes.sh`), otherwise the gRPC connection to `sandbox-invest-public-api.tbank.ru` fails with `CERTIFICATE_VERIFY_FAILED`.

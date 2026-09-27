@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-18 (task-173); ранее 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-14 (task-147); 2026-09-09 (задача #146 — Lab умеет настраивать `config.trailing_stop`: переключатель и таблица ступеней, отрисованные из нового read-only `GET /api/strategies/trailing-schema`; ответ собирает `trading_config.get_trailing_stop_schema()` на основе `TRAILING_STOP` (handover §38). Ни одно поле или число трейлинга не продублировано в TSX, нетронутая стратегия по-прежнему сохраняется без ключа, а таблица сделок наконец отличает выход `trailing` от простого `stop`). Предыдущее обновление: 2026-09-08 (в §18 зафиксировано решение Product Owner: `ultra_late_tight` — самая поздняя и плотная лестница решётки `143-trailing-v3` — становится боевым дефолтом сетки трейлинг-стопа для #144; эпик #142 / roadmap Block W; контракт `config.trailing_stop` из #144 уже в коде — только валидация, полный контракт полей в §6, тесты `backend/tests/test_trailing_contract.py`). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-18 (task-173); ранее 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-14 (task-147); 2026-09-09 (задача #146 — Lab умеет настраивать `config.trailing_stop`: переключатель и таблица ступеней, отрисованные из нового read-only `GET /api/strategies/trailing-schema`; ответ собирает `trading_config.get_trailing_stop_schema()` на основе `TRAILING_STOP` (handover §38). Ни одно поле или число трейлинга не продублировано в TSX, нетронутая стратегия по-прежнему сохраняется без ключа, а таблица сделок наконец отличает выход `trailing` от простого `stop`). Предыдущее обновление: 2026-09-08 (в §18 зафиксировано решение Product Owner: `ultra_late_tight` — самая поздняя и плотная лестница решётки `143-trailing-v3` — становится боевым дефолтом сетки трейлинг-стопа для #144; эпик #142 / roadmap Block W; контракт `config.trailing_stop` из #144 уже в коде — только валидация, полный контракт полей в §6, тесты `backend/tests/test_trailing_contract.py`). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -222,6 +222,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/live-trading/equity/current | Последний снимок `live_equity` + `risk_breach_active` + действующие лимиты и их валидированные границы, чтобы панель не хардкодила числа (#176) |
 | GET | /api/live-trading/equity/latest | Алиас `/equity/current` (#176) |
 | GET | /api/live-trading/equity/history | Кривая эквити live, свежие первыми; фильтры `session_key`, `date_from`, `date_to`; пагинация (#176). 503 с подсказкой `alembic upgrade head`, если таблицы нет |
+| GET | /api/live-trading/metrics | Снимок метрик `LiveExecutor` из `trading.app_settings['live_executor_metrics']`: `state` (unknown/kill_switch/no_heartbeat/stale/error_threshold/risk_breach/running), возраст снимка и пульса, счётчики цикла/защиты/риска/алертов, kill switch из живой строки, открытые позиции с защитой и без (#177). Деградирует `available=false` + `reason` вместо 500 |
 
 Общий lock: jobs_state.py (in-process). Одновременно выполняется только одна тяжёлая задача; остальные возвращают 409.
 
@@ -377,11 +378,15 @@ Take-profit сразу выставляется как ожидающий sell-l
 
 Отправка сериализована и ограничена одной попыткой в секунду. Сетевые ошибки и ошибки API логируются и возвращают `False`, но не попадают в торговый цикл. `paper_trader.py` отправляет alerts после успешной записи в БД для market/limit открытий и каждого закрытия, включая stop/take. При обновлении equity критический alert отправляется только при первом пересечении `risk.max_daily_loss_pct` или первом достижении нулевого equity (GAME OVER), поэтому каждый цикл не создаёт повторное сообщение.
 
+С #177 (эпик #172, блок E) тот же нотари использует и **live-контур**: `LiveExecutor._notify()` отправляет событийные алерты (старт/стоп, вход, выход с проскальзыванием, перенос стопа, `protection_failed`, нарушение инвариантов, OCO-сироты, `risk_breach` и его снятие, kill switch, порог ошибок подряд) плюс периодический heartbeat «процесс жив». Политика — в секции `LIVE_ALERTING` (`trading_config.py`), креденшелы прежние (`TGM_TOKEN` / `TGM_CHAT_ID` через `config_manager.load_settings().telegram`), а отсутствие токена оставляет события только в логе. Подробности — §23 и `handover.ru.md` §45.
+
 ## 15. Панель мониторинга Live Trading
 
 `frontend/src/components/LiveTradingPanel.tsx` доступна во вкладке `Live Trading`. Панель каждые 10 секунд читает `trading.live_positions` через live monitoring API и показывает открытые позиции с последним best bid (fallback на best ask), нереализованный PnL в RUB/%, пагинируемую и сортируемую историю сделок, накопленный realized PnL и подключение Telegram. Обе таблицы построены на общем `ui/DataTable`, разделяют `FilterChips`, а фильтры дат используют вынесенный из Strategy Lab общий `ui/DatePicker`.
 
 `/api/live-trading/positions` и `/api/live-trading/dynamics` отделяют данные sandbox-исполнения от paper trading. Эндпоинты поддерживают фильтры тикера, дат и статуса; специальное значение `status=closed` выбирает закрытия по stop, take и trailing (#149). `/api/notifications/status` выполняет read-only проверку Telegram `getMe` и кеширует результат на 30 секунд. Реквизиты в ответ не попадают. Полный контур (контракт безопасности, синтетический стоп, готовые trailing-колонки схемы) — в `docs/strategy/live-trading.ru.md`.
+
+С #177 к панели добавился источник здоровья самого исполнителя: `GET /api/live-trading/metrics` отдаёт персистентный снимок `LiveExecutor` (состояние цикла, возраст пульса, счётчики ошибок и алертов, риск-статус, kill switch, открытые позиции с защитой и без) и предназначен для плитки статуса и для внешнего мониторинга. Эндпоинт не требует запущенного исполнителя и деградирует в `available=false` + `reason`, а не в 500 (§23).
 
 ## 16. AND-фильтры SignalEngine в StrategyEvaluator
 
@@ -743,7 +748,7 @@ rate-limit `equity` с `blocking=False` и тем же резервом токе
 `risk_breach_resets_total`, `risk_gate_rejections_total`, `position_size_rejections_total`,
 `equity_snapshots_total`, `equity_snapshot_errors_total`, `equity_snapshot_skipped_total`,
 `last_equity_rub`, `last_drawdown_pct`, `last_peak_equity_rub`, `last_equity_session_key`
-и действующие лимиты. Telegram-доставка `risk_breach` — блок E (#177), зависящий от этого.
+и действующие лимиты. Telegram-доставка `risk_breach` реализована блоком E (#177) — см. §23.
 
 **Тестирование**: `backend/tests/test_live_equity_risk_gates.py` (62 теста) покрывает
 контракт схемы и цепочку миграций, дефолты / env-override / валидацию диапазонов, формулу
@@ -755,5 +760,124 @@ rate-limit `equity` с `blocking=False` и тем же резервом токе
 
 
 
+
+## 23. Telegram-алертинг и метрики live-контура (задача #177, эпик #172, блок E)
+
+Завершено 2026-09-27. Live-исполнитель теперь сообщает о себе наружу: событийные
+Telegram-алерты, периодический heartbeat и персистентный снимок метрик, который читает
+`GET /api/live-trading/metrics`. Paper-контур (`paper_trader`) и сам `TelegramNotifier` не
+изменены — live использует нотификацию как библиотеку. Операционные детали и команды —
+`handover.ru.md` §45.
+
+**Почему так**: до #177 всё, что знал live-контур, оставалось в логе контейнера, а пульс
+#174 жил только в памяти процесса, поэтому «исполнитель упал» и «исполнитель простаивает»
+были неразличимы. Персистенция снимка (решение D1) выбрана в `trading.app_settings` одной
+JSONB-строкой `live_executor_metrics` — без новой таблицы и без миграции: ключ (21 символ)
+укладывается в `key VARCHAR(64)`, а `value JSONB NOT NULL` подходит как есть;
+`test_live_schema.py` сверяет только `REQUIRED_APP_SETTINGS_KEYS`, поэтому новый ключ его не
+ломает.
+
+**Конфигурация** (`trading_config.py`, секция `LIVE_ALERTING` + `get_live_alerting_config()`):
+- `heartbeat_interval_seconds`: `3600`, env `LIVE_HEARTBEAT_INTERVAL_SECONDS`, диапазон `(1, 86400]`.
+- `heartbeat_stale_seconds`: `300`, env `LIVE_HEARTBEAT_STALE_SECONDS`, диапазон `(1, 86400]`.
+- `alert_debounce_seconds`: `300`, env `LIVE_ALERT_DEBOUNCE_SECONDS`, диапазон `(0, 86400]`.
+- `slippage_alert_bp`: `50.0`, env `LIVE_SLIPPAGE_ALERT_BP`, диапазон `(0, 10000]`.
+- `max_consecutive_errors`: `5`, env `LIVE_MAX_CONSECUTIVE_ERRORS`, диапазон `[1, 100]` —
+  источник истины вместо жёсткой константы `MAX_CONSECUTIVE_ERRORS` (решение D3; константа
+  осталась fallback-дефолтом, поведение без конфига не меняется).
+- `metrics_flush_seconds`: `300`, env `LIVE_METRICS_FLUSH_SECONDS`, диапазон `(1, 86400]`.
+- `metrics_key`: `live_executor_metrics` — контракт имени строки, env не переопределяется.
+- `telegram_alerts_enabled`: `true`, env `LIVE_TELEGRAM_ALERTS` — мастер-переключатель;
+  `false` оставляет все события только в логе.
+
+Непарсимое или внедиапазонное значение env бросает `ValueError` в момент чтения (та же
+конвенция, что у `LIVE_RISK` из #176), поэтому опечатка в `.env` не может молча заглушить
+алерт оператора. In-memory override `LiveExecutor(alerting={...})` проходит ровно те же
+границы через `validate_live_alerting_values()`.
+
+**Креденшелы** (решение D4): новых env-переменных нет. Источник —
+`config_manager.load_settings().telegram`, то есть `TGM_TOKEN` / `TGM_CHAT_ID` (legacy-имя
+`TGM_CHAT`) из окружения либо `backend/config/settings.yaml`; его же используют
+`run_paper_trader` и `/api/notifications/status`. `build_default_notifier()` возвращает
+`None`, если креденшелов нет или они не читаются, — исполнитель всё равно стартует и ведёт
+события в логе, потому что дыра в мониторинге не имеет права блокировать торговый контур.
+
+**Отправка** — `LiveExecutor._notify(event, title, lines, critical=False, dedupe=False, icon=None)`:
+никогда не бросает исключение в торговый цикл, no-op без нотари или при выключенном мастере,
+ведёт счётчики `alerts_attempted/sent/failed/suppressed/skipped_total`. Debounce (решение D2)
+применяется только к повторяющимся критическим (`equity_snapshot_error`,
+`protection_failed:{ticker}`, `invariant_violation:{ticker}` — оба инварианта,
+`trailing_amend_failed:{ticker}`, `oco_orphan`, `oco_orphan_unverified`), ключ включает
+тикер, поэтому окна разных бумаг независимы. Редкие и one-shot события — старт/стоп, вход,
+выход с проскальзыванием, перенос стопа, kill switch, `risk_breach` и его снятие,
+heartbeat — доставляются всегда, поэтому «процесс жив» доходит и во время шторма
+критических. Текст рендерит `_alert_text()`, где каждое значение проходит
+`escape_markdown`: `send_message` всегда запрашивает `parse_mode=Markdown`, а подчёркивание
+в тикере или в брокерской ошибке иначе превратило бы сообщение в 400.
+
+**Heartbeat**: `_maybe_send_heartbeat()` вызывается раз за цикл `run()` и отправляет 💓
+«Live-контур жив» не чаще `heartbeat_interval_seconds`; доставленный heartbeat сразу делает
+`_flush_metrics(force=True)`, поэтому API никогда не показывает счётчики старше последнего
+«процесс жив». Значение интервала `<= 0` отключает отправку, оставляя in-memory `heartbeat_ts`
+из #174.
+**Персистенция** (решение D5): `_flush_metrics()` пишет снимок не каждый цикл, а по
+`metrics_flush_seconds`, плюс принудительно в трёх точках — доставленный heartbeat, переход
+kill switch и graceful shutdown (уже после освобождения advisory lock). Причина: при
+`check_interval_seconds=30` запись каждый цикл дала бы ~2880 UPDATE/сутки в таблицу, которую
+каждый цикл читает и пишет `_refresh_risk_breach_reset`. Снимок — это `get_metrics()`
+(#174–#176) плюс provenance-поля (`schema_version=1`, `persisted_at`, `strategy`, `tickers`,
+`notifier_configured`, окна heartbeat, счётчики алертов и flush-ов, `kill_switch_source`).
+Сбой записи увеличивает `metrics_flush_errors_total`, пишет warning и не пробрасывается в
+цикл.
+
+**Эндпоинт `GET /api/live-trading/metrics`** (`live_trading_jobs.py`) читает строку
+`app_settings`, вычисляет свежесть **на чтении** (`source.age_seconds` и `flush_stale` при
+возрасте больше `2 × metrics_flush_seconds`; `heartbeat.age_seconds` и `stale` по окну из
+снимка с откатом на действующий конфиг), читает kill switch из живой строки
+`trading.trailing_kill_switch` с приоритетом над снимком, добавляет открытые позиции из
+`trading.live_positions` (`open_total`, `protected_total`, `unprotected_total`,
+`unprotected_tickers`, `trailing_total`, `items[]`, где защищённость — факт `broker_stop_id`
+из #175) и публикует `state` одним словом в порядке `unknown` → `kill_switch` →
+`no_heartbeat` → `stale` → `error_threshold` → `risk_breach` → `running`. Рядом лежат
+`risk.limits` (действующий конфиг) и `risk.snapshot_limits` (то, с чем реально работал
+исполнитель): расхождение означает устаревшие лимиты в процессе, и это видно, а не спрятано.
+
+Отсутствующий, битый или пустой снимок — **не ошибка**: `available=false` плюс `reason`
+(`no_snapshot` / `malformed_snapshot` / `empty_snapshot`), потому что мониторинговый
+эндпоинт, падающий в 500, хуже того, который честно говорит «данных нет». `503` остаётся
+единственным жёстким сбоем — когда `trading.app_settings` не читается вовсе.
+
+**Два подводных камня чтения**, найденные только на реальной БД (все unit-тесты на фейках
+были зелёные):
+1. `SelectResult.to_dataframe()` нормализует JSONB через `astype(str)`, поэтому снимок
+   приходит Python-repr'ом (`"{'schema_version': 1, ...}"` — одинарные кавычки,
+   `True`/`None` вместо `true`/`null`) и `json.loads` падает → вечный `malformed_snapshot`
+   в бою. `_loads_metrics_text()` пробует `json.loads`, затем `ast.literal_eval` (разбирает
+   только литералы, кода не исполняет); битый repr по-прежнему `malformed_snapshot`.
+2. pandas отдаёт SQL `NULL` как `NaN`/`pd.NA`, и без guard'а отсутствующий `broker_stop_id`
+   публиковался строкой `"nan"`, а `_metrics_bool(nan)` давал `trailing_enabled=true` —
+   незащищённая позиция выглядела защищённой. `_metrics_is_missing()` (None/NaN/NA/NaT, без
+   импорта pandas) применён во всех coercer'ах `_metrics_int/_float/_bool/_text/_datetime` и
+   в фильтре `status`.
+
+**Анти-дрейф**: `_METRICS_SNAPSHOT_FIELDS` — единственный список потребляемых полей, всё
+остальное публикуется в `extra` через `_json_safe`, поэтому новое поле исполнителя не
+теряется молча. Тест `test_the_reader_covers_every_key_the_executor_persists` прогоняет
+настоящий `_flush_metrics(force=True)` и требует `set(written) <= _METRICS_SNAPSHOT_FIELDS`
+и `extra == {}`, а `test_the_executor_snapshot_survives_the_dataframe_round_trip`
+воспроизводит repr-путь `to_dataframe()`. Веб-слой намеренно **не** импортирует
+`app.analytics.live_executor`: общий контракт — имя строки из `LIVE_ALERTING.metrics_key`, а
+не код торгового цикла.
+
+**Отказоустойчивость**: ни алерт, ни запись снимка не могут остановить торговлю — оба пути
+обёрнуты в `try/except`, пишут warning и увеличивают свой счётчик ошибок. `alerts_failed_total`
+и `metrics_flush_errors_total` — то, за чем должен следить оператор, а не за циклом.
+
+**Тестирование**: `backend/tests/test_live_alerting.py` (160 тестов) покрывает дефолты и
+env-override `LIVE_ALERTING`, валидацию диапазонов и `validate_live_alerting_values()`,
+гарантии `_notify()` (исключение из нотари, `enabled=False`, выключенный мастер, debounce по
+ключу события), каждый событийный хук, heartbeat и его throttle, `_flush_metrics()`
+(throttle, force-точки, сбой записи), полный ответ эндпоинта и все его деградации. Полный
+прогон `backend/tests` — 765 passed.
 
 **SSL-сертификаты для T-Bank gRPC:** на хосте Windows требуется явно задать `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH="$(pwd)/backend/certs/tbank-root.pem"` (автоматически устанавливается в `start_processes.sh`), иначе gRPC-подключение к `sandbox-invest-public-api.tbank.ru` падает с `CERTIFICATE_VERIFY_FAILED`.
