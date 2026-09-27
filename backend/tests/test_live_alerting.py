@@ -14,7 +14,7 @@ Covers the alerting contour added by #177:
 """
 
 import json
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pandas as pd
@@ -40,6 +40,7 @@ from app.core.config_manager import Settings, TelegramConfig
 from tests.test_live_executor import (
     FakeBroker,
     FakeDB,
+    IN_SESSION_NOW,
     Result,
     StopFakeBroker,
     active_position,
@@ -1560,4 +1561,816 @@ class TestMetricsFlush:
         assert payload["iterations_total"] == 12
         assert payload["errors_total"] == 1
         assert executor.metrics_flushes_total == 1
+
+# --- Issue #177 step 6: GET /api/live-trading/metrics (decision D1, reader) ----
+
+
+METRICS_NOW = datetime(2026, 8, 31, 12, 0, 0)
+
+
+def metrics_snapshot(**overrides) -> dict:
+    """A snapshot shaped exactly like ``LiveExecutor._metrics_payload()``.
+
+    Written out literally instead of being generated from the executor: it is
+    the published contract of the reader, so a key the writer adds must surface
+    as a failing test here rather than as a silently missing panel value.
+    """
+    data = {
+        # provenance
+        "schema_version": 1,
+        "persisted_at": (METRICS_NOW - timedelta(seconds=30)).isoformat(
+            timespec="seconds"
+        ),
+        # loop
+        "strategy": "active-strategy",
+        "tickers": ["GAZP", "SBER"],
+        "ticker_count": 2,
+        "iterations_total": 120,
+        "errors_total": 3,
+        "errors_consecutive": 0,
+        "max_consecutive_errors": 5,
+        "last_error_at": None,
+        # heartbeat - persisted as str(datetime), not ISO (json default=str)
+        "heartbeat_ts": str(METRICS_NOW - timedelta(seconds=60)),
+        "heartbeat_interval_seconds": 3600.0,
+        "heartbeat_stale_seconds": 300.0,
+        "heartbeats_sent_total": 4,
+        # kill switch
+        "kill_switch": False,
+        "kill_switch_source": "startup",
+        # broker-side protection (#175)
+        "stops_armed_total": 6,
+        "stop_amend_total": 2,
+        "stop_amend_failed_total": 0,
+        "protection_failed_total": 1,
+        "protection_failed_positions": ["SBER"],
+        "invariant_violations_total": 0,
+        "oco_orphans_cancelled_total": 1,
+        "oco_checks_pending": 0,
+        "fills_reconciled_total": 3,
+        # equity and the daily drawdown gate (#176)
+        "equity_snapshots_total": 40,
+        "equity_snapshot_errors_total": 0,
+        "equity_snapshot_skipped_total": 1,
+        "equity_snapshot_enabled": True,
+        "last_equity_rub": 60000.0,
+        "last_drawdown_pct": 1.25,
+        "last_peak_equity_rub": 60760.0,
+        "last_equity_session_key": "2026-08-31",
+        "risk_breach_active": False,
+        "risk_breach_session_key": None,
+        "risk_breach_total": 0,
+        "risk_breach_resets_total": 0,
+        "risk_gate_rejections_total": 0,
+        "position_size_rejections_total": 1,
+        "max_daily_loss_pct": 2.0,
+        "max_position_size": 100000.0,
+        "max_open_positions": 5,
+        # alerting (#177)
+        "notifier_configured": True,
+        "telegram_alerts_enabled": True,
+        "alerts_attempted_total": 9,
+        "alerts_sent_total": 7,
+        "alerts_failed_total": 2,
+        "alerts_suppressed_total": 1,
+        "alerts_skipped_total": 0,
+        "metrics_flushes_total": 12,
+        "metrics_flush_errors_total": 0,
+    }
+    data.update(overrides)
+    return data
+
+
+def metrics_db(snapshot=..., *, kill_switch=None, positions=None, **kwargs):
+    """FakeDB serving the metrics row (and optionally the kill-switch row)."""
+    settings = dict(kwargs.pop("app_settings", None) or {})
+    if snapshot is not ...:
+        settings["live_executor_metrics"] = snapshot
+    if kill_switch is not None:
+        settings["trailing_kill_switch"] = kill_switch
+    return MetricsApiDB(
+        app_settings=settings,
+        active=positions if positions is not None else pd.DataFrame(),
+        **kwargs,
+    )
+
+
+def open_position(**overrides) -> dict:
+    """One ``trading.live_positions`` row as the metrics endpoint sees it."""
+    data = {
+        "id": 41,
+        "ticker": "SBER",
+        "status": "open",
+        "entry_price": 100.0,
+        "stop_price": 95.0,
+        "current_stop_price": 96.5,
+        "broker_stop_id": "stop-1",
+        "trailing_enabled": True,
+        "step_reached": 2,
+        "size_lots": 10,
+        "strategy_name": "active-strategy",
+        "updated_at": pd.Timestamp("2026-08-31 11:59:00"),
+    }
+    data.update(overrides)
+    return data
+
+
+class MetricsApiDB(FakeDB):
+    """FakeDB that can also fail one specific read, like a missing table."""
+
+    def __init__(self, *, settings_error=None, positions_error=None, **kwargs):
+        super().__init__(**kwargs)
+        self.settings_error = settings_error
+        self.positions_error = positions_error
+
+    def select(self, query, params=None):
+        normalized = " ".join(query.split())
+        if "FROM trading.app_settings" in normalized and self.settings_error:
+            raise self.settings_error
+        if "FROM trading.live_positions" in normalized and self.positions_error:
+            raise self.positions_error
+        return super().select(query, params)
+
+
+def read_metrics(db, monkeypatch, *, now=METRICS_NOW, alerting=None):
+    """Run the endpoint body against a fake db (no HTTP round trip needed)."""
+    from app.api import live_trading_jobs as api
+
+    monkeypatch.setattr(api, "_get_db", lambda: db)
+    if alerting is not None:
+        config = dict(get_live_alerting_config())
+        config.update(alerting)
+        monkeypatch.setattr(api, "get_live_alerting_config", lambda: dict(config))
+    return api._metrics_endpoint_payload(now=now)
+
+
+def metrics_client():
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    return TestClient(app)
+
+
+class TestMetricsEndpointContract:
+    """What the reader publishes for a healthy persisted snapshot."""
+
+    def test_a_persisted_snapshot_is_served_whole(self, monkeypatch):
+        payload = read_metrics(metrics_db(metrics_snapshot()), monkeypatch)
+
+        assert payload["available"] is True
+        assert payload["reason"] is None
+        assert payload["error"] is None
+        assert payload["state"] == "running"
+        assert payload["generated_at"] == METRICS_NOW.isoformat(timespec="seconds")
+        # Provenance: where the numbers came from and how old they are.
+        assert payload["source"] == {
+            "table": "trading.app_settings",
+            "key": "live_executor_metrics",
+            "row_updated_at": None,
+            "schema_version": 1,
+            "persisted_at": (METRICS_NOW - timedelta(seconds=30)).isoformat(
+                timespec="seconds"
+            ),
+            "age_seconds": 30.0,
+            "flush_stale": False,
+        }
+        assert payload["loop"]["strategy"] == "active-strategy"
+        assert payload["loop"]["tickers"] == ["GAZP", "SBER"]
+        assert payload["loop"]["ticker_count"] == 2
+        assert payload["loop"]["iterations_total"] == 120
+        assert payload["loop"]["errors_total"] == 3
+        assert payload["protection"]["stops_armed_total"] == 6
+        assert payload["protection"]["protection_failed_positions"] == ["SBER"]
+        assert payload["protection"]["oco_orphans_cancelled_total"] == 1
+        assert payload["risk"]["last_drawdown_pct"] == 1.25
+        assert payload["risk"]["last_equity_session_key"] == "2026-08-31"
+        assert payload["risk"]["position_size_rejections_total"] == 1
+        # The panel reads the limits from the API instead of hardcoding them.
+        assert payload["risk"]["limits"]["max_daily_loss_pct"] == 2.0
+        assert payload["risk"]["snapshot_limits"]["max_open_positions"] == 5
+        assert payload["alerting"]["alerts_sent_total"] == 7
+        assert payload["alerting"]["alerts_failed_total"] == 2
+        assert payload["alerting"]["notifier_configured"] is True
+        assert payload["alerting"]["metrics_flushes_total"] == 12
+        assert payload["alerting"]["flush_interval_seconds"] == 300.0
+        assert payload["alerting"]["debounce_seconds"] == 300.0
+
+    def test_no_persisted_field_is_left_unpublished(self, monkeypatch):
+        """Every snapshot key lands in a section - nothing hides in ``extra``."""
+        payload = read_metrics(metrics_db(metrics_snapshot()), monkeypatch)
+
+        assert payload["extra"] == {}
+
+    def test_unknown_snapshot_fields_are_published_in_extra(self, monkeypatch):
+        """A field a future executor adds is served, not dropped."""
+        snapshot = metrics_snapshot(future_field=5, nested={"a": 1})
+
+        payload = read_metrics(metrics_db(snapshot), monkeypatch)
+
+        assert payload["available"] is True
+        assert payload["extra"] == {"future_field": 5, "nested": {"a": 1}}
+
+    def test_the_documented_shape_matches_the_published_fields(self):
+        from app.api import live_trading_jobs as api
+
+        assert set(metrics_snapshot()) == set(api._METRICS_SNAPSHOT_FIELDS)
+
+    def test_the_reader_covers_every_key_the_executor_persists(self, monkeypatch):
+        """Anti-drift: the step 5 writer and the step 6 reader share one shape."""
+        from app.api import live_trading_jobs as api
+
+        db = MetricsDB()
+        executor = make_metrics_executor(db=db)
+        executor.heartbeat_ts = executor.now_fn()
+        executor.iterations_total = 9
+        assert executor._flush_metrics(force=True) is True
+        written = db.payloads[0]
+
+        assert set(written) <= set(api._METRICS_SNAPSHOT_FIELDS)
+
+        payload = read_metrics(
+            metrics_db(written),
+            monkeypatch,
+            now=IN_SESSION_NOW + timedelta(seconds=90),
+        )
+
+        assert payload["available"] is True
+        assert payload["extra"] == {}
+        assert payload["loop"]["iterations_total"] == 9
+        assert payload["state"] == "running"
+        assert payload["heartbeat"]["known"] is True
+        assert payload["heartbeat"]["age_seconds"] == 90.0
+        assert payload["heartbeat"]["stale"] is False
+        assert payload["source"]["age_seconds"] == 90.0
+
+
+class TestMetricsEndpointDegradation:
+    """A monitoring endpoint stays up while the thing it watches is down."""
+
+    def test_a_missing_row_is_reported_not_raised(self, monkeypatch):
+        payload = read_metrics(metrics_db(), monkeypatch)
+
+        assert payload["available"] is False
+        assert payload["reason"] == "no_snapshot"
+        assert payload["error"] is None
+        assert payload["state"] == "unknown"
+        assert payload["heartbeat"]["known"] is False
+        assert payload["heartbeat"]["age_seconds"] is None
+        assert payload["kill_switch"]["active"] is False
+        assert payload["positions"]["available"] is True
+        assert payload["positions"]["open_total"] == 0
+
+    def test_a_malformed_payload_is_reported_not_raised(self, monkeypatch):
+        payload = read_metrics(metrics_db("{not json"), monkeypatch)
+
+        assert payload["available"] is False
+        assert payload["reason"] == "malformed_snapshot"
+        assert "not a readable JSON object" in payload["error"]
+        assert payload["state"] == "unknown"
+
+    def test_a_json_array_is_malformed_not_a_snapshot(self, monkeypatch):
+        payload = read_metrics(metrics_db("[1, 2]"), monkeypatch)
+
+        assert payload["available"] is False
+        assert payload["reason"] == "malformed_snapshot"
+
+    def test_an_empty_object_is_reported_as_empty(self, monkeypatch):
+        payload = read_metrics(metrics_db({}), monkeypatch)
+
+        assert payload["available"] is False
+        assert payload["reason"] == "empty_snapshot"
+
+    def test_a_null_value_is_reported_as_empty(self, monkeypatch):
+        payload = read_metrics(metrics_db(None), monkeypatch)
+
+        assert payload["available"] is False
+        assert payload["reason"] == "empty_snapshot"
+
+    def test_a_text_jsonb_cell_is_accepted(self, monkeypatch):
+        """psycopg2 hands back a dict, a text column would hand back a string."""
+        payload = read_metrics(metrics_db(json.dumps(metrics_snapshot())), monkeypatch)
+
+        assert payload["available"] is True
+        assert payload["loop"]["iterations_total"] == 120
+
+    def test_a_partial_snapshot_falls_back_to_the_shipped_windows(self, monkeypatch):
+        """An older schema version must not turn into a 500 or a wrong claim."""
+        payload = read_metrics(
+            metrics_db({"schema_version": 1, "iterations_total": 4}), monkeypatch
+        )
+
+        assert payload["available"] is True
+        assert payload["state"] == "no_heartbeat"
+        assert payload["loop"]["iterations_total"] == 4
+        assert payload["loop"]["tickers"] == []
+        assert payload["loop"]["ticker_count"] == 0
+        assert payload["heartbeat"]["stale_seconds"] == 300.0
+        assert payload["heartbeat"]["interval_seconds"] == 3600.0
+
+    def test_the_snapshot_key_comes_from_the_alerting_config(self, monkeypatch):
+        """One source for the key: writer and reader cannot drift apart."""
+        db = MetricsApiDB(
+            app_settings={"live_metrics_canary": metrics_snapshot()},
+            active=pd.DataFrame(),
+        )
+
+        payload = read_metrics(
+            db, monkeypatch, alerting={"metrics_key": "live_metrics_canary"}
+        )
+
+        assert payload["available"] is True
+        assert payload["source"]["key"] == "live_metrics_canary"
+        # The default key must never be consulted for a custom contract name.
+        assert all(
+            params != ("live_executor_metrics",) for _, params in db.select_calls
+        )
+
+    def test_a_stale_snapshot_is_flagged_by_the_flush_window(self, monkeypatch):
+        """``flush_stale`` tells 'the writer stopped' from 'the loop is idle'."""
+        old = metrics_snapshot(
+            persisted_at=(METRICS_NOW - timedelta(seconds=900)).isoformat(
+                timespec="seconds"
+            )
+        )
+
+        payload = read_metrics(metrics_db(old), monkeypatch)
+
+        assert payload["source"]["age_seconds"] == 900.0
+        assert payload["source"]["flush_stale"] is True
+
+
+class TestMetricsHeartbeatFreshness:
+    """Freshness is derived at read time - a stored age would be a lie."""
+
+    def test_a_fresh_heartbeat_is_not_stale(self, monkeypatch):
+        payload = read_metrics(metrics_db(metrics_snapshot()), monkeypatch)
+
+        heartbeat = payload["heartbeat"]
+        assert heartbeat["known"] is True
+        assert heartbeat["ts"] == (METRICS_NOW - timedelta(seconds=60)).isoformat(
+            timespec="seconds"
+        )
+        assert heartbeat["age_seconds"] == 60.0
+        assert heartbeat["stale"] is False
+        assert heartbeat["stale_seconds"] == 300.0
+        assert heartbeat["interval_seconds"] == 3600.0
+        assert heartbeat["sent_total"] == 4
+        assert payload["state"] == "running"
+
+    def test_a_heartbeat_older_than_the_window_is_stale(self, monkeypatch):
+        snapshot = metrics_snapshot(
+            heartbeat_ts=str(METRICS_NOW - timedelta(seconds=301))
+        )
+
+        payload = read_metrics(metrics_db(snapshot), monkeypatch)
+
+        assert payload["heartbeat"]["age_seconds"] == 301.0
+        assert payload["heartbeat"]["stale"] is True
+        assert payload["state"] == "stale"
+
+    def test_the_window_is_read_from_the_snapshot_not_the_defaults(self, monkeypatch):
+        """A retuned executor must not be judged by the shipped window."""
+        snapshot = metrics_snapshot(
+            heartbeat_ts=str(METRICS_NOW - timedelta(seconds=120)),
+            heartbeat_stale_seconds=60.0,
+        )
+
+        payload = read_metrics(metrics_db(snapshot), monkeypatch)
+
+        assert payload["heartbeat"]["stale_seconds"] == 60.0
+        assert payload["heartbeat"]["stale"] is True
+
+    def test_a_missing_timestamp_is_no_heartbeat_not_stale(self, monkeypatch):
+        """'Never ran' and 'stopped running' are different facts."""
+        payload = read_metrics(
+            metrics_db(metrics_snapshot(heartbeat_ts=None)), monkeypatch
+        )
+
+        assert payload["heartbeat"]["known"] is False
+        assert payload["heartbeat"]["ts"] is None
+        assert payload["heartbeat"]["stale"] is False
+        assert payload["state"] == "no_heartbeat"
+
+    def test_an_unparsable_timestamp_degrades_to_unknown(self, monkeypatch):
+        payload = read_metrics(
+            metrics_db(metrics_snapshot(heartbeat_ts="yesterday")), monkeypatch
+        )
+
+        assert payload["heartbeat"]["known"] is False
+        assert payload["state"] == "no_heartbeat"
+
+    def test_a_future_timestamp_never_reports_a_negative_age(self, monkeypatch):
+        """Clock skew must not produce a negative age on the panel."""
+        snapshot = metrics_snapshot(
+            heartbeat_ts=str(METRICS_NOW + timedelta(seconds=60))
+        )
+
+        payload = read_metrics(metrics_db(snapshot), monkeypatch)
+
+        assert payload["heartbeat"]["age_seconds"] == 0.0
+        assert payload["heartbeat"]["stale"] is False
+
+    def test_an_aware_timestamp_is_folded_to_msk(self, monkeypatch):
+        """A row written with an offset still compares against MSK now."""
+        aware = (METRICS_NOW - timedelta(seconds=60)).replace(
+            tzinfo=timezone(timedelta(hours=3))
+        )
+
+        payload = read_metrics(
+            metrics_db(metrics_snapshot(heartbeat_ts=aware.isoformat())), monkeypatch
+        )
+
+        assert payload["heartbeat"]["age_seconds"] == 60.0
+
+    def test_the_iso_and_str_datetime_formats_both_parse(self, monkeypatch):
+        """``json.dumps(default=str)`` writes str(datetime); ISO must work too."""
+        moment = METRICS_NOW - timedelta(seconds=45)
+        for text in (moment.isoformat(), str(moment), moment.isoformat(sep=" ")):
+            payload = read_metrics(
+                metrics_db(metrics_snapshot(heartbeat_ts=text)), monkeypatch
+            )
+            assert payload["heartbeat"]["age_seconds"] == 45.0, text
+
+
+class TestMetricsKillSwitchAndState:
+    """The kill switch is an operator lever, so it is read live, not cached."""
+
+    def test_the_live_row_wins_over_the_snapshot(self, monkeypatch):
+        """The snapshot may be minutes old; the lever must answer immediately."""
+        snapshot = metrics_snapshot(kill_switch=False, kill_switch_source="startup")
+
+        payload = read_metrics(metrics_db(snapshot, kill_switch=True), monkeypatch)
+
+        kill = payload["kill_switch"]
+        assert kill["active"] is True
+        assert kill["from_live_row"] is True
+        assert kill["live_active"] is True
+        # The disagreement is published, not smoothed over.
+        assert kill["snapshot_active"] is False
+        assert kill["snapshot_source"] == "startup"
+        assert kill["error"] is None
+        assert payload["state"] == "kill_switch"
+
+    def test_the_snapshot_answers_when_the_live_row_is_gone(self, monkeypatch):
+        snapshot = metrics_snapshot(kill_switch=True, kill_switch_source="app_settings")
+
+        payload = read_metrics(metrics_db(snapshot), monkeypatch)
+
+        assert payload["kill_switch"]["active"] is True
+        assert payload["kill_switch"]["from_live_row"] is False
+        assert payload["kill_switch"]["live_active"] is None
+        assert payload["state"] == "kill_switch"
+
+    def test_a_text_kill_switch_row_is_understood(self, monkeypatch):
+        """``app_settings.value`` is JSONB, but a hand-written 'true' must work."""
+        payload = read_metrics(
+            metrics_db(metrics_snapshot(), kill_switch="true"), monkeypatch
+        )
+
+        assert payload["kill_switch"]["active"] is True
+
+    def test_the_kill_switch_outranks_a_stale_heartbeat(self, monkeypatch):
+        snapshot = metrics_snapshot(
+            heartbeat_ts=str(METRICS_NOW - timedelta(seconds=4000))
+        )
+
+        payload = read_metrics(metrics_db(snapshot, kill_switch=True), monkeypatch)
+
+        assert payload["heartbeat"]["stale"] is True
+        assert payload["state"] == "kill_switch"
+
+    def test_the_error_threshold_uses_the_persisted_limit(self, monkeypatch):
+        snapshot = metrics_snapshot(errors_consecutive=5, max_consecutive_errors=5)
+
+        payload = read_metrics(metrics_db(snapshot), monkeypatch)
+
+        assert payload["loop"]["errors_consecutive"] == 5
+        assert payload["state"] == "error_threshold"
+
+    def test_a_zero_threshold_never_claims_a_breach(self, monkeypatch):
+        """``max_consecutive_errors=0`` means 'unset', not 'always broken'."""
+        snapshot = metrics_snapshot(errors_consecutive=0, max_consecutive_errors=0)
+
+        payload = read_metrics(metrics_db(snapshot), monkeypatch)
+
+        assert payload["state"] == "running"
+        # The shipped policy answers instead of the unusable persisted zero.
+        assert payload["loop"]["max_consecutive_errors"] == 5
+
+    def test_an_active_risk_breach_is_surfaced(self, monkeypatch):
+        snapshot = metrics_snapshot(
+            risk_breach_active=True,
+            risk_breach_session_key="2026-08-31",
+            risk_breach_total=2,
+            last_drawdown_pct=2.5,
+            risk_gate_rejections_total=4,
+        )
+
+        payload = read_metrics(metrics_db(snapshot), monkeypatch)
+
+        risk = payload["risk"]
+        assert risk["breach_active"] is True
+        assert risk["breach_session_key"] == "2026-08-31"
+        assert risk["breach_total"] == 2
+        assert risk["gate_rejections_total"] == 4
+        assert risk["last_drawdown_pct"] == 2.5
+        assert payload["state"] == "risk_breach"
+
+    def test_stale_heartbeat_outranks_a_risk_breach(self, monkeypatch):
+        """Liveness first: a dead process is not judged on its last numbers."""
+        snapshot = metrics_snapshot(
+            risk_breach_active=True,
+            heartbeat_ts=str(METRICS_NOW - timedelta(seconds=900)),
+        )
+
+        payload = read_metrics(metrics_db(snapshot), monkeypatch)
+
+        assert payload["state"] == "stale"
+        assert payload["risk"]["breach_active"] is True
+
+    def test_a_non_finite_number_never_reaches_the_response(self, monkeypatch):
+        """JSON has no NaN; a corrupted cell must degrade to null."""
+        snapshot = metrics_snapshot(last_equity_rub=float("nan"))
+
+        payload = read_metrics(metrics_db(snapshot), monkeypatch)
+
+        assert payload["risk"]["last_equity_rub"] is None
+        assert json.loads(json.dumps(payload))["risk"]["last_equity_rub"] is None
+
+
+def freeze_metrics_now(monkeypatch):
+    """Pin the module clock so read-time ages are deterministic.
+
+    ``now_msk_naive`` doubles as the MSK normaliser for a *given* timestamp
+    (``clock=...``), so the frozen version must keep delegating that case to the
+    real helper - otherwise every parsed snapshot timestamp collapses onto
+    ``METRICS_NOW`` and all ages read as zero.
+    """
+    from app.api import live_trading_jobs as api
+
+    real_now_msk_naive = api.now_msk_naive
+
+    def frozen_now(clock=None):
+        if clock is None:
+            return METRICS_NOW
+        return real_now_msk_naive(clock=clock)
+
+    monkeypatch.setattr(api, "now_msk_naive", frozen_now)
+    return api
+
+
+class TestMetricsOpenPositions:
+    """Stop-arming coverage is the part an operator can still act on."""
+
+    def test_positions_are_split_by_broker_stop(self, monkeypatch):
+        positions = pd.DataFrame(
+            [
+                open_position(id=1, ticker="GAZP", broker_stop_id="stop-1"),
+                open_position(id=2, ticker="SBER", broker_stop_id=None),
+                open_position(
+                    id=3,
+                    ticker="LKOH",
+                    broker_stop_id="stop-3",
+                    trailing_enabled=False,
+                ),
+            ]
+        )
+
+        payload = read_metrics(
+            metrics_db(metrics_snapshot(), positions=positions), monkeypatch
+        )
+
+        block = payload["positions"]
+        assert block["available"] is True
+        assert block["error"] is None
+        assert block["open_total"] == 3
+        assert block["protected_total"] == 2
+        assert block["unprotected_total"] == 1
+        assert block["unprotected_tickers"] == ["SBER"]
+        assert block["trailing_total"] == 2
+        assert [item["id"] for item in block["items"]] == [1, 2, 3]
+        assert block["items"][1] == {
+            "id": 2,
+            "ticker": "SBER",
+            "entry_price": 100.0,
+            "stop_price": 95.0,
+            "current_stop_price": 96.5,
+            "broker_stop_id": None,
+            "protected": False,
+            "trailing_enabled": True,
+            "step_reached": 2,
+            "size_lots": 10,
+            "strategy_name": "active-strategy",
+            "updated_at": "2026-08-31T11:59:00",
+        }
+
+    def test_only_the_gap_is_called_out_but_every_row_is_served(self, monkeypatch):
+        """``unprotected_tickers`` is the actionable part, ``items`` the audit."""
+        positions = pd.DataFrame(
+            [
+                open_position(id=1, broker_stop_id="stop-1"),
+                open_position(id=2, ticker="GAZP", broker_stop_id=None),
+            ]
+        )
+
+        payload = read_metrics(
+            metrics_db(metrics_snapshot(), positions=positions), monkeypatch
+        )
+
+        block = payload["positions"]
+        assert block["unprotected_tickers"] == ["GAZP"]
+        assert [item["protected"] for item in block["items"]] == [True, False]
+
+    def test_a_null_cell_from_pandas_is_not_read_as_a_stop_id(self, monkeypatch):
+        """pandas hands SQL NULL back as NaN/NA - it must still mean "no stop".
+
+        ``str(nan)`` == ``"nan"`` would be published as a broker stop id and the
+        unprotected position would look protected, so the reader needs a real
+        NULL guard rather than a ``is None`` check.
+        """
+        positions = pd.DataFrame(
+            [
+                open_position(
+                    id=1,
+                    ticker="GAZP",
+                    broker_stop_id=float("nan"),
+                    trailing_enabled=float("nan"),
+                ),
+                open_position(id=2, ticker="SBER", broker_stop_id=pd.NA),
+                open_position(id=3, ticker="LKOH", broker_stop_id="stop-3"),
+            ]
+        )
+
+        payload = read_metrics(
+            metrics_db(metrics_snapshot(), positions=positions), monkeypatch
+        )
+
+        block = payload["positions"]
+        assert block["open_total"] == 3
+        assert block["protected_total"] == 1
+        assert block["unprotected_tickers"] == ["GAZP", "SBER"]
+        assert [item["broker_stop_id"] for item in block["items"]] == [
+            None,
+            None,
+            "stop-3",
+        ]
+        # An unreadable trailing flag is "not trailing", never "trailing".
+        assert block["trailing_total"] == 2
+        assert block["items"][0]["trailing_enabled"] is False
+
+    def test_a_closed_row_in_a_stale_frame_is_not_counted_as_open(self, monkeypatch):
+        """The SELECT says open; a legacy frame must still be filtered here."""
+        positions = pd.DataFrame(
+            [
+                open_position(id=1),
+                open_position(id=2, ticker="GAZP", status="closed"),
+            ]
+        )
+
+        payload = read_metrics(
+            metrics_db(metrics_snapshot(), positions=positions), monkeypatch
+        )
+
+        assert payload["positions"]["open_total"] == 1
+        assert [item["id"] for item in payload["positions"]["items"]] == [1]
+
+    def test_a_position_query_failure_degrades_that_block_only(self, monkeypatch):
+        """A broker outage must not take the whole monitoring read down."""
+        db = MetricsApiDB(
+            app_settings={"live_executor_metrics": metrics_snapshot()},
+            positions_error=RuntimeError("broker down"),
+        )
+
+        payload = read_metrics(db, monkeypatch)
+
+        assert payload["available"] is True
+        assert payload["loop"]["iterations_total"] == 120
+        block = payload["positions"]
+        assert block["available"] is False
+        assert block["open_total"] == 0
+        assert block["items"] == []
+        assert "broker down" in block["error"]
+
+    def test_positions_are_read_even_without_a_snapshot(self, monkeypatch):
+        """Coverage matters most exactly when the executor has gone silent."""
+        positions = pd.DataFrame([open_position(id=7, broker_stop_id=None)])
+
+        payload = read_metrics(metrics_db(positions=positions), monkeypatch)
+
+        assert payload["available"] is False
+        assert payload["reason"] == "no_snapshot"
+        assert payload["positions"]["available"] is True
+        assert payload["positions"]["open_total"] == 1
+        assert payload["positions"]["unprotected_tickers"] == ["SBER"]
+
+    def test_an_unparsable_cell_degrades_to_a_default_not_a_500(self, monkeypatch):
+        """One corrupt row must not hide the rest of the coverage gap."""
+        broken = open_position(id=8, ticker="GAZP", broker_stop_id=None)
+        broken["updated_at"] = "not-a-timestamp"
+        broken["size_lots"] = object()
+        positions = pd.DataFrame([open_position(id=7, broker_stop_id=None), broken])
+
+        payload = read_metrics(
+            metrics_db(metrics_snapshot(), positions=positions), monkeypatch
+        )
+
+        block = payload["positions"]
+        assert block["open_total"] == 2
+        assert block["unprotected_total"] == 2
+        row = block["items"][1]
+        assert row["id"] == 8
+        assert row["updated_at"] is None
+        assert row["size_lots"] == 0
+
+
+class TestMetricsRoute:
+    """The HTTP surface: one GET, the whole body, and the single hard failure."""
+
+    def test_the_route_is_registered_as_a_get(self):
+        from fastapi import FastAPI
+
+        from app.api import live_trading_jobs as api
+
+        app = FastAPI()
+        api.register_routes(app)
+        routes = {
+            route.path: route.methods
+            for route in app.routes
+            if getattr(route, "methods", None)
+        }
+
+        assert routes.get("/api/live-trading/metrics") == {"GET"}
+
+    def test_the_endpoint_serves_the_whole_payload(self, monkeypatch):
+        api = freeze_metrics_now(monkeypatch)
+        monkeypatch.setattr(api, "_get_db", lambda: metrics_db(metrics_snapshot()))
+
+        response = metrics_client().get("/api/live-trading/metrics")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert set(body) == {
+            "available",
+            "reason",
+            "error",
+            "state",
+            "generated_at",
+            "source",
+            "loop",
+            "heartbeat",
+            "kill_switch",
+            "protection",
+            "risk",
+            "alerting",
+            "positions",
+            "extra",
+        }
+        assert body["available"] is True
+        assert body["state"] == "running"
+        assert body["generated_at"] == METRICS_NOW.isoformat(timespec="seconds")
+        assert body["heartbeat"]["age_seconds"] == 60.0
+        assert body["kill_switch"]["active"] is False
+        assert body["positions"]["open_total"] == 0
+        assert body["extra"] == {}
+
+    def test_a_missing_snapshot_is_a_200_with_a_reason(self, monkeypatch):
+        """Monitoring stays up while the thing it monitors is down."""
+        api = freeze_metrics_now(monkeypatch)
+        monkeypatch.setattr(api, "_get_db", lambda: metrics_db())
+
+        response = metrics_client().get("/api/live-trading/metrics")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["available"] is False
+        assert body["reason"] == "no_snapshot"
+        assert body["state"] == "unknown"
+
+    def test_an_unreadable_settings_table_is_the_one_hard_failure(self, monkeypatch):
+        api = freeze_metrics_now(monkeypatch)
+        db = MetricsApiDB(settings_error=RuntimeError("connection refused"))
+        monkeypatch.setattr(api, "_get_db", lambda: db)
+
+        response = metrics_client().get("/api/live-trading/metrics")
+
+        assert response.status_code == 503
+        detail = response.json()["detail"]
+        assert "trading.app_settings is not available" in detail
+        assert "RuntimeError" in detail
+
+    def test_the_kill_switch_row_reaches_the_response(self, monkeypatch):
+        """The operator lever must be visible over HTTP within one request."""
+        api = freeze_metrics_now(monkeypatch)
+        monkeypatch.setattr(
+            api, "_get_db", lambda: metrics_db(metrics_snapshot(), kill_switch=True)
+        )
+
+        response = metrics_client().get("/api/live-trading/metrics")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["state"] == "kill_switch"
+        assert body["kill_switch"]["active"] is True
+        assert body["kill_switch"]["from_live_row"] is True
 
