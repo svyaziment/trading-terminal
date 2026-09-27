@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -157,6 +157,7 @@ trading-terminal/
 | **paper_positions** | ~704 | Paper trading positions (A/B factors, limit/market, stop/take, PnL) |
 | **paper_equity** | ~2855 | Equity curve (equity_rub, realized_pnl, drawdown_pct, open_positions) |
 | **live_positions** | runtime | T-Bank Sandbox orders, protection IDs, lifecycle, and realized PnL |
+| **live_equity** | runtime | Per-cycle live account equity snapshot: cash + market value, daily/all-time peak, drawdown, risk-breach flag (Issue #176) |
 | **trading_universe** | 15 | Traded universe (ticker, rank, pf, source) - top-15 by PF |
 | **alerts** | ~72 | Online signals (details jsonb: price, support/take, factors) |
 | backtest_runs | ~300 | Backtest run metadata (legacy + levels matrix) |
@@ -170,6 +171,7 @@ Key columns (new tables):
 - `paper_positions`: id, ticker, entry_ts/price, stop_price, take_price, limit_price, limit_ts, size_lots, size_rub, lot_size, status (pending/open/closed_stop/closed_take/cancelled), signal_source, window_mode, rr_mode, rr_ratio, entry_mode (market/limit), signal_id, strategy_name, exit_ts/price/reason, pnl_rub, pnl_pct
 - `live_positions`: id, ticker, instrument_id, signal_ts, entry_price, lot_size, size_lots, stop_price, take_price, broker_order_id/stop_id/take_id, status, strategy_name, exit_ts/price/reason, pnl_rub
 - `paper_equity`: id, timestamp, equity_rub, realized_pnl, open_positions, drawdown_pct
+- `live_equity`: id, timestamp (naive MSK), session_key (MSK calendar day), equity_rub, cash_rub, market_value_rub, realized_pnl_rub, unrealized_pnl_rub, peak_equity_rub (daily peak), peak_equity_all_time_rub, drawdown_pct, open_positions, risk_breach, account_id, strategy_name, created_at. `paper_equity` and its `write_equity` writer are untouched (Issue #176).
 - `trading_universe`: ticker (PK), rank, pf, source, notes, updated_at
 - `alerts`: id, alert_type, ticker, message, details (jsonb), created_at
 
@@ -220,6 +222,9 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/notifications/status | Cached Telegram configuration and Bot API connectivity status |
 | GET | /api/live-trading/positions | Sandbox live positions with current price, PnL, filters, sorting, and pagination; #149: + `trailing_enabled`, `current_stop_price`, `step_reached`, `risk_r`; `status=closed` includes `closed_trailing` |
 | GET | /api/live-trading/dynamics | Cumulative realized sandbox PnL by 1h/1d/1w |
+| GET | /api/live-trading/equity/current | Latest `live_equity` snapshot + `risk_breach_active` + the effective limits and their validated bounds, so the panel never hardcodes a number (#176) |
+| GET | /api/live-trading/equity/latest | Alias of `/equity/current` (#176) |
+| GET | /api/live-trading/equity/history | Live equity curve, newest first; filters `session_key`, `date_from`, `date_to`; pagination (#176). 503 with an `alembic upgrade head` hint when the table is missing |
 
 Shared lock: jobs_state.py (in-process). Only one heavy job runs at a time; others return 409.
 
@@ -665,6 +670,97 @@ Completed 2026-09-16. Live/sandbox trailing-stop with ratchet, restart safety, a
 **Testing**: 68 tests in `test_live_executor.py` (43 new for #151). Coverage: arming, ratchet, monotonicity, kill switch, execution facts, slippage, rate limiter, config validation.
 
 **Operational**: See `docs/strategy/live-trading.md` for user-facing docs, handover §41 for operations.
+
+## 22. Live equity and risk gates (Issue #176, Epic #172 task D)
+
+Completed 2026-09-27. The live contour now accounts for its own equity and enforces
+risk limits before every entry. The paper contour (`paper_equity`, `write_equity`,
+`config_manager.RiskConfig`) is untouched.
+
+**Equity formula**: `equity = cash + market_value`, where `cash` is the free RUB
+balance from `GetSandboxPositions` and `market_value` marks every `GetSandboxPortfolio`
+holding at `current_price` (falling back to `average_price`; an unpriced holding is
+excluded and logged rather than guessed). Realized PnL is **not** added: it is already
+inside the broker's cash balance, so adding it again would double count it and
+understate the drawdown the gate is measured on. `realized_pnl_rub` (sum of
+`live_positions.pnl_rub` over closed rows) and `unrealized_pnl_rub`
+(`market_value - cost_basis`) are persisted as separate observability columns.
+
+**Daily drawdown basis**: `session_key` is the MSK calendar day of the snapshot.
+`peak_equity_rub` is the peak *within that session_key*, which is what makes
+`max_daily_loss_pct` a daily limit; a lifetime peak would turn it into an all-time
+drawdown limit that could block entries forever. `peak_equity_all_time_rub` is kept
+in a separate column for monitoring. `drawdown_pct = (peak - equity) / peak * 100`.
+
+**Gates** (all in `LiveExecutor.process_signal`, in this order):
+1. `risk_breach` - the daily drawdown gate. Evaluated from the in-memory snapshot,
+   so it costs no broker call and no query, and runs before the order book and
+   sizing. A breached account blocks **new entries only**: existing positions keep
+   their broker stops and `monitor_positions()` keeps re-arming any that are
+   missing. There is **no forced flatten** (Product Owner decision, 2026-09-18).
+2. `max_open_positions` - pre-existing gate, unchanged; `LIVE_TRADING` stays its
+   single source of truth (#176 only added the `MAX_OPEN_POSITIONS` env override).
+3. `position_size_limit` - the absolute notional cap
+   `size_lots * lot_size * entry_price > max_position_size`, applied after
+   `calculate_position_size` and before `execute_order`. Measured on the executable
+   order rather than the sizer's pre-rounding budget, so the `min_lot` branch (which
+   forces `size_lots` to 1) cannot slip an oversized position through.
+
+**Breach recovery**: automatic on the next MSK trading day (a new `session_key`
+starts a new peak), or manual by setting `trading.app_settings.live_risk_breach_reset`
+to `true`. The flag is self-consuming - the executor writes `false` back - so a stale
+`true` cannot disarm a later breach. `initialize()` re-latches a breach that is
+already true for today's `session_key`, so restarting the process cannot be used to
+bypass the gate. A latched breach stays `true` for the rest of the day even if equity
+recovers, so the persisted flag and the gate never disagree within one session.
+
+**Configuration** (`trading_config.py`, section `LIVE_RISK` + `get_live_risk_config()`):
+- `max_daily_loss_pct`: default `2.0`, env `MAX_DAILY_LOSS_PCT`, range `(0, 100]`.
+- `max_position_size`: default `100000` RUB, env `MAX_POSITION_SIZE`, range `(0, 1e12]`.
+- `equity_snapshot_enabled`: default `true`, env `LIVE_EQUITY_SNAPSHOT`. Off disables
+  both the snapshot and the drawdown gate - the dry-run switch for the risk contour.
+- `max_open_positions`: default `5` in `LIVE_TRADING`, env `MAX_OPEN_POSITIONS`, range `[1, 100]`.
+
+An unparsable or out-of-range env value raises `ValueError` at read time, so a typo in
+`.env` fails fast instead of silently disabling a risk gate. `LiveExecutor._validate_config`
+re-checks the same bounds, so an in-memory config override cannot smuggle in a value
+that `.env` would have rejected. These limits deliberately do **not** live in
+`config_manager.RiskConfig`: that object is the paper risk policy read from
+`config/settings.yaml` and consumed by `paper_trader.write_equity`.
+
+**Database**: migration `20260927_001_live_equity.py` (`down_revision = 20260916_001`)
+creates `trading.live_equity` with two indexes (`timestamp DESC` and
+`(session_key, timestamp DESC)`) and seeds `live_risk_breach_reset` in
+`trading.app_settings`. `live_schema.ensure_live_equity_schema()` is the idempotent
+runtime form of the same DDL, applied from `initialize()`, so a standalone executor
+start converges on an unmigrated database. `timestamp` is `TIMESTAMP WITHOUT TIME ZONE`
+holding naive MSK, matching `paper_equity.timestamp` and `live_positions.signal_ts`.
+
+**Resilience**: `_write_live_equity()` runs once per cycle from `run()`, *before*
+`monitor_positions()` and `process_latest_bars()`, so every gate reads a fresh
+drawdown. It is entirely wrapped in `try/except`: a snapshot failure increments
+`equity_snapshot_errors_total`, logs a warning and never propagates into the loop or
+touches `_consecutive_errors`. Its two broker calls use the new `equity` rate-limit
+priority with `blocking=False` and the same token reserve as `entry`, so a snapshot is
+deferred (counted in `equity_snapshot_skipped_total`) rather than taking a token that
+stop arming or an amend needs. Before the first snapshot the drawdown gate is
+**fail-open** and logs a warning once - blocking every entry on a rate-limit hiccup
+would be worse than trading one cycle without a fresh reading.
+
+**Alerting**: a breach transition logs `logger.critical` once (not every cycle) and
+exposes counters through `get_metrics()`: `risk_breach_active`, `risk_breach_total`,
+`risk_breach_resets_total`, `risk_gate_rejections_total`, `position_size_rejections_total`,
+`equity_snapshots_total`, `equity_snapshot_errors_total`, `equity_snapshot_skipped_total`,
+`last_equity_rub`, `last_drawdown_pct`, `last_peak_equity_rub`, `last_equity_session_key`
+and the effective limits. Telegram delivery for `risk_breach` is task E (#177), which
+depends on this one.
+
+**Testing**: `backend/tests/test_live_equity_risk_gates.py` (62 tests) covers the schema
+contract and migration chain, config defaults / env overrides / range validation, the
+equity formula and its no-double-count property, the daily versus all-time peak, breach
+latching and recovery (auto, manual, restart), both entry gates, rate-limit deferral,
+failure containment, `get_metrics()` and the three endpoints.
+
 
 
 

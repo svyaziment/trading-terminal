@@ -33,7 +33,9 @@ from app.analytics.live_engine import (
 )
 from app.analytics.live_schema import (
     LiveSchemaError,
+    RISK_BREACH_RESET_KEY,
     assert_live_schema,
+    ensure_live_equity_schema,
     ensure_live_positions_schema,
 )
 from app.analytics.moex_session import (
@@ -51,12 +53,15 @@ from app.analytics.position_sizer import calculate_position_size
 from app.analytics.strategy_engine import StrategyEvaluator
 from app.analytics.trailing_stop import resolve_trailing_stop
 from app.analytics.trading_config import (
+    LIVE_RISK_BOUNDS,
+    get_live_risk_config,
     get_live_trading_config,
     get_live_trading_universe,
     get_moex_session_config,
     get_orderbook_imbalance_config,
 )
 from app.broker.tinkoff_sandbox import SandboxAPIError, TinkoffSandboxClient
+from app.core.config_manager import load_settings
 from app.db.db_manager import DBManager
 
 
@@ -69,6 +74,63 @@ ACTIVE_STATUSES = ("pending", "open")
 # performs a safe shutdown to avoid infinite retry loops on persistent
 # failures (e.g. DB down, broker API outage).
 MAX_CONSECUTIVE_ERRORS = 5
+
+# Issue #176: skip reasons added by the live equity risk gates. They join the
+# existing process_signal vocabulary so the frontend and the logs can tell a
+# risk rejection apart from a signal-quality rejection.
+RISK_SKIP_REASON_BREACH = "risk_breach"
+RISK_SKIP_REASON_POSITION_SIZE = "position_size_limit"
+
+_BOOL_TRUTH_WORDS = ("1", "true", "yes", "on")
+
+#: Insert order for trading.live_equity (Issue #176). ``created_at`` is omitted
+#: because the statement writes ``now()`` server-side; the tuple keeps the
+#: snapshot dict and the SQL parameter list from drifting apart.
+LIVE_EQUITY_INSERT_COLUMNS: tuple[str, ...] = (
+    "timestamp",
+    "session_key",
+    "equity_rub",
+    "cash_rub",
+    "market_value_rub",
+    "realized_pnl_rub",
+    "unrealized_pnl_rub",
+    "peak_equity_rub",
+    "peak_equity_all_time_rub",
+    "drawdown_pct",
+    "open_positions",
+    "risk_breach",
+    "account_id",
+    "strategy_name",
+)
+
+
+def _coerce_bool(value: Any) -> bool:
+    """Normalise a JSONB / str / bool setting value to a strict boolean.
+
+    ``trading.app_settings.value`` is JSONB, so psycopg2 may hand back a real
+    bool or its text form depending on the driver path; both must mean the same
+    thing for the kill-switch and breach-reset flags.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return value.strip().lower() in _BOOL_TRUTH_WORDS
+    return bool(value)
+
+
+def _finite_float(value: Any, default: float = 0.0) -> float:
+    """Coerce a DB/broker numeric to a finite float, falling back to default."""
+    if value is None:
+        return default
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return default
+    return number if math.isfinite(number) else default
+
+
 
 
 def _filter_live_tickers(strategy_tickers: list[str], live_universe: list[str]) -> list[str]:
@@ -237,7 +299,13 @@ class LiveExecutor:
         now_fn: Callable[[], datetime] = _now_msk_naive,
     ) -> None:
         self.db = db or DBManager()
-        self.config = {**get_live_trading_config(), **(config or {})}
+        # Issue #176: the live risk-gate policy is merged first so an explicit
+        # caller config (and therefore the tests) can still override any limit.
+        self.config = {
+            **get_live_risk_config(),
+            **get_live_trading_config(),
+            **(config or {}),
+        }
         self._validate_config()
         self.rate_limiter = TokenBucket(
             float(self.config["api_rate_limit"]),
@@ -296,6 +364,23 @@ class LiveExecutor:
         self.invariant_violations_total = 0
         self.oco_orphans_cancelled_total = 0
         self.fills_reconciled_total = 0
+        # Issue #176: live equity snapshots and the daily drawdown gate.
+        # ``last_equity`` is the newest trading.live_equity row this process
+        # wrote; the entry gate reads it from memory so process_signal never
+        # adds a broker or database call of its own.
+        self.last_equity: Optional[Dict[str, Any]] = None
+        self.equity_snapshots_total = 0
+        self.equity_snapshot_errors_total = 0
+        self.equity_snapshot_skipped_total = 0
+        self._equity_session_key: Optional[Any] = None
+        self._risk_breach_active = False
+        self._risk_breach_session_key: Optional[Any] = None
+        self.risk_breach_total = 0
+        self.risk_breach_resets_total = 0
+        self.risk_gate_rejections_total = 0
+        self.position_size_rejections_total = 0
+        self._risk_gate_warned = False
+        self._account_id_value: Optional[str] = None
 
     def _validate_config(self) -> None:
         if int(self.config["max_open_positions"]) <= 0:
@@ -339,6 +424,21 @@ class LiveExecutor:
         attempts = self.config.get("oco_check_attempts")
         if attempts is not None and int(attempts) < 1:
             raise ValueError("oco_check_attempts must be at least 1")
+        # Issue #176: the live equity risk limits must stay inside the ranges
+        # trading_config validates for env overrides, so an in-memory config
+        # override cannot smuggle in a value .env would have rejected.
+        for key, (low, high) in LIVE_RISK_BOUNDS.items():
+            if key == "max_open_positions":
+                continue  # covered by the positivity check above
+            value = self.config.get(key)
+            if value is None:
+                continue
+            number = _finite_float(value, math.nan)
+            if math.isnan(number) or not low < number <= high:
+                raise ValueError(f"{key} must be within ({low:g}, {high:g}]")
+        snapshot_enabled = self.config.get("equity_snapshot_enabled", True)
+        if not isinstance(snapshot_enabled, bool):
+            raise ValueError("equity_snapshot_enabled must be a boolean")
 
     def _broker_call(
         self,
@@ -377,8 +477,13 @@ class LiveExecutor:
         return getattr(self.broker, method)(*args, **kwargs)
 
     def _priority_reserve(self, priority: str) -> float:
-        """Token reserve keeping protection ahead of entries (Issue #175)."""
-        if str(priority) == "entry":
+        """Token reserve keeping protection ahead of entries (Issue #175).
+
+        Issue #176 adds the ``equity`` class: a risk snapshot is observability,
+        so it keeps the same reserve as an entry and can never take the token a
+        stop arming or an amend needs.
+        """
+        if str(priority) in ("entry", "equity"):
             return float(self.config.get("entry_token_reserve", 1.0))
         return 0.0
 
@@ -400,6 +505,19 @@ class LiveExecutor:
         # Issue #173: fail fast on schema drift instead of dying mid-trade with
         # UndefinedColumn or a CHECK violation on closed_trailing/closed_broker.
         assert_live_schema(self.db)
+        # Issue #176: trading.live_equity is created by 20260927_001; the
+        # runtime DDL keeps a standalone executor start working on a database
+        # that has not been migrated yet. Failures are not fatal here - the
+        # snapshot writer degrades to a warning instead of stopping trading.
+        try:
+            ensure_live_equity_schema(self.db)
+        except Exception as exc:  # noqa: BLE001 - trading must not depend on it
+            logger.warning(
+                "Could not ensure trading.live_equity schema (%s: %s); "
+                "equity snapshots will be skipped until it exists",
+                type(exc).__name__,
+                exc,
+            )
         strategy_config, tickers, strategy_name = get_paper_strategy(self.db)
         if strategy_config is None or not strategy_name:
             raise RuntimeError("No active locked strategy is available")
@@ -484,6 +602,11 @@ class LiveExecutor:
                         float(row.get("current_stop_price") or row["stop_price"]),
                     )
 
+        # Issue #176: a restart must not clear an active drawdown breach, or the
+        # operator could resume trading for the rest of an MSK day that already
+        # hit max_daily_loss_pct simply by bouncing the process.
+        self._restore_risk_breach_state()
+
     def _load_instruments(self) -> None:
         frame = self.db.select(
             """
@@ -550,6 +673,421 @@ class LiveExecutor:
                 exc,
             )
             self.config["trailing_kill_switch"] = True
+
+    # --- Issue #176: live equity snapshots and daily drawdown gate -----------
+
+    def _scalar(self, frame: Any, column: str, default: Any = None) -> Any:
+        """Read one scalar out of a possibly empty or mismatched DataFrame.
+
+        Defensive on purpose: an equity snapshot must never raise because a
+        result set lacks the aggregate column (a stale view, a fake in tests, a
+        partially migrated database). Callers get ``default`` instead.
+        """
+        try:
+            if frame is None or frame.empty or column not in frame.columns:
+                return default
+            value = frame.iloc[0][column]
+        except (AttributeError, IndexError, KeyError, TypeError):
+            return default
+        if value is None:
+            return default
+        try:
+            if pd.isna(value):
+                return default
+        except (TypeError, ValueError):
+            pass
+        return value
+
+    def _realized_pnl_rub(self) -> float:
+        """Sum of ``pnl_rub`` over every closed live position.
+
+        Observability only. It is deliberately NOT part of the equity formula:
+        ``check_balance()`` already contains the proceeds of those closes, so
+        adding it again would double count realized PnL and understate the
+        drawdown the entry gate is measured against.
+        """
+        frame = self.db.select(
+            """
+            SELECT COALESCE(SUM(pnl_rub), 0) AS realized_pnl_rub
+            FROM trading.live_positions
+            WHERE status LIKE 'closed%'
+            """
+        ).to_dataframe()
+        return _finite_float(self._scalar(frame, "realized_pnl_rub", 0.0), 0.0)
+
+    def _daily_peak_equity(self, session_key: Any, equity: float) -> float:
+        """Peak equity inside the MSK trading day, including this snapshot.
+
+        Scoping the peak to ``session_key`` is what makes ``max_daily_loss_pct``
+        a daily limit. A lifetime peak would turn it into an all-time drawdown
+        limit that can block entries forever.
+        """
+        frame = self.db.select(
+            """
+            SELECT MAX(peak_equity_rub) AS peak_equity_rub
+            FROM trading.live_equity
+            WHERE session_key = %s
+            """,
+            (session_key,),
+        ).to_dataframe()
+        stored = self._scalar(frame, "peak_equity_rub", None)
+        if stored is None:
+            return equity
+        return max(equity, _finite_float(stored, equity))
+
+    def _all_time_peak_equity(self, equity: float) -> float:
+        """Lifetime peak equity, kept separately for monitoring only."""
+        frame = self.db.select(
+            """
+            SELECT MAX(peak_equity_all_time_rub) AS peak_equity_all_time_rub
+            FROM trading.live_equity
+            """
+        ).to_dataframe()
+        stored = self._scalar(frame, "peak_equity_all_time_rub", None)
+        if stored is None:
+            return equity
+        return max(equity, _finite_float(stored, equity))
+
+    def _compute_live_equity(self) -> Optional[Dict[str, float]]:
+        """Read cash and holdings from the broker, or None when rate-limited.
+
+        ``equity = cash + market_value`` where cash is the free RUB balance and
+        market_value marks every portfolio position at its current price.
+        ``None`` means the token bucket had no spare token this cycle; the
+        caller skips the snapshot rather than delaying stop protection.
+        """
+        cash = self._broker_call(
+            "check_balance", blocking=False, priority="equity"
+        )
+        if cash is None:
+            return None
+        positions = self._broker_call(
+            "get_positions", blocking=False, priority="equity"
+        )
+        if positions is None:
+            return None
+        cash_rub = _finite_float(cash, 0.0)
+        market_value = 0.0
+        cost_basis = 0.0
+        for position in positions or ():
+            quantity = _finite_float(getattr(position, "quantity", None), 0.0)
+            if quantity == 0:
+                continue
+            current = getattr(position, "current_price", None)
+            average = getattr(position, "average_price", None)
+            price = current if current is not None else average
+            if price is None:
+                # Unpriced holding: keep it out of market_value rather than
+                # inventing a price that would move the drawdown.
+                logger.warning(
+                    "live equity: no price for holding %s; excluded from "
+                    "market_value",
+                    getattr(position, "ticker", "?"),
+                )
+                continue
+            market_value += _finite_float(price, 0.0) * quantity
+            if average is not None:
+                cost_basis += _finite_float(average, 0.0) * quantity
+        return {
+            "cash_rub": cash_rub,
+            "market_value_rub": market_value,
+            "equity_rub": cash_rub + market_value,
+            "unrealized_pnl_rub": market_value - cost_basis,
+        }
+
+    def _account_id(self) -> Optional[str]:
+        """Account id stamped on every live_equity row (Issue #176).
+
+        The broker client is authoritative: ``TINVEST_SANDBOX_ACC`` may be empty,
+        in which case the client discovers the account lazily on its first call
+        and caches it on ``account_id``. Resolution is therefore retried until a
+        value appears instead of being cached on the first, possibly empty read.
+        Called after ``_compute_live_equity()``, so discovery has already run.
+        The id is persisted but never logged.
+        """
+        if self._account_id_value:
+            return self._account_id_value
+        value = getattr(self.broker, "account_id", None)
+        if not value:
+            try:
+                value = load_settings().api.sandbox_account_id
+            except Exception:  # noqa: BLE001 - a snapshot must not depend on config
+                value = ""
+        value = str(value or "").strip()
+        self._account_id_value = value or None
+        return self._account_id_value
+
+    def _activate_risk_breach(
+        self,
+        *,
+        session_key: Any,
+        equity: float,
+        peak: float,
+        drawdown_pct: float,
+        max_daily_loss_pct: float,
+    ) -> None:
+        """Latch the daily drawdown breach and log it once (Issue #176).
+
+        Only *new* entries are blocked. Existing positions keep their broker
+        stops and the monitor loop keeps re-arming any that are missing - there
+        is no forced flatten (Product Owner decision of 2026-09-18, Epic #172).
+        """
+        self._risk_breach_active = True
+        self._risk_breach_session_key = session_key
+        self.risk_breach_total += 1
+        logger.critical(
+            "RISK BREACH: live drawdown %.4f%% >= max_daily_loss_pct %.4f%% "
+            "(equity=%.2f peak=%.2f session_key=%s) - new entries blocked, "
+            "existing stops preserved; auto-resets on the next MSK trading day "
+            "or when trading.app_settings.%s is set to true",
+            drawdown_pct,
+            max_daily_loss_pct,
+            equity,
+            peak,
+            session_key,
+            self.config.get("risk_breach_reset_key") or RISK_BREACH_RESET_KEY,
+        )
+
+    def _clear_risk_breach(self, *, reason: str) -> None:
+        """Release a latched breach; idempotent and logged on transition only."""
+        if not self._risk_breach_active:
+            return
+        previous_session_key = self._risk_breach_session_key
+        self._risk_breach_active = False
+        self._risk_breach_session_key = None
+        self.risk_breach_resets_total += 1
+        logger.info(
+            "risk breach cleared: reason=%s previous_session_key=%s",
+            reason,
+            previous_session_key,
+        )
+
+    def _restore_risk_breach_state(self) -> None:
+        """Re-latch a breach that is already true for today's MSK session.
+
+        Called from ``initialize()``. Without it, restarting the executor would
+        silently disarm the gate for the rest of a day that already breached.
+        """
+        session_key = self.now_fn().date()
+        self._equity_session_key = session_key
+        try:
+            frame = self.db.select(
+                """
+                SELECT risk_breach, drawdown_pct, equity_rub, peak_equity_rub
+                FROM trading.live_equity
+                WHERE session_key = %s
+                ORDER BY timestamp DESC
+                LIMIT 1
+                """,
+                (session_key,),
+            ).to_dataframe()
+        except Exception as exc:  # noqa: BLE001 - startup must not depend on it
+            logger.warning(
+                "Cannot restore live risk-breach state for session_key=%s: %s: %s",
+                session_key,
+                type(exc).__name__,
+                exc,
+            )
+            return
+        if not _coerce_bool(self._scalar(frame, "risk_breach", False)):
+            return
+        self._risk_breach_active = True
+        self._risk_breach_session_key = session_key
+        logger.critical(
+            "Restored active risk breach for session_key=%s "
+            "(drawdown_pct=%s equity_rub=%s peak_equity_rub=%s) - "
+            "new entries stay blocked until the next MSK day or a manual reset",
+            session_key,
+            self._scalar(frame, "drawdown_pct", None),
+            self._scalar(frame, "equity_rub", None),
+            self._scalar(frame, "peak_equity_rub", None),
+        )
+
+    def _refresh_risk_breach_reset(self) -> None:
+        """Consume the manual breach-reset switch from ``trading.app_settings``.
+
+        The flag is self-consuming: once honoured it is written back as ``false``
+        so a stale ``true`` cannot disarm a later breach. Read or write failures
+        are warnings only and leave the gate exactly as it was.
+        """
+        key = str(self.config.get("risk_breach_reset_key") or RISK_BREACH_RESET_KEY)
+        try:
+            frame = self.db.select(
+                """
+                SELECT value FROM trading.app_settings
+                WHERE key = %s
+                """,
+                (key,),
+            ).to_dataframe()
+            if not _coerce_bool(self._scalar(frame, "value", False)):
+                return
+            self._clear_risk_breach(reason=f"manual_reset:{key}")
+            self.db.execute(
+                """
+                INSERT INTO trading.app_settings (key, value, updated_at)
+                VALUES (%s, 'false'::jsonb, now())
+                ON CONFLICT (key)
+                DO UPDATE SET value = 'false'::jsonb, updated_at = now()
+                """,
+                (key,),
+            )
+        except Exception as exc:  # noqa: BLE001 - a reset failure is not fatal
+            logger.warning(
+                "Failed to consume %s from trading.app_settings: %s: %s",
+                key,
+                type(exc).__name__,
+                exc,
+            )
+
+    def _risk_gate(self) -> Optional[Dict[str, Any]]:
+        """Return a skip payload when the daily drawdown gate blocks entries.
+
+        Fail-open by design: before the first snapshot there is nothing to
+        measure, and blocking every entry on a rate-limit hiccup would be worse
+        than trading one cycle without a fresh drawdown reading. The condition
+        is logged loudly once so it cannot pass unnoticed.
+        """
+        if self._risk_breach_active:
+            last = self.last_equity or {}
+            return {
+                "reason": RISK_SKIP_REASON_BREACH,
+                "details": {
+                    "drawdown_pct": last.get("drawdown_pct"),
+                    "max_daily_loss_pct": _finite_float(
+                        self.config.get("max_daily_loss_pct"), 0.0
+                    ),
+                    "equity_rub": last.get("equity_rub"),
+                    "peak_equity_rub": last.get("peak_equity_rub"),
+                    "session_key": str(
+                        last.get("session_key") or self._risk_breach_session_key or ""
+                    ),
+                },
+            }
+        if (
+            self.last_equity is None
+            and bool(self.config.get("equity_snapshot_enabled", True))
+            and not self._risk_gate_warned
+        ):
+            self._risk_gate_warned = True
+            logger.warning(
+                "Live equity risk gate has no snapshot yet; entries are NOT "
+                "blocked (fail-open) until the first trading.live_equity row "
+                "is written"
+            )
+        return None
+
+    def _write_live_equity(self) -> Optional[Dict[str, Any]]:
+        """Snapshot the account equity into ``trading.live_equity`` and re-evaluate
+        the daily drawdown gate. Runs once per executor cycle (Issue #176).
+
+        Every failure path is contained: a risk snapshot must never break the
+        trading loop (Epic #172 task D), and a missing rate-limit token defers
+        the snapshot instead of delaying stop protection.
+
+        Returns:
+            The snapshot dict that was persisted, or None when it was disabled,
+            deferred by the rate limiter, or failed.
+        """
+        if not bool(self.config.get("equity_snapshot_enabled", True)):
+            return None
+        try:
+            computed = self._compute_live_equity()
+            if computed is None:
+                self.equity_snapshot_skipped_total += 1
+                logger.debug(
+                    "live equity snapshot deferred: rate-limit reserve is busy"
+                )
+                return None
+
+            now = self.now_fn()
+            session_key = now.date()
+            # A new MSK trading day resets the daily peak, which is also the
+            # automatic breach reset: max_daily_loss_pct is a per-day limit.
+            if (
+                self._equity_session_key is not None
+                and self._equity_session_key != session_key
+            ):
+                self._clear_risk_breach(reason="new_msk_session_day")
+            self._equity_session_key = session_key
+
+            equity = _finite_float(computed["equity_rub"], 0.0)
+            peak = self._daily_peak_equity(session_key, equity)
+            peak_all_time = self._all_time_peak_equity(equity)
+            drawdown_pct = (peak - equity) / peak * 100.0 if peak > 0 else 0.0
+            max_daily_loss_pct = _finite_float(
+                self.config.get("max_daily_loss_pct"), 0.0
+            )
+            breached = (
+                max_daily_loss_pct > 0 and drawdown_pct >= max_daily_loss_pct
+            )
+
+            snapshot: Dict[str, Any] = {
+                "timestamp": now,
+                "session_key": session_key,
+                "equity_rub": round(equity, 4),
+                "cash_rub": round(_finite_float(computed["cash_rub"]), 4),
+                "market_value_rub": round(
+                    _finite_float(computed["market_value_rub"]), 4
+                ),
+                "realized_pnl_rub": round(self._realized_pnl_rub(), 4),
+                "unrealized_pnl_rub": round(
+                    _finite_float(computed["unrealized_pnl_rub"]), 4
+                ),
+                "peak_equity_rub": round(peak, 4),
+                "peak_equity_all_time_rub": round(peak_all_time, 4),
+                "drawdown_pct": round(drawdown_pct, 4),
+                "open_positions": int(len(self._active_positions())),
+                # A latched breach stays true for the rest of the session_key
+                # even if equity recovers, so the persisted flag and the gate
+                # cannot disagree within one day.
+                "risk_breach": bool(breached or self._risk_breach_active),
+                "account_id": self._account_id(),
+                "strategy_name": self.strategy_name or None,
+            }
+
+            self.db.execute(
+                """
+                INSERT INTO trading.live_equity (
+                    timestamp, session_key, equity_rub, cash_rub, market_value_rub,
+                    realized_pnl_rub, unrealized_pnl_rub, peak_equity_rub,
+                    peak_equity_all_time_rub, drawdown_pct, open_positions,
+                    risk_breach, account_id, strategy_name, created_at
+                )
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,now())
+                """,
+                tuple(snapshot[column] for column in LIVE_EQUITY_INSERT_COLUMNS),
+            )
+
+            self.equity_snapshots_total += 1
+            self.last_equity = snapshot
+            if breached and not self._risk_breach_active:
+                self._activate_risk_breach(
+                    session_key=session_key,
+                    equity=equity,
+                    peak=peak,
+                    drawdown_pct=drawdown_pct,
+                    max_daily_loss_pct=max_daily_loss_pct,
+                )
+            logger.info(
+                "live_equity_snapshot session_key=%s equity=%.2f cash=%.2f "
+                "market_value=%.2f peak=%.2f drawdown_pct=%.4f open_positions=%d "
+                "risk_breach=%s",
+                session_key,
+                equity,
+                snapshot["cash_rub"],
+                snapshot["market_value_rub"],
+                peak,
+                drawdown_pct,
+                snapshot["open_positions"],
+                snapshot["risk_breach"],
+            )
+            return snapshot
+        except Exception as exc:  # noqa: BLE001 - never break the trading loop
+            self.equity_snapshot_errors_total += 1
+            logger.warning(
+                "live equity snapshot failed: %s: %s", type(exc).__name__, exc
+            )
+            return None
 
     def _active_positions(self) -> pd.DataFrame:
         return self.db.select(
@@ -634,6 +1172,16 @@ class LiveExecutor:
             )
         if ticker not in self.instruments:
             return self._skip_signal(ticker, "unknown_instrument")
+
+        # Issue #176: daily drawdown gate. Evaluated from the in-memory snapshot
+        # so it costs no broker call and no query, and placed before every other
+        # check so a breached account never reaches the order book or sizing.
+        gate = self._risk_gate()
+        if gate is not None:
+            self.risk_gate_rejections_total += 1
+            return self._skip_signal(
+                ticker, gate["reason"], warning=True, **gate["details"]
+            )
 
         entry_price = float(decision["entry_price"])
         stop_price = float(decision["stop"])
@@ -731,6 +1279,27 @@ class LiveExecutor:
                 lot_size=instrument["lot_size"],
                 lot_cost=entry_price * instrument["lot_size"],
                 stop_distance_pct=round(stop_distance_pct, 6),
+            )
+
+        # Issue #176: absolute notional cap, on top of the relative
+        # max_position_pct budget the sizer already applied. Measured on the
+        # executable order (lots * lot_size * price) rather than on the sizer's
+        # pre-rounding budget, so the min_lot branch that forces size_lots to 1
+        # cannot slip a too-large position through.
+        notional_rub = (
+            float(sizing["size_lots"]) * int(instrument["lot_size"]) * entry_price
+        )
+        max_position_size = _finite_float(self.config.get("max_position_size"), 0.0)
+        if max_position_size > 0 and notional_rub > max_position_size:
+            self.position_size_rejections_total += 1
+            return self._skip_signal(
+                ticker,
+                RISK_SKIP_REASON_POSITION_SIZE,
+                notional_rub=round(notional_rub, 2),
+                max_position_size=round(max_position_size, 2),
+                size_lots=sizing["size_lots"],
+                lot_size=instrument["lot_size"],
+                entry_price=entry_price,
             )
 
         try:
@@ -2227,6 +2796,33 @@ class LiveExecutor:
             "oco_orphans_cancelled_total": self.oco_orphans_cancelled_total,
             "oco_checks_pending": len(self._oco_checks),
             "fills_reconciled_total": self.fills_reconciled_total,
+            # Issue #176: live equity snapshots and the daily drawdown gate.
+            "equity_snapshots_total": self.equity_snapshots_total,
+            "equity_snapshot_errors_total": self.equity_snapshot_errors_total,
+            "equity_snapshot_skipped_total": self.equity_snapshot_skipped_total,
+            "equity_snapshot_enabled": bool(
+                self.config.get("equity_snapshot_enabled", True)
+            ),
+            "last_equity_rub": (self.last_equity or {}).get("equity_rub"),
+            "last_drawdown_pct": (self.last_equity or {}).get("drawdown_pct"),
+            "last_peak_equity_rub": (self.last_equity or {}).get("peak_equity_rub"),
+            "last_equity_session_key": str(
+                (self.last_equity or {}).get("session_key") or ""
+            )
+            or None,
+            "risk_breach_active": self._risk_breach_active,
+            "risk_breach_session_key": str(self._risk_breach_session_key or "") or None,
+            "risk_breach_total": self.risk_breach_total,
+            "risk_breach_resets_total": self.risk_breach_resets_total,
+            "risk_gate_rejections_total": self.risk_gate_rejections_total,
+            "position_size_rejections_total": self.position_size_rejections_total,
+            "max_daily_loss_pct": _finite_float(
+                self.config.get("max_daily_loss_pct"), 0.0
+            ),
+            "max_position_size": _finite_float(
+                self.config.get("max_position_size"), 0.0
+            ),
+            "max_open_positions": int(self.config.get("max_open_positions", 0)),
         }
 
     def shutdown(self) -> None:
@@ -2373,6 +2969,13 @@ class LiveExecutor:
                 if now - last_check >= check_interval:
                     # Issue #151: Refresh kill switch from DB before monitoring
                     self._refresh_kill_switch()
+                    # Issue #176: consume the manual breach reset, then snapshot
+                    # equity BEFORE monitoring and entries so every gate this
+                    # cycle reads a fresh drawdown. Both are self-contained and
+                    # never raise into the loop (an equity failure must not stop
+                    # protection or trading).
+                    self._refresh_risk_breach_reset()
+                    self._write_live_equity()
                     try:
                         self.monitor_positions()
                         self._consecutive_errors = 0

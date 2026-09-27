@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-19 (task-174); previously 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -929,3 +929,105 @@ python -c "from app.broker.tinkoff_sandbox import TinkoffSandboxClient; print(Ti
 ```
 
 If a balance (number) is returned, the certificate works. If `CERTIFICATE_VERIFY_FAILED`, verify that `backend/certs/tbank-root.pem` exists and contains a valid PEM certificate.
+
+
+## 44. Operating the live equity risk gates (Issue #176)
+
+### Why
+
+Before #176 the live contour had no equity accounting at all: `trading.live_equity` did
+not exist, the risk limits in `config/settings.yaml` were consumed only by the paper
+trader, and nothing defined what happens when the account draws down. #176 adds the
+snapshot, the gates and the recovery path. Architecture details: `project-context.md` §22.
+
+### What changed
+
+- `backend/alembic/versions/20260927_001_live_equity.py` - creates `trading.live_equity`
+  (16 columns, 2 indexes) and seeds `live_risk_breach_reset` in `trading.app_settings`.
+- `backend/app/analytics/trading_config.py` - new `LIVE_RISK` section,
+  `get_live_risk_config()`, `get_live_risk_bounds()` and the env overrides
+  `MAX_DAILY_LOSS_PCT` / `MAX_POSITION_SIZE` / `MAX_OPEN_POSITIONS` / `LIVE_EQUITY_SNAPSHOT`.
+  `get_live_trading_config()` now resolves the `MAX_OPEN_POSITIONS` override.
+- `backend/app/analytics/live_schema.py` - `ensure_live_equity_schema()` /
+  `ensure_live_runtime_schema()`, `REQUIRED_LIVE_EQUITY_COLUMNS`,
+  `LIVE_EQUITY_SCHEMA_STATEMENTS`, `RISK_BREACH_RESET_KEY`. Kept in a **separate**
+  statement tuple: `test_live_schema.py` asserts that `LIVE_SCHEMA_STATEMENTS` contains
+  no `DROP TABLE` / `DROP COLUMN`, and the equity downgrade does drop.
+- `backend/app/analytics/live_executor.py` - `_write_live_equity()`, `_compute_live_equity()`,
+  `_daily_peak_equity()`, `_all_time_peak_equity()`, `_realized_pnl_rub()`,
+  `_risk_gate()`, `_activate_risk_breach()`, `_clear_risk_breach()`,
+  `_restore_risk_breach_state()`, `_refresh_risk_breach_reset()`, `_account_id()`;
+  the `equity` rate-limit priority; the two gates in `process_signal()`; the snapshot call
+  in `run()`; risk fields in `get_metrics()`.
+- `backend/app/api/live_trading_jobs.py` - `/api/live-trading/equity/current`,
+  `/latest` (alias) and `/history`.
+- `.env.example` - the four new variables.
+
+### Behaviour an operator must know
+
+- The gate is **daily**, not lifetime. `peak_equity_rub` resets with `session_key`
+  (MSK calendar day), so a breach releases itself on the next trading day.
+- A breach blocks **new entries only**. Open positions keep their broker stops and the
+  monitor loop keeps re-arming missing ones. There is no forced flatten.
+- A breach stays latched for the rest of the MSK day even if equity fully recovers.
+- Restarting the executor does **not** clear a breach: `initialize()` re-latches it from
+  the newest `live_equity` row of today's `session_key`.
+- Before the first snapshot of a process the drawdown gate is **fail-open** (logged once
+  as a warning). Entries are not blocked by a missing or deferred snapshot.
+- Turning `LIVE_EQUITY_SNAPSHOT=off` disables the snapshot **and** the drawdown gate.
+  The notional cap and `max_open_positions` keep working - they do not depend on equity.
+- A failing snapshot never stops trading: it increments `equity_snapshot_errors_total`
+  and logs a warning. Watch that counter, not the loop.
+
+### Commands
+
+```bash
+# Apply the migration (the backend image does not bundle alembic/ - see limitations)
+cd backend && python -m alembic upgrade head
+python -m alembic current      # expect 20260927_001 (head)
+python -m alembic downgrade -1 # revert; drops trading.live_equity
+python -m alembic upgrade head
+
+# Verify the table and the seeded reset switch
+psql -c "SELECT count(*) FROM trading.live_equity;"
+psql -c "SELECT key, value FROM trading.app_settings ORDER BY key;"
+
+# Latest snapshot and the effective limits
+curl -s http://localhost:8000/api/live-trading/equity/current | python -m json.tool
+curl -s "http://localhost:8000/api/live-trading/equity/history?limit=50"
+
+# Manually clear an active breach (self-consuming: the executor writes false back)
+psql -c "UPDATE trading.app_settings SET value='true'::jsonb, updated_at=now() \
+         WHERE key='live_risk_breach_reset';"
+
+# Override the limits for one run without editing code
+MAX_DAILY_LOSS_PCT=1.5 MAX_POSITION_SIZE=50000 MAX_OPEN_POSITIONS=3 \
+  python -m app.analytics.live_executor
+
+# Tests (62)
+cd backend && python -m pytest tests/test_live_equity_risk_gates.py -q
+```
+
+### Known limitations
+
+- **`alembic` is not in the backend image.** `backend/Dockerfile` copies only `app/` and
+  `tests/`, so `docker compose exec backend alembic ...` fails with
+  `No 'script_location' key found`. Run migrations from the host, or `docker compose cp`
+  `backend/alembic.ini` and `backend/alembic` into `/app` first. Making
+  `alembic upgrade head` a deploy step is task F (#178).
+- **`app/core/config.py:get_app_database_url()` reads only `POSTGRES_PASSWORD`**, while
+  `docker-compose.yml` passes `PSTGRS_PWD`. Inside the container alembic therefore tries
+  the default password `app` and fails; the failure surfaces as a misleading
+  `UnicodeDecodeError` from psycopg2 because the server's Russian error message is not
+  UTF-8. Workaround used for verification:
+  `docker compose exec -T backend sh -c 'POSTGRES_PASSWORD="$PSTGRS_PWD" alembic upgrade head'`.
+  `config_manager.load_settings()` already accepts both names - aligning `app/core/config.py`
+  with it belongs to #178.
+- `strategy_name` is `NULL` on snapshots written outside a full `initialize()` run (the
+  executor only learns the strategy there).
+- The drawdown gate reads the in-memory snapshot of the current process. If the executor
+  is down, no new snapshots are written and the gate cannot tighten - it does not
+  retro-block on stale data beyond the restore described above.
+- Telegram alerting for `risk_breach` is not part of #176; it lands with task E (#177)
+  on top of `get_metrics()` and the `logger.critical` transition already emitted here.
+
