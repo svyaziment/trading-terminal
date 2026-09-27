@@ -1064,6 +1064,13 @@ heartbeat, and a persisted metrics snapshot with an HTTP reader,
 - `backend/tests/test_live_alerting.py` - 160 tests: config and validation, `_notify` and
   debouncing, every event hook, the heartbeat, the snapshot flush, the whole endpoint
   response and its degradations.
+- `backend/app/notifications/telegram_notifier.py` - `_escape_markdown` became the public
+  `escape_markdown` (the private alias is kept for existing callers): the live contour builds
+  its own alert body and must escape tickers, reasons and broker error strings exactly like
+  the paper helpers do.
+- `start_processes.sh` - the executor launch moved from `LiveExecutor().run(...)` to
+  `run_live_executor(...)`, so the notifier is wired in the normal launch path too (including
+  `SESSION_AWARE=1`) and alerts actually go out.
 - `.env.example` - a block of 7 `LIVE_*` variables.
 
 ### Configuration (`LIVE_ALERTING`, every key optional)
@@ -1195,6 +1202,12 @@ Response: `available`, `reason`, `error`, `state`, `generated_at`, `source`, `lo
   An external watcher must key on `state` + age, not on `available`.
 - `LIVE_TELEGRAM_ALERTS=false` mutes the events but the metrics snapshot keeps being
   written: `metrics_key` and the flush do not depend on the master switch.
+- **The entry point matters.** `run_live_executor()` wires the notifier through
+  `build_default_notifier()`; a direct `LiveExecutor().run(...)` does not, so such a process
+  trades and writes the metrics snapshot but keeps every event in the log only. A canary that
+  must actually deliver to the chat has to use `run_live_executor(...)` or pass
+  `notifier=build_default_notifier()` explicitly. `start_processes.sh` now uses
+  `run_live_executor`.
 
 ### Commands
 

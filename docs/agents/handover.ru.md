@@ -1093,6 +1093,13 @@ cd backend && python -m pytest tests/test_live_equity_risk_gates.py -q
 - `backend/tests/test_live_alerting.py` — 160 тестов: конфиг и валидация, `_notify`
   и debounce, каждый событийный хук, heartbeat, flush снимка, весь ответ endpoint'а
   и деградации.
+- `backend/app/notifications/telegram_notifier.py` — `_escape_markdown` стал публичным
+  `escape_markdown` (приватный алиас сохранён для прежних вызовов): live-контур строит текст
+  алерта сам и обязан экранировать тикеры, причины и строки брокерских ошибок точно так же,
+  как это делают paper-хелперы.
+- `start_processes.sh` — запуск исполнителя переведён с `LiveExecutor().run(...)` на
+  `run_live_executor(...)`, поэтому в штатном запуске (включая `SESSION_AWARE=1`) нотари
+  подключается и алерты действительно уходят.
 - `.env.example` — блок из 7 переменных `LIVE_*`.
 
 ### Конфигурация (`LIVE_ALERTING`, все ключи необязательны)
@@ -1227,6 +1234,11 @@ cd backend && python -m pytest tests/test_live_equity_risk_gates.py -q
   Внешний watcher строится на `state` + возрасте, не на `available`.
 - `LIVE_TELEGRAM_ALERTS=false` глушит события, но снимок метрик продолжает писаться:
   `metrics_key` и flush от мастер-переключателя не зависят.
+- **Точка входа имеет значение.** `run_live_executor()` подключает нотари через
+  `build_default_notifier()`, а прямой `LiveExecutor().run(...)` — нет: такой процесс
+  торгует и пишет снимок метрик, но все события остаются только в логе. Canary-скрипт с
+  реальной доставкой в чат обязан использовать `run_live_executor(...)` либо явно передать
+  `notifier=build_default_notifier()`. `start_processes.sh` переведён на `run_live_executor`.
 ### Команды
 
 ```bash
