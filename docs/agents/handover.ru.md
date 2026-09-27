@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-28 (task-178 — реальный контур T-Bank `TinkoffLiveClient`, фабрика выбора контура по `ALLOW_REAL_TRADING`, глобальный kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, деплой-миграции через one-shot сервис `migrate`; новый §46); ранее 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -1282,3 +1282,241 @@ cd backend && python -m pytest tests/test_live_alerting.py -q
   иначе оно уедет в `extra` (безопасно, но не типизировано).
 
 Тайминг алерта о старте (фикс от 2026-09-27, follow-up к #177): алерт `live_start` отправляется сразу при старте процесса - до ночного ожидания сессии 10:00 MSK - поэтому воскресный запуск виден в чате немедленно. Поскольку алерт идёт до `initialize()`, число тикеров равно 0 и имя стратегии пусто до открытия сессии; трактуйте эти два поля как «ещё не инициализированы». `check_interval` вычисляется до алерта, поэтому payload не падает.
+
+## 46. Реальный контур T-Bank, деплой-миграции и глобальный аварийный останов (задача #178)
+
+**Что изменилось.** Live-контур перестал быть песочничным по построению: исполнитель
+выбирает брокерский клиент через фабрику, миграции стали явным шагом деплоя, а у
+оператора появился глобальный аварийный останов входов. Английский оригинал:
+`handover.md` §46; архитектура — `project-context.ru.md` §24.
+
+### 46.1 Три пары учётных данных (строго разделены)
+
+| Назначение | Token | Счёт | Кто читает |
+|---|---|---|---|
+| Market data (свечи, стакан) | `TINVEST_TOKEN` | `TINVEST_ACC` | `data_loader`, `online_data` |
+| Исполнение в песочнице | `TINVEST_SANDBOX` | `TINVEST_SANDBOX_ACC` | `TinkoffSandboxClient` |
+| Исполнение на реальном счёте | `TINVEST_LIVE_TOKEN` | `TINVEST_LIVE_ACC` | `TinkoffLiveClient` |
+
+Fallback между парами запрещён кодом: `TinkoffLiveClient` падает с
+`LiveConfigurationError`, если `TINVEST_LIVE_TOKEN` пуст **или совпадает** с
+`TINVEST_TOKEN` (защита от заполненной не той переменной). Токен не логируется;
+счёт логируется маскированным (`***1234`). `TINVEST_LIVE_ACC` может быть пустым —
+тогда берётся первый открытый счёт из `users.get_accounts()` (при нескольких
+открытых счетах пишется WARNING с рекомендацией зафиксировать счёт явно).
+
+### 46.2 Как выбирается контур
+
+Единственный источник истины — `SANDBOX_TRADING.allow_real_trading`
+(`backend/app/analytics/trading_config.py`), в коде всегда `False` (красная линия
+эпика #172). Переопределение — только env `ALLOW_REAL_TRADING`: принимаются слова
+`1/true/yes/on` и `0/false/no/off`, anything else → `ValueError` на старте
+(опечатка `ture` не может тихо означать «песочница» или «реал»).
+
+`app/broker/client_factory.create_execution_client()`:
+
+- gate закрыт → `TinkoffSandboxClient`, лог INFO `Using TinkoffSandboxClient: T-Bank sandbox contour`;
+- gate открыт → `TinkoffLiveClient`, лог **WARNING** `Using TinkoffLiveClient: REAL T-Bank account contour`.
+
+Выбранный контур виден оператору в трёх местах: `broker_contour` в снимке метрик
+(секция `source` ответа `GET /api/live-trading/metrics`), заголовки алертов
+`live_start` / `live_entry` / `live_exit` («песочница» / «реальный счёт») и поле
+«Контур брокера» в алерте старта. При `ALLOW_REAL_TRADING=true` sandbox-клиент
+сознательно отказывается конструироваться — смешать контуры в одном процессе нельзя.
+
+### 46.3 Runbook перехода на реальный счёт
+
+Порядок обязателен: каждый шаг проверяется до следующего.
+
+1. **Песочница зелёная.** Прогон `LiveExecutor` в песочнице без ошибок защиты
+   (`protection_failed_total == 0`, `invariant_violations_total == 0`), preflight
+   `ok=true`:
+   ```bash
+   docker compose exec -T backend python -m app.analytics.live_executor_preflight
+   ```
+2. **Миграции применены.** `alembic current` показывает `20260928_001 (head)`:
+   ```bash
+   docker compose run --rm migrate alembic current
+   ```
+3. **Учётные данные реального контура** в `.env` (файл вне git):
+   `TINVEST_LIVE_TOKEN`, `TINVEST_LIVE_ACC` (рекомендуется явно),
+   `ALLOW_REAL_TRADING=false` — пока не заполнены оба предыдущих пункта.
+4. **Проверка учётных данных без торговли.** Временный запуск preflight с
+   ожиданием реального контура:
+   ```bash
+   ALLOW_REAL_TRADING=true PREFLIGHT_EXPECT_CONTOUR=real \
+     docker compose run --rm -e ALLOW_REAL_TRADING -e PREFLIGHT_EXPECT_CONTOUR \
+     -e TINVEST_LIVE_TOKEN -e TINVEST_LIVE_ACC migrate \
+     python -m app.analytics.live_executor_preflight
+   ```
+   Ожидание: `contour=real`, `contour_matches_expectation=true`,
+   `sandbox_free_rub > 0` (это свободные деньги **реального** счёта),
+   `live_positions_schema=true`.
+5. **Риск-лимиты под реальный капитал.** `MAX_POSITION_SIZE`, `MAX_DAILY_LOSS_PCT`,
+   `MAX_OPEN_POSITIONS` — в `.env`; значения видны в
+   `GET /api/live-trading/equity/latest` → `risk.limits`.
+6. **Включение.** `ALLOW_REAL_TRADING=true` в `.env` → пересборка и перезапуск:
+   ```bash
+   docker compose up -d --build backend
+   START_LIVE_EXECUTOR=1 ./start_processes.sh
+   ```
+7. **Контроль первого цикла.** В логе исполнителя должна быть строка WARNING
+   `Using TinkoffLiveClient`, в алерте `live_start` — «Контур брокера: real»,
+   в `GET /api/live-trading/metrics` → `source.broker_contour == "real"`.
+8. **Первая сделка — под наблюдением.** После первого `live_entry` проверить, что
+   `protection.stops_armed_total` растёт и `positions.unprotected_total == 0`.
+
+Откат включения: `ALLOW_REAL_TRADING=false` → `docker compose up -d --build backend`.
+Открытые позиции реального счёта при этом **не закрываются автоматически**
+(`close_positions_on_shutdown=false`): их брокерские стопы остаются выставленными,
+дальше их ведёт либо restarted-исполнитель, либо оператор вручную.
+
+
+### 46.4 Глобальный аварийный останов (kill switch)
+
+**Что это.** Один булев ключ `trading.app_settings.live_kill_switch`
+(миграция `20260928_001`). `true` — исполнитель отклоняет **каждый новый вход**
+с причиной `kill_switch`; `false` — входы разрешены.
+
+**Чего он НЕ делает** (красные линии эпика #172):
+
+- не закрывает открытые позиции (нет auto-flatten);
+- не снимает и не отменяет брокерские стопы — защита позиций сохраняется;
+- не трогает paper-контур и трейлинг-переключатель `trailing_kill_switch`
+  (это отдельный рычаг: он останавливает переносы стопов, а не входы).
+
+**Как включить / выключить.**
+
+```bash
+# Включить (аварийный останов входов)
+curl -s -X POST http://localhost:8000/api/live-trading/kill-switch \
+  -H 'Content-Type: application/json' \
+  -d '{"enabled": true, "reason": "аномальная волатильность"}'
+
+# Выключить
+curl -s -X POST http://localhost:8000/api/live-trading/kill-switch \
+  -H 'Content-Type: application/json' -d '{"enabled": false}'
+
+# То же самое SQL-ом (эндпоинт — не единственная дверь)
+docker compose exec -T backend python -c "from app.db.db_manager import DBManager; \
+DBManager().execute(\"UPDATE trading.app_settings SET value='true'::jsonb, updated_at=now() WHERE key='live_kill_switch'\")"
+```
+
+Ответ эндпоинта: `ok`/`confirmed` — **подтверждение чтением обратно**; если строку
+не удалось прочитать после записи, `ok=false` (неподтверждённый аварийный останов
+не выдаётся за успех). Недоступная `trading.app_settings` → `503` с именем
+миграции. `reason` (до 200 символов) уходит в аудит-лог контейнера и в ответ,
+в БД не хранится.
+
+**Задержка срабатывания.** Исполнитель перечитывает ключ каждый цикл
+(`LIVE_TRADING.check_interval_seconds`, по умолчанию 30 с) — перезапуск процесса
+не нужен.
+
+**Fail-safe (решение D2).** Отсутствие строки, `NULL` или ошибка чтения БД
+трактуются как **ВКЛЮЧЕНО**: исполнитель, который не может прочитать свой
+аварийный останов, входы не открывает. In-memory дефолт
+`LIVE_TRADING['live_kill_switch']` тоже `true`, а `initialize()` читает
+сохранённое значение до первого цикла — поэтому рестарт на мигрированной БД не
+выглядит «переходом» и не шлёт лишний алерт.
+
+**Алерты.** Переходы публикуются в Telegram под существующими ключами
+`kill_switch_on` / `kill_switch_off` (critical только на включение), заголовок —
+«Глобальный kill switch ВКЛЮЧЁН/ВЫКЛЮЧЕН», в поле «Источник» — происхождение
+значения (`app_settings`, `app_settings:missing_key`, `app_settings:null_value`,
+`db_error:<тип>`). Порядок в потоке: сначала трейлинг-переключатель (как до #178),
+затем глобальный. Снимок метрик пишется сразу после перехода (решение D5).
+
+**Где видно состояние.**
+
+```bash
+curl -s http://localhost:8000/api/live-trading/metrics | python -m json.tool
+```
+
+- `global_kill_switch.active` — что применит исполнитель (fail-safe при отсутствии строки);
+- `global_kill_switch.found` / `.reason` — значение из строки или из правила fail-safe
+  (`missing_row` / `unreadable_row`);
+- `global_kill_switch.live_active` против `.snapshot_active` — строка БД против последнего
+  снимка (расхождение видно, а не сглаживается);
+- `global_kill_switch.rejections_total` — сколько сигналов отклонено;
+- `kill_switch.*` — независимо трейлинг-переключатель;
+- `state` = `kill_switch`, если включён любой из двух.
+
+
+### 46.5 Деплой: миграции как явный шаг
+
+```bash
+docker compose up -d --build backend   # соберёт образ, выполнит migrate, затем поднимет API
+docker compose run --rm migrate        # только миграции
+docker compose logs migrate --tail 50  # что применилось
+docker compose run --rm migrate alembic current
+docker compose run --rm migrate alembic history --verbose
+```
+
+- Сервис `migrate` — one-shot (`command: ["alembic","upgrade","head"]`,
+  `restart: "no"`), а `backend.depends_on.migrate.condition =
+  service_completed_successfully`: упавшая миграция останавливает деплой, а не
+  проявляется в бою (`assert_live_schema` всё равно abort-нул бы исполнитель).
+- Образ содержит `alembic.ini` и `alembic/` (`COPY` в `backend/Dockerfile`) —
+  до #178 их в образе не было.
+- `migrate` и `backend` используют **один** env-блок (YAML-anchor
+  `x-backend-env`), поэтому DSN миграций и приложения не может разъехаться.
+- `alembic/env.py` берёт URL из `app.core.config.get_app_database_url()`. С #178
+  эта функция читает пароль как `POSTGRES_PASSWORD` → `PSTGRS_PWD` → `app`;
+  раньше `PSTGRS_PWD` (то, что реально передаёт compose) игнорировался, и
+  миграции в контейнере падали на аутентификации.
+- Автомиграций в коде приложения нет (решение D4): runtime-DDL
+  `ensure_live_runtime_schema()` остаётся страховкой для standalone-запуска и
+  идемпотентно сходится к той же форме.
+
+### 46.6 Откат
+
+```bash
+docker compose run --rm migrate alembic downgrade -1     # 20260928_001 -> 20260927_001
+docker compose run --rm migrate alembic downgrade 20260927_001
+```
+
+Откат `20260928_001` удаляет **только** строку `live_kill_switch`
+(`DELETE FROM trading.app_settings WHERE key='live_kill_switch'`); таблицы и
+данные не трогаются. Важно: удалённая строка читается как ВКЛЮЧЕНО (fail-safe),
+поэтому откат миграции **блокирует входы**, а не разрешает их. Полный откат фичи —
+предыдущий образ + отсутствие `ALLOW_REAL_TRADING` в `.env`.
+
+### 46.7 Диагностика
+
+| Симптом | Причина | Действие |
+|---|---|---|
+| `LiveConfigurationError: TINVEST_LIVE_TOKEN is empty` | gate открыт, токена нет | заполнить `.env` или вернуть `ALLOW_REAL_TRADING=false` |
+| `... must not reuse the market-data TINVEST_TOKEN` | один токен в двух переменных | проверить, какой токен выдан в кабинете T-Bank |
+| `Refusing to build a real-money client` | `ALLOW_REAL_TRADING` не дошёл до контейнера | `docker compose exec backend env \| grep ALLOW_REAL` |
+| Входы не открываются, `reason=kill_switch`, `found=false` | нет строки `live_kill_switch` | `docker compose run --rm migrate` |
+| `alembic` не найден в контейнере | старый образ | `docker compose up -d --build backend` |
+| Миграция падает на auth | пароль не доехал | `PSTGRS_PWD` / `POSTGRES_PASSWORD` в `.env` |
+
+### 46.8 Известные ограничения
+
+- `GetStopOrders` реального контура не имеет фильтра по датам
+  (`GetStopOrdersRequest` = `account_id` + `status`), поэтому `from_date`/`to_date`
+  в `TinkoffLiveClient.get_stop_orders()` приняты для паритета сигнатуры и
+  игнорируются; фильтрация по инструменту — клиентская (uid / FIGI / ticker).
+- Idempotency-ключ реальной заявки передаётся как `idempotence_id`
+  (`order_id` в реальном API — биржевой номер заявки).
+- Discovery реального счёта берёт первый открытый счёт; при нескольких открытых
+  (брокерский + ИИС) счёт нужно фиксировать `TINVEST_LIVE_ACC` явно.
+- `live_kill_switch` блокирует только **входы**. Выходы, трейлинг, OCO-мониторинг
+  и сверка по филлам продолжают работать — сознательно: останов не должен
+  оставлять позицию без защиты.
+- Эндпоинт kill switch не аутентифицирован (как и весь API терминала): он
+  рассчитан на локальный/доверенный контур.
+- Preflight-проверка `real_trading_disabled` заменена на
+  `contour_matches_expectation` + `PREFLIGHT_EXPECT_CONTOUR`; старые чек-листы,
+  ссылающиеся на прежнее имя ключа, нужно обновить.
+
+### 46.9 Тесты
+
+```bash
+cd backend
+python -m pytest tests/test_tinkoff_live.py -q        # реальный клиент, gate, фабрика (51)
+python -m pytest tests/test_live_kill_switch.py -q    # миграция, гейт, fail-safe, API (41)
+python -m pytest tests/test_deploy_migrations.py -q   # цепочка alembic, Dockerfile, compose, DSN (15)
+```
+

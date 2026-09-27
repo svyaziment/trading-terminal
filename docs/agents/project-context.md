@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-28 (task-178 - the broker layer: sandbox and the real contour, new §24; the global kill switch; deploy migrations); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -226,6 +226,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/live-trading/equity/latest | Alias of `/equity/current` (#176) |
 | GET | /api/live-trading/equity/history | Live equity curve, newest first; filters `session_key`, `date_from`, `date_to`; pagination (#176). 503 with an `alembic upgrade head` hint when the table is missing |
 | GET | /api/live-trading/metrics | `LiveExecutor` metrics snapshot from `trading.app_settings['live_executor_metrics']`: `state` (unknown/kill_switch/no_heartbeat/stale/error_threshold/risk_breach/running), snapshot and heartbeat age, loop/protection/risk/alerting counters, kill switch from the live row, open positions with and without broker protection (#177). Degrades to `available=false` + `reason` instead of a 500 |
+| POST | /api/live-trading/kill-switch | Global emergency stop of the live contour (#178). Body `{"enabled": bool, "reason"?: str<=200}`; upserts `trading.app_settings.live_kill_switch`, confirms by reading it back (`ok`/`confirmed`) and answers `503` naming migration `20260928_001` when the table is unwritable. Entries are rejected with reason `kill_switch`; open positions keep their broker stops |
 
 Shared lock: jobs_state.py (in-process). Only one heavy job runs at a time; others return 409.
 
@@ -893,3 +894,88 @@ force points, write failure), the full endpoint response and all of its degradat
 `backend/tests` suite - 765 passed.
 
 **SSL certificates for T-Bank gRPC:** on a Windows host you must explicitly set `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH="$(pwd)/backend/certs/tbank-root.pem"` (set automatically in `start_processes.sh`), otherwise the gRPC connection to `sandbox-invest-public-api.tbank.ru` fails with `CERTIFICATE_VERIFY_FAILED`.
+
+## 24. The broker layer: sandbox and the real contour (Issue #178, Epic #172 block F)
+
+Before #178 execution existed only against the sandbox. The broker layer is now
+three modules and one selection point:
+
+```
+backend/app/broker/
+├── tinkoff_sandbox.py  TinkoffSandboxClient -> client.sandbox.*  (INVEST_GRPC_API_SANDBOX)
+├── tinkoff_live.py     TinkoffLiveClient    -> orders / stop_orders / operations / users
+└── client_factory.py   create_execution_client() - the only contour selection
+```
+
+`LiveExecutor` does not know which client it trades through: the contract is
+duck-typed and matches method for method (`execute_order`, `cancel_order`,
+`get_orders`, `post_stop_order`, `get_stop_orders`, `cancel_stop_order`,
+`get_operations`, `get_positions`, `check_balance`), and the returned structures
+are the same dataclasses (`tinkoff_live` re-exports them as
+`LiveOrder = SandboxOrder` and so on). The real contour's errors inherit the
+sandbox errors (`LiveAPIError(SandboxAPIError)`,
+`LiveConfigurationError(SandboxConfigurationError)`), so not one
+`except SandboxAPIError` in the executor had to change. The retry policy, the
+`Quotation` conversion and the string-to-SDK-enum maps are shared (imported from
+the sandbox module - there is no second copy).
+
+### 24.1 Service mapping
+
+| Operation | sandbox | real contour |
+|---|---|---|
+| Order | `sandbox.post_sandbox_order` | `orders.post_order` (idempotency: `idempotence_id`) |
+| Cancel order | `sandbox.cancel_sandbox_order` | `orders.cancel_order` |
+| Resting orders | `sandbox.get_sandbox_orders` | `orders.get_orders` |
+| Stop order | `sandbox.post_sandbox_stop_order` | `stop_orders.post_stop_order` |
+| Stop list | `sandbox.get_sandbox_stop_orders` | `stop_orders.get_stop_orders` (no date filter) |
+| Cancel stop | `sandbox.cancel_sandbox_stop_order` | `stop_orders.cancel_stop_order` |
+| Operations/fills | `sandbox.get_sandbox_operations` | `operations.get_operations` |
+| Portfolio | `sandbox.get_sandbox_portfolio` | `operations.get_portfolio` |
+| Cash | `sandbox.get_sandbox_positions` | `operations.get_positions` |
+| Accounts | `sandbox.get_sandbox_accounts` | `users.get_accounts` |
+
+### 24.2 The contour selection point
+
+The single source of truth is `SANDBOX_TRADING.allow_real_trading`
+(`trading_config.py`), `False` in code. The `ALLOW_REAL_TRADING` env override is
+resolved in `get_sandbox_trading_config()` through `_env_strict_bool()`: an
+ambiguous value raises `ValueError` at startup. The factory
+`create_execution_client()` returns `TinkoffLiveClient` (WARNING log) or
+`TinkoffSandboxClient` (INFO log); the selected contour is published as
+`broker_contour` in the metrics snapshot and in the alert titles. With the gate
+open the sandbox client refuses to be constructed, so the two contours cannot be
+mixed inside one process. Credentials are separated: `TINVEST_TOKEN`/`TINVEST_ACC`
+(market data), `TINVEST_SANDBOX`/`TINVEST_SANDBOX_ACC` (sandbox),
+`TINVEST_LIVE_TOKEN`/`TINVEST_LIVE_ACC` (real); cross-fallback is refused in code.
+
+### 24.3 The global kill switch
+
+`trading.app_settings.live_kill_switch` (migration `20260928_001`, runtime seed in
+`live_schema.LIVE_SCHEMA_STATEMENTS`, the key is part of
+`REQUIRED_APP_SETTINGS_KEYS`). The gate sits in `process_signal` as the **first**
+business check - before the session window, the order book, sizing and any broker
+call; a rejection is logged with the reason `kill_switch` and counted in
+`kill_switch_rejections_total`. Fail-safe (decision D2): a missing row, a `NULL`
+or a read error means ON; the in-memory default is `true` too, and `initialize()`
+reads the stored value silently before the first cycle. Open positions are
+untouched: stops are not cancelled and there is no flatten. Operation is through
+`POST /api/live-trading/kill-switch` (upsert plus a read-back confirmation, `503`
+when the table is unwritable) or directly by SQL; the state is published as the
+`global_kill_switch` section of `GET /api/live-trading/metrics`, and `state`
+becomes `kill_switch` when either lever is engaged.
+
+### 24.4 Deploy and migrations
+
+Migrations are an explicit deploy step (decision D4): the one-shot `migrate`
+service (`alembic upgrade head`) in `docker-compose.yml`, which `backend` waits
+for through `depends_on: {migrate: {condition: service_completed_successfully}}`.
+The image carries `alembic.ini` and `alembic/`. Both services share one
+environment block (the `x-backend-env` YAML anchor), and
+`get_app_database_url()` resolves the password as `POSTGRES_PASSWORD` ->
+`PSTGRS_PWD` -> `app`, so the migration DSN and the application DSN are the same.
+There is no auto-migration in application code; `.env.example` is now tracked in
+git through the `!.env.example` exception (closing D14 of #176).
+
+**Tests:** `test_tinkoff_live.py` (51), `test_live_kill_switch.py` (41),
+`test_deploy_migrations.py` (15). Operational details and the go-live runbook:
+`handover.md` §46.

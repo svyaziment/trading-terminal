@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-28 (task-178 - the real T-Bank contour `TinkoffLiveClient`, the contour factory driven by `ALLOW_REAL_TRADING`, the global kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, deploy migrations through the one-shot `migrate` service; new §46); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -1250,3 +1250,244 @@ cd backend && python -m pytest tests/test_live_alerting.py -q
 - The snapshot field names are a contract, not a derivative of the code: the reader does not
   import `live_executor`, so a new field must also be added to `_METRICS_SNAPSHOT_FIELDS`,
   otherwise it lands in `extra` (safe, but untyped).
+
+## 46. The real T-Bank contour, deploy migrations and the global kill switch (Issue #178)
+
+**What changed.** The live contour is no longer sandbox-only by construction: the
+executor picks its broker client through a factory, migrations are an explicit
+deploy step, and the operator got a global entry emergency stop. Russian
+original: `handover.ru.md` §46; architecture: `project-context.md` §24.
+
+### 46.1 Three credential pairs (strictly separated)
+
+| Purpose | Token | Account | Read by |
+|---|---|---|---|
+| Market data (candles, orderbook) | `TINVEST_TOKEN` | `TINVEST_ACC` | `data_loader`, `online_data` |
+| Sandbox execution | `TINVEST_SANDBOX` | `TINVEST_SANDBOX_ACC` | `TinkoffSandboxClient` |
+| REAL account execution | `TINVEST_LIVE_TOKEN` | `TINVEST_LIVE_ACC` | `TinkoffLiveClient` |
+
+Cross-pair fallback is refused in code: `TinkoffLiveClient` raises
+`LiveConfigurationError` when `TINVEST_LIVE_TOKEN` is empty **or equals**
+`TINVEST_TOKEN` (the "filled the wrong variable" case). The token is never
+logged; the account id is logged masked (`***1234`). `TINVEST_LIVE_ACC` may stay
+empty - the first open account from `users.get_accounts()` is then used, with a
+WARNING recommending an explicit id when several accounts are open.
+
+### 46.2 How the contour is selected
+
+The single source of truth is `SANDBOX_TRADING.allow_real_trading`
+(`backend/app/analytics/trading_config.py`), `False` in code (an Epic #172 red
+line). The only override is the `ALLOW_REAL_TRADING` env variable: the accepted
+words are `1/true/yes/on` and `0/false/no/off`; anything else raises `ValueError`
+at startup, so a typo like `ture` can never silently pick a contour.
+
+`app/broker/client_factory.create_execution_client()`:
+
+- gate closed -> `TinkoffSandboxClient`, INFO log `Using TinkoffSandboxClient: T-Bank sandbox contour`;
+- gate open -> `TinkoffLiveClient`, **WARNING** log `Using TinkoffLiveClient: REAL T-Bank account contour`.
+
+The selected contour is visible to the operator in three places: `broker_contour`
+in the metrics snapshot (`source` section of `GET /api/live-trading/metrics`), the
+titles of the `live_start` / `live_entry` / `live_exit` alerts ("sandbox" / "real
+account" in Russian) and the "broker contour" field of the start alert. With
+`ALLOW_REAL_TRADING=true` the sandbox client refuses to be constructed at all, so
+the two contours cannot be mixed inside one process.
+
+### 46.3 Runbook: switching to the real account
+
+The order is mandatory - each step is verified before the next one.
+
+1. **The sandbox is green.** A `LiveExecutor` run with no protection failures
+   (`protection_failed_total == 0`, `invariant_violations_total == 0`) and a
+   preflight reporting `ok=true`:
+   ```bash
+   docker compose exec -T backend python -m app.analytics.live_executor_preflight
+   ```
+2. **Migrations applied.** `alembic current` reports `20260928_001 (head)`:
+   ```bash
+   docker compose run --rm migrate alembic current
+   ```
+3. **Real-contour credentials** in `.env` (the file itself is not in git):
+   `TINVEST_LIVE_TOKEN`, `TINVEST_LIVE_ACC` (explicit is recommended) and
+   `ALLOW_REAL_TRADING=false` until both exist.
+4. **Credential check without trading.** A preflight run that expects the real
+   contour:
+   ```bash
+   ALLOW_REAL_TRADING=true PREFLIGHT_EXPECT_CONTOUR=real \
+     docker compose run --rm -e ALLOW_REAL_TRADING -e PREFLIGHT_EXPECT_CONTOUR \
+     -e TINVEST_LIVE_TOKEN -e TINVEST_LIVE_ACC migrate \
+     python -m app.analytics.live_executor_preflight
+   ```
+   Expect `contour=real`, `contour_matches_expectation=true`,
+   `sandbox_free_rub > 0` (that is the REAL account's free cash) and
+   `live_positions_schema=true`.
+5. **Risk limits sized for real capital.** `MAX_POSITION_SIZE`,
+   `MAX_DAILY_LOSS_PCT`, `MAX_OPEN_POSITIONS` in `.env`; the effective values are
+   published by `GET /api/live-trading/equity/latest` -> `risk.limits`.
+6. **Enable.** `ALLOW_REAL_TRADING=true` in `.env`, then rebuild and restart:
+   ```bash
+   docker compose up -d --build backend
+   START_LIVE_EXECUTOR=1 ./start_processes.sh
+   ```
+7. **Watch the first cycle.** The executor log must contain the WARNING
+   `Using TinkoffLiveClient`, the `live_start` alert must say the real contour,
+   and `GET /api/live-trading/metrics` must report
+   `source.broker_contour == "real"`.
+8. **Watch the first fill.** After the first `live_entry`, verify that
+   `protection.stops_armed_total` grows and `positions.unprotected_total == 0`.
+
+Rolling the enablement back: `ALLOW_REAL_TRADING=false` ->
+`docker compose up -d --build backend`. Open positions on the real account are
+**not** closed automatically (`close_positions_on_shutdown=false`): their broker
+stops stay armed and are handled either by the restarted executor or manually.
+
+
+### 46.4 The global kill switch
+
+**What it is.** One boolean key, `trading.app_settings.live_kill_switch`
+(migration `20260928_001`). `true` - the executor rejects **every new entry**
+with the reason `kill_switch`; `false` - entries are allowed again.
+
+**What it deliberately does NOT do** (Epic #172 red lines):
+
+- it does not close open positions (no auto-flatten);
+- it does not cancel or disarm broker stops - position protection survives;
+- it does not touch the paper contour or the `trailing_kill_switch` (a separate
+  lever: that one pauses stop ratcheting, not entries).
+
+**How to operate it.**
+
+```bash
+# Engage (stop new entries)
+curl -s -X POST http://localhost:8000/api/live-trading/kill-switch \
+  -H 'Content-Type: application/json' \
+  -d '{"enabled": true, "reason": "abnormal volatility"}'
+
+# Release
+curl -s -X POST http://localhost:8000/api/live-trading/kill-switch \
+  -H 'Content-Type: application/json' -d '{"enabled": false}'
+
+# The same by SQL - the endpoint is not the only door
+docker compose exec -T backend python -c "from app.db.db_manager import DBManager; \
+DBManager().execute(\"UPDATE trading.app_settings SET value='true'::jsonb, updated_at=now() WHERE key='live_kill_switch'\")"
+```
+
+The response carries `ok`/`confirmed`, which is a **read-back confirmation**: when
+the row cannot be read after the write, `ok=false` (an unconfirmed emergency stop
+is never reported as a success). An unwritable `trading.app_settings` answers
+`503` naming the migration. `reason` (max 200 characters) goes to the container
+audit log and to the response; it is not stored.
+
+**Latency.** The executor re-reads the key every cycle
+(`LIVE_TRADING.check_interval_seconds`, 30 s by default) - no restart needed.
+
+**Fail-safe (decision D2).** A missing row, a `NULL` value or a database error is
+treated as **ON**: an executor that cannot read its own emergency stop does not
+open entries. The in-memory default `LIVE_TRADING['live_kill_switch']` is `true`
+as well, and `initialize()` reads the stored value before the first cycle, so a
+restart on a migrated database is not a "transition" and sends no alert.
+
+**Alerts.** Transitions are published to Telegram under the existing keys
+`kill_switch_on` / `kill_switch_off` (critical only for the ON direction), titled
+"Global kill switch ENGAGED/RELEASED" (in Russian), with the value provenance in
+the source field (`app_settings`, `app_settings:missing_key`,
+`app_settings:null_value`, `db_error:<type>`). Stream order: the trailing switch
+first (as before #178), then the global one. The metrics snapshot is flushed
+right after a transition (decision D5).
+
+**Where the state is visible.**
+
+```bash
+curl -s http://localhost:8000/api/live-trading/metrics | python -m json.tool
+```
+
+- `global_kill_switch.active` - what the executor will apply (fail-safe when the row is absent);
+- `global_kill_switch.found` / `.reason` - whether the value came from the row or from the
+  fail-safe rule (`missing_row` / `unreadable_row`);
+- `global_kill_switch.live_active` vs `.snapshot_active` - the DB row against the last snapshot
+  (a difference is published, not smoothed over);
+- `global_kill_switch.rejections_total` - how many signals were rejected;
+- `kill_switch.*` - the trailing switch, reported independently;
+- `state` = `kill_switch` when either lever is engaged.
+
+
+### 46.5 Deploy: migrations as an explicit step
+
+```bash
+docker compose up -d --build backend   # builds, migrates, then serves
+docker compose run --rm migrate        # migrations only
+docker compose logs migrate --tail 50  # what was applied
+docker compose run --rm migrate alembic current
+docker compose run --rm migrate alembic history --verbose
+```
+
+- The `migrate` service is one-shot (`command: ["alembic","upgrade","head"]`,
+  `restart: "no"`) and `backend.depends_on.migrate.condition =
+  service_completed_successfully`: a failing migration stops the deploy instead
+  of surfacing in production (`assert_live_schema` would abort the executor
+  anyway).
+- The image carries `alembic.ini` and `alembic/` (`COPY` in
+  `backend/Dockerfile`) - before #178 it did not.
+- `migrate` and `backend` share ONE environment block (the `x-backend-env` YAML
+  anchor), so the migration DSN and the application DSN cannot drift apart.
+- `alembic/env.py` resolves the URL through
+  `app.core.config.get_app_database_url()`. Since #178 that function reads the
+  password as `POSTGRES_PASSWORD` -> `PSTGRS_PWD` -> `app`; before, `PSTGRS_PWD`
+  (the name compose actually passes) was ignored and in-container migrations
+  failed authentication.
+- There is no auto-migration in application code (decision D4): the runtime DDL
+  `ensure_live_runtime_schema()` remains the safety net for a standalone start
+  and converges idempotently to the same shape.
+
+### 46.6 Rollback
+
+```bash
+docker compose run --rm migrate alembic downgrade -1     # 20260928_001 -> 20260927_001
+docker compose run --rm migrate alembic downgrade 20260927_001
+```
+
+Rolling back `20260928_001` deletes **only** the `live_kill_switch` row
+(`DELETE FROM trading.app_settings WHERE key='live_kill_switch'`); no table or
+data is touched. Important: a deleted row reads as ON (fail-safe), so rolling the
+migration back **blocks entries** rather than re-enabling them. Rolling the whole
+feature back means the previous image plus no `ALLOW_REAL_TRADING` in `.env`.
+
+### 46.7 Diagnostics
+
+| Symptom | Cause | Action |
+|---|---|---|
+| `LiveConfigurationError: TINVEST_LIVE_TOKEN is empty` | gate open, no token | fill `.env` or set `ALLOW_REAL_TRADING=false` |
+| `... must not reuse the market-data TINVEST_TOKEN` | one token in two variables | check which token T-Bank issued |
+| `Refusing to build a real-money client` | `ALLOW_REAL_TRADING` never reached the container | `docker compose exec backend env \| grep ALLOW_REAL` |
+| No entries, `reason=kill_switch`, `found=false` | the `live_kill_switch` row is missing | `docker compose run --rm migrate` |
+| `alembic` not found in the container | stale image | `docker compose up -d --build backend` |
+| Migration fails on auth | the password did not arrive | `PSTGRS_PWD` / `POSTGRES_PASSWORD` in `.env` |
+
+### 46.8 Known limitations
+
+- The real contour's `GetStopOrders` has no date filter
+  (`GetStopOrdersRequest` = `account_id` + `status`), so `from_date`/`to_date` of
+  `TinkoffLiveClient.get_stop_orders()` are accepted for signature parity and
+  ignored; instrument filtering is client-side (uid / FIGI / ticker).
+- The idempotency key of a real order is passed as `idempotence_id` (`order_id`
+  in the real API is the exchange order number).
+- Real account discovery picks the first open account; with several open accounts
+  (brokerage + IIS) pin `TINVEST_LIVE_ACC` explicitly.
+- `live_kill_switch` blocks **entries only**. Exits, trailing, OCO monitoring and
+  fill reconciliation keep running - by design: an emergency stop must never
+  leave a position unprotected.
+- The kill-switch endpoint is not authenticated (like the rest of the terminal
+  API): it assumes a local/trusted network.
+- The preflight check `real_trading_disabled` was replaced by
+  `contour_matches_expectation` + `PREFLIGHT_EXPECT_CONTOUR`; older checklists
+  referencing the previous key name must be updated.
+
+### 46.9 Tests
+
+```bash
+cd backend
+python -m pytest tests/test_tinkoff_live.py -q        # real client, gate, factory (51)
+python -m pytest tests/test_live_kill_switch.py -q    # migration, gate, fail-safe, API (41)
+python -m pytest tests/test_deploy_migrations.py -q   # alembic chain, Dockerfile, compose, DSN (15)
+```
+
