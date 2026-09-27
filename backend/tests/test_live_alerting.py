@@ -1273,8 +1273,11 @@ class TestLifecycleAlerts:
         assert executor.alerts_attempted_total == 2
         assert executor.alerts_skipped_total == 2
         assert executor.alerts_sent_total == 0
-        assert "Sandbox LiveExecutor started" in caplog.text
-        assert "Sandbox LiveExecutor stopped cleanly" in caplog.text
+        # Issue #178: the announcement names the contour instead of hardcoding
+        # "Sandbox", and a test double must never be reported as the real one.
+        assert "LiveExecutor started: contour=" in caplog.text
+        assert "LiveExecutor stopped cleanly: contour=" in caplog.text
+        assert "contour=real" not in caplog.text
 
     def test_a_series_of_monitor_errors_stops_the_contour(self):
         notifier = FakeNotifier()
@@ -1581,6 +1584,8 @@ def metrics_snapshot(**overrides) -> dict:
         "persisted_at": (METRICS_NOW - timedelta(seconds=30)).isoformat(
             timespec="seconds"
         ),
+        # broker contour (#178)
+        "broker_contour": "sandbox",
         # loop
         "strategy": "active-strategy",
         "tickers": ["GAZP", "SBER"],
@@ -1598,6 +1603,10 @@ def metrics_snapshot(**overrides) -> dict:
         # kill switch
         "kill_switch": False,
         "kill_switch_source": "startup",
+        # global entry kill switch (#178)
+        "live_kill_switch": False,
+        "live_kill_switch_source": "app_settings",
+        "kill_switch_rejections_total": 0,
         # broker-side protection (#175)
         "stops_armed_total": 6,
         "stop_amend_total": 2,
@@ -1641,13 +1650,31 @@ def metrics_snapshot(**overrides) -> dict:
     return data
 
 
-def metrics_db(snapshot=..., *, kill_switch=None, positions=None, **kwargs):
-    """FakeDB serving the metrics row (and optionally the kill-switch row)."""
+def metrics_db(
+    snapshot=...,
+    *,
+    kill_switch=None,
+    global_kill_switch=False,
+    positions=None,
+    **kwargs,
+):
+    """FakeDB serving the metrics row (and optionally the kill-switch rows).
+
+    ``global_kill_switch`` defaults to ``False`` - the state of a database
+    migrated with 20260928_001 (Issue #178). Pass ``None`` to simulate the
+    unmigrated case, where the reader must fail safe to "active".
+    """
     settings = dict(kwargs.pop("app_settings", None) or {})
     if snapshot is not ...:
         settings["live_executor_metrics"] = snapshot
     if kill_switch is not None:
         settings["trailing_kill_switch"] = kill_switch
+    if global_kill_switch is not None:
+        settings["live_kill_switch"] = global_kill_switch
+    else:
+        # Simulate the unmigrated database: no seeded row either, so the reader
+        # has to fail safe to "active".
+        kwargs.setdefault("seeded_kill_switch", None)
     return MetricsApiDB(
         app_settings=settings,
         active=positions if positions is not None else pd.DataFrame(),
@@ -1734,6 +1761,8 @@ class TestMetricsEndpointContract:
             ),
             "age_seconds": 30.0,
             "flush_stale": False,
+            # Issue #178: the contour that produced the numbers.
+            "broker_contour": "sandbox",
         }
         assert payload["loop"]["strategy"] == "active-strategy"
         assert payload["loop"]["tickers"] == ["GAZP", "SBER"]
@@ -2373,6 +2402,7 @@ class TestMetricsRoute:
             "loop",
             "heartbeat",
             "kill_switch",
+            "global_kill_switch",
             "protection",
             "risk",
             "alerting",
@@ -2384,6 +2414,9 @@ class TestMetricsRoute:
         assert body["generated_at"] == METRICS_NOW.isoformat(timespec="seconds")
         assert body["heartbeat"]["age_seconds"] == 60.0
         assert body["kill_switch"]["active"] is False
+        # Issue #178: the global entry stop is published next to the trailing one.
+        assert body["global_kill_switch"]["active"] is False
+        assert body["global_kill_switch"]["found"] is True
         assert body["positions"]["open_total"] == 0
         assert body["extra"] == {}
 

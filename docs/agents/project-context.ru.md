@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-18 (task-173); ранее 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-14 (task-147); 2026-09-09 (задача #146 — Lab умеет настраивать `config.trailing_stop`: переключатель и таблица ступеней, отрисованные из нового read-only `GET /api/strategies/trailing-schema`; ответ собирает `trading_config.get_trailing_stop_schema()` на основе `TRAILING_STOP` (handover §38). Ни одно поле или число трейлинга не продублировано в TSX, нетронутая стратегия по-прежнему сохраняется без ключа, а таблица сделок наконец отличает выход `trailing` от простого `stop`). Предыдущее обновление: 2026-09-08 (в §18 зафиксировано решение Product Owner: `ultra_late_tight` — самая поздняя и плотная лестница решётки `143-trailing-v3` — становится боевым дефолтом сетки трейлинг-стопа для #144; эпик #142 / roadmap Block W; контракт `config.trailing_stop` из #144 уже в коде — только валидация, полный контракт полей в §6, тесты `backend/tests/test_trailing_contract.py`). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-09-28 (task-178 — брокерский слой: песочница и реальный контур, новый §24; глобальный kill switch; деплой-миграции); ранее 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-18 (task-173); ранее 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-14 (task-147); 2026-09-09 (задача #146 — Lab умеет настраивать `config.trailing_stop`: переключатель и таблица ступеней, отрисованные из нового read-only `GET /api/strategies/trailing-schema`; ответ собирает `trading_config.get_trailing_stop_schema()` на основе `TRAILING_STOP` (handover §38). Ни одно поле или число трейлинга не продублировано в TSX, нетронутая стратегия по-прежнему сохраняется без ключа, а таблица сделок наконец отличает выход `trailing` от простого `stop`). Предыдущее обновление: 2026-09-08 (в §18 зафиксировано решение Product Owner: `ultra_late_tight` — самая поздняя и плотная лестница решётки `143-trailing-v3` — становится боевым дефолтом сетки трейлинг-стопа для #144; эпик #142 / roadmap Block W; контракт `config.trailing_stop` из #144 уже в коде — только валидация, полный контракт полей в §6, тесты `backend/tests/test_trailing_contract.py`). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -223,6 +223,7 @@ MOEX ISS API -> candles_1min_raw (incremental) -> candles_aggregated (30min/1h/4
 | GET | /api/live-trading/equity/latest | Алиас `/equity/current` (#176) |
 | GET | /api/live-trading/equity/history | Кривая эквити live, свежие первыми; фильтры `session_key`, `date_from`, `date_to`; пагинация (#176). 503 с подсказкой `alembic upgrade head`, если таблицы нет |
 | GET | /api/live-trading/metrics | Снимок метрик `LiveExecutor` из `trading.app_settings['live_executor_metrics']`: `state` (unknown/kill_switch/no_heartbeat/stale/error_threshold/risk_breach/running), возраст снимка и пульса, счётчики цикла/защиты/риска/алертов, kill switch из живой строки, открытые позиции с защитой и без (#177). Деградирует `available=false` + `reason` вместо 500 |
+| POST | /api/live-trading/kill-switch | Глобальный аварийный останов live-контура (#178). Тело `{"enabled": bool, "reason"?: str<=200}`; upsert `trading.app_settings.live_kill_switch` с подтверждением чтением обратно (`ok`/`confirmed`) и `503` с именем миграции `20260928_001`, если таблица недоступна. Входы отклоняются с причиной `kill_switch`, открытые позиции сохраняют брокерские стопы |
 
 Общий lock: jobs_state.py (in-process). Одновременно выполняется только одна тяжёлая задача; остальные возвращают 409.
 
@@ -881,6 +882,90 @@ env-override `LIVE_ALERTING`, валидацию диапазонов и `valida
 прогон `backend/tests` — 765 passed.
 
 **SSL-сертификаты для T-Bank gRPC:** на хосте Windows требуется явно задать `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH="$(pwd)/backend/certs/tbank-root.pem"` (автоматически устанавливается в `start_processes.sh`), иначе gRPC-подключение к `sandbox-invest-public-api.tbank.ru` падает с `CERTIFICATE_VERIFY_FAILED`.
+
+## 24. Брокерский слой: песочница и реальный контур (задача #178, эпик #172, блок F)
+
+До #178 исполнение существовало только против песочницы. Теперь брокерский слой —
+три модуля и одна точка выбора:
+
+```
+backend/app/broker/
+├── tinkoff_sandbox.py  TinkoffSandboxClient -> client.sandbox.*  (INVEST_GRPC_API_SANDBOX)
+├── tinkoff_live.py     TinkoffLiveClient    -> orders / stop_orders / operations / users
+└── client_factory.py   create_execution_client() — единственный выбор контура
+```
+
+`LiveExecutor` не знает, каким клиентом торгует: контракт duck-typed и совпадает
+метод в метод (`execute_order`, `cancel_order`, `get_orders`, `post_stop_order`,
+`get_stop_orders`, `cancel_stop_order`, `get_operations`, `get_positions`,
+`check_balance`), а возвращаемые структуры — те же dataclass'ы (`tinkoff_live`
+переэкспортирует их как `LiveOrder = SandboxOrder` и т.д.). Ошибки реального
+контура наследуют sandbox-ошибки (`LiveAPIError(SandboxAPIError)`,
+`LiveConfigurationError(SandboxConfigurationError)`), поэтому ни один
+`except SandboxAPIError` в исполнителе менять не пришлось. Retry-политика,
+конвертация `Quotation` и маппинги строк в SDK-enum'ы — общие (импортируются из
+sandbox-модуля, второй копии нет).
+
+### 24.1 Маппинг сервисов
+
+| Операция | песочница | реальный контур |
+|---|---|---|
+| Заявка | `sandbox.post_sandbox_order` | `orders.post_order` (idempotency — `idempotence_id`) |
+| Отмена заявки | `sandbox.cancel_sandbox_order` | `orders.cancel_order` |
+| Активные заявки | `sandbox.get_sandbox_orders` | `orders.get_orders` |
+| Стоп-заявка | `sandbox.post_sandbox_stop_order` | `stop_orders.post_stop_order` |
+| Список стопов | `sandbox.get_sandbox_stop_orders` | `stop_orders.get_stop_orders` (без фильтра по датам) |
+| Отмена стопа | `sandbox.cancel_sandbox_stop_order` | `stop_orders.cancel_stop_order` |
+| Операции/филлы | `sandbox.get_sandbox_operations` | `operations.get_operations` |
+| Портфель | `sandbox.get_sandbox_portfolio` | `operations.get_portfolio` |
+| Деньги | `sandbox.get_sandbox_positions` | `operations.get_positions` |
+| Счета | `sandbox.get_sandbox_accounts` | `users.get_accounts` |
+
+### 24.2 Точка выбора контура
+
+Единственный источник истины — `SANDBOX_TRADING.allow_real_trading`
+(`trading_config.py`), в коде `False`. Env-override `ALLOW_REAL_TRADING`
+резолвится в `get_sandbox_trading_config()` через `_env_strict_bool()`:
+неоднозначное значение → `ValueError` на старте. Фабрика
+`create_execution_client()` возвращает `TinkoffLiveClient` (лог WARNING) или
+`TinkoffSandboxClient` (лог INFO); выбранный контур публикуется как
+`broker_contour` в снимке метрик и в заголовках алертов. При открытом gate
+sandbox-клиент отказывается конструироваться — смешать контуры в одном процессе
+нельзя. Учётные данные разделены: `TINVEST_TOKEN`/`TINVEST_ACC` (market data),
+`TINVEST_SANDBOX`/`TINVEST_SANDBOX_ACC` (песочница),
+`TINVEST_LIVE_TOKEN`/`TINVEST_LIVE_ACC` (реал); cross-fallback запрещён кодом.
+
+### 24.3 Глобальный kill switch
+
+`trading.app_settings.live_kill_switch` (миграция `20260928_001`, runtime-сид в
+`live_schema.LIVE_SCHEMA_STATEMENTS`, ключ входит в
+`REQUIRED_APP_SETTINGS_KEYS`). Гейт стоит в `process_signal` **первой** бизнес-
+проверкой — до сессионного окна, стакана, сайзинга и любого брокерского вызова;
+отказ логируется причиной `kill_switch` и считается в
+`kill_switch_rejections_total`. Fail-safe (решение D2): отсутствие строки, `NULL`
+или ошибка чтения → ВКЛЮЧЕНО; in-memory дефолт тоже `true`, а `initialize()`
+читает сохранённое значение тихо, до первого цикла. Открытые позиции не
+затрагиваются: стопы не снимаются, flatten отсутствует. Управление —
+`POST /api/live-trading/kill-switch` (upsert + подтверждение чтением, 503 при
+недоступной таблице) или SQL напрямую; состояние публикуется секцией
+`global_kill_switch` в `GET /api/live-trading/metrics`, а `state` становится
+`kill_switch` при любом из двух рычагов.
+
+### 24.4 Деплой и миграции
+
+Миграции — явный шаг деплоя (решение D4): one-shot сервис `migrate`
+(`alembic upgrade head`) в `docker-compose.yml`, `backend` ждёт его через
+`depends_on: {migrate: {condition: service_completed_successfully}}`. Образ
+содержит `alembic.ini` и `alembic/`. Оба сервиса используют один env-блок
+(YAML-anchor `x-backend-env`), а `get_app_database_url()` читает пароль как
+`POSTGRES_PASSWORD` → `PSTGRS_PWD` → `app`, поэтому DSN миграций и приложения
+совпадают. Автомиграций в коде приложения нет; `.env.example` выведен из-под
+`.gitignore` исключением `!.env.example` (закрыт D14 из #176).
+
+**Тесты:** `test_tinkoff_live.py` (51), `test_live_kill_switch.py` (41),
+`test_deploy_migrations.py` (15). Операционные детали и runbook перехода на
+реальный счёт — `handover.ru.md` §46.
+
 
 ## Приложение (2026-09-27, follow-up #177): тайминг алерта live_start
 Алерт `live_start` отправляется сразу при старте процесса `LiveExecutor` - до ночного ожидания сессии 10:00 MSK (`wait_for_session_open()`), поэтому воскресный запуск виден в Telegram немедленно. Поскольку алерт идёт до `initialize()`, поле «Тикеров» равно 0 и имя стратегии пусто до открытия сессии - это ожидаемое значение «ещё не инициализировано», а не дефект. `check_interval` вычисляется до формирования алерта, поэтому payload не может упасть на неинициализированной переменной.

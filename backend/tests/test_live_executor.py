@@ -77,12 +77,18 @@ class FakeDB:
         schema_columns=None,
         schema_statuses=None,
         schema_tables=None,
+        seeded_kill_switch=False,
     ):
         self.active = active if active is not None else pd.DataFrame()
         self.instruments = (
             instruments if instruments is not None else pd.DataFrame()
         )
         self.app_settings = app_settings if app_settings is not None else {}
+        # Issue #178: the fake models a database migrated with 20260928_001, so
+        # the seeded ``live_kill_switch`` row exists even when a test only cares
+        # about other settings. Pass ``seeded_kill_switch=None`` to simulate the
+        # unmigrated case, where the executor must fail safe to ON.
+        self.seeded_kill_switch = seeded_kill_switch
         # Issue #173: information_schema answers for the live-schema contract.
         # Defaults describe a fully migrated database (30 columns / 7 statuses);
         # tests can narrow them to simulate schema drift.
@@ -142,6 +148,15 @@ class FakeDB:
                 key = params[0]
                 if key in self.app_settings:
                     return Result(pd.DataFrame([{"key": key, "value": self.app_settings[key]}]))
+                if (
+                    key == "live_kill_switch"
+                    and self.seeded_kill_switch is not None
+                ):
+                    return Result(
+                        pd.DataFrame(
+                            [{"key": key, "value": self.seeded_kill_switch}]
+                        )
+                    )
             elif self.app_settings:
                 return Result(pd.DataFrame([
                     {"key": k, "value": v} for k, v in self.app_settings.items()
@@ -214,6 +229,11 @@ def make_executor(*, db=None, broker=None, now_fn=None, clock=None, sleep_fn=Non
             # Issue #151: trailing defaults for tests
             "trailing_kill_switch": False,
             "live_trailing_enabled": True,
+            # Issue #178: the global entry stop defaults to the state of a
+            # migrated database with no emergency stop pulled. The shipped
+            # in-memory default is fail-safe ON, so a test that wants the
+            # blocked contour passes live_kill_switch=True explicitly.
+            "live_kill_switch": False,
             "trailing_protective_ticks": 5,
             "trailing_ticker_allowlist": [],
             **config,

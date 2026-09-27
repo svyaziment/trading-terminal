@@ -2,6 +2,10 @@
 .env
 .clinerules/
 .env.*
+# Issue #178 (closes D14 of #176): the template is documentation, not a secret -
+# it must be reviewable in git so a fresh checkout knows every variable that
+# exists, including the real-money gate.
+!.env.example
 .clinerules.*
 
 # Python

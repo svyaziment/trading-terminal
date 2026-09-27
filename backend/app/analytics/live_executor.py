@@ -1,6 +1,11 @@
-"""Sandbox live executor using the unified strategy evaluator.
+"""Live executor using the unified strategy evaluator.
 
-The executor deliberately uses only :class:`TinkoffSandboxClient`. A take-profit
+The executor is contour-agnostic: :func:`app.broker.client_factory.create_execution_client`
+builds either :class:`TinkoffSandboxClient` (default) or, since Issue #178 and
+only when the deployment sets ``ALLOW_REAL_TRADING=true``,
+:class:`TinkoffLiveClient` for the real T-Bank account. Both expose the same
+duck-typed contract, so nothing below the factory branches on the contour. A
+take-profit
 is submitted as a resting sell limit. Since Issue #175 the stop-loss is a real
 broker ``STOP_LOSS`` stop order: it is armed as soon as the entry fills, amended
 by duplication on every trailing step (post the higher stop -> verify through
@@ -32,6 +37,7 @@ from app.analytics.live_engine import (
     get_paper_strategy,
 )
 from app.analytics.live_schema import (
+    LIVE_KILL_SWITCH_KEY,
     LiveSchemaError,
     RISK_BREACH_RESET_KEY,
     assert_live_schema,
@@ -62,7 +68,12 @@ from app.analytics.trading_config import (
     get_orderbook_imbalance_config,
     validate_live_alerting_values,
 )
-from app.broker.tinkoff_sandbox import SandboxAPIError, TinkoffSandboxClient
+from app.broker.client_factory import (
+    REAL_CONTOUR,
+    create_execution_client,
+    describe_execution_client,
+)
+from app.broker.tinkoff_sandbox import SandboxAPIError
 from app.core.config_manager import load_settings
 from app.db.db_manager import DBManager
 from app.notifications.telegram_notifier import TelegramNotifier, escape_markdown
@@ -87,6 +98,11 @@ MAX_CONSECUTIVE_ERRORS = 5
 # risk rejection apart from a signal-quality rejection.
 RISK_SKIP_REASON_BREACH = "risk_breach"
 RISK_SKIP_REASON_POSITION_SIZE = "position_size_limit"
+
+# Issue #178: skip reason of the GLOBAL kill switch. It joins the same
+# process_signal vocabulary so the panel and the logs can tell an operator
+# emergency stop apart from a risk-gate or a signal-quality rejection.
+KILL_SWITCH_SKIP_REASON = "kill_switch"
 
 _BOOL_TRUTH_WORDS = ("1", "true", "yes", "on")
 
@@ -382,6 +398,11 @@ class LiveExecutor:
         # transition alert so the operator sees whether the flag came from
         # trading.app_settings or from the fail-safe default after a DB error.
         self._kill_switch_source = "startup"
+        # Issue #178: the same provenance for the GLOBAL entry kill switch, plus
+        # a counter of the signals it rejected. Both are published through
+        # get_metrics() so the monitoring API can show *why* nothing is entering.
+        self._live_kill_switch_source = "startup"
+        self.kill_switch_rejections_total = 0
         self.rate_limiter = TokenBucket(
             float(self.config["api_rate_limit"]),
             clock=clock,
@@ -391,9 +412,13 @@ class LiveExecutor:
         # Issue #175: the embedded client throttles through the same bucket, but
         # the reserve depends on the priority of the call currently in flight, so
         # the hook reads ``self._current_priority`` instead of a bare acquire().
-        self.broker = broker or TinkoffSandboxClient(
+        self.broker = broker or create_execution_client(
             before_request=self._rate_limit_request
         )
+        # Issue #178: which contour the process trades on is a fact an operator
+        # must be able to read back - published in the metrics snapshot and in
+        # the live_start / live_stop alerts.
+        self.broker_contour = describe_execution_client(self.broker)
         self.evaluator_factory = evaluator_factory
         self.clock = clock
         self.sleep_fn = sleep_fn
@@ -467,7 +492,13 @@ class LiveExecutor:
             if float(self.config[key]) < 0:
                 raise ValueError(f"{key} cannot be negative")
         # Issue #151: validate trailing runtime switches.
-        for key in ("trailing_kill_switch", "live_trailing_enabled"):
+        # Issue #178: live_kill_switch joins them - it is the same kind of
+        # boolean runtime switch, read from trading.app_settings every loop.
+        for key in (
+            "trailing_kill_switch",
+            "live_trailing_enabled",
+            "live_kill_switch",
+        ):
             val = self.config.get(key, False)
             if not isinstance(val, bool):
                 raise ValueError(f"{key} must be a boolean")
@@ -525,6 +556,17 @@ class LiveExecutor:
         operator alert or set a nonsense debounce window.
         """
         validate_live_alerting_values(self.alerting)
+
+    @property
+    def contour_label(self) -> str:
+        """Contour name for operator alerts (Issue #178).
+
+        Only the real T-Bank contour is announced as such. Everything else - the
+        shipped sandbox default and any broker injected by the tests - is
+        reported as the sandbox, so a test double can never be mistaken for a
+        process trading real money in a Telegram message.
+        """
+        return "реальный счёт" if self.broker_contour == REAL_CONTOUR else "песочница"
 
     def _notify(
         self,
@@ -692,6 +734,13 @@ class LiveExecutor:
                 "metrics_flush_errors_total": self.metrics_flush_errors_total,
                 "kill_switch": bool(self.config.get("trailing_kill_switch", False)),
                 "kill_switch_source": self._kill_switch_source,
+                # Issue #178: the global switch is published next to the trailing
+                # one, with its own provenance, so the panel can tell "operator
+                # stopped entries" from "trailing ratchet paused" from "the
+                # settings row could not be read".
+                "live_kill_switch": bool(self.config.get("live_kill_switch", True)),
+                "live_kill_switch_source": self._live_kill_switch_source,
+                "kill_switch_rejections_total": self.kill_switch_rejections_total,
             }
         )
         return payload
@@ -919,6 +968,18 @@ class LiveExecutor:
         # hit max_daily_loss_pct simply by bouncing the process.
         self._restore_risk_breach_state()
 
+        # Issue #178: adopt the stored global kill switch BEFORE the first loop
+        # iteration. Silent on purpose - this is the process reading the state an
+        # operator already set, not a transition, so it must not fire an alert.
+        # The in-memory default is fail-safe ON, so a database without migration
+        # 20260928_001 keeps entries blocked until the row exists.
+        self._read_live_kill_switch()
+        logger.info(
+            "Global live kill switch at startup: %s (source=%s)",
+            "ON" if self.config.get("live_kill_switch") else "OFF",
+            self._live_kill_switch_source,
+        )
+
     def _load_instruments(self) -> None:
         frame = self.db.select(
             """
@@ -951,37 +1012,71 @@ class LiveExecutor:
         }
 
     def _refresh_kill_switch(self) -> None:
-        """Read the kill switch and alert on every transition (#151 / #177).
+        """Read both kill switches and alert on every transition.
 
-        The flag itself is owned by :meth:`_read_kill_switch`. This wrapper adds
-        the operator-visible half required by Issue #177: a kill switch that
-        flips silently is the worst failure mode of the trailing contour, because
-        it stops every stop ratchet while protection still looks healthy. The
-        transition alert is a one-shot event (decision D2 - no debounce), and
-        ``critical`` only for the ON direction.
+        Issue #151 introduced the trailing switch, #177 made its transitions
+        operator-visible, #178 adds the GLOBAL entry switch. Both are read here,
+        once per loop iteration, and both keep the same alerting rules:
+
+        * a transition is a one-shot event (decision D2 - no debounce);
+        * ``critical`` only for the ON direction;
+        * the persisted metrics snapshot is flushed immediately after a
+          transition (decision D5), because the switch state is exactly what the
+          monitoring API is asked about;
+        * the two switches alert independently - an operator who stops entries
+          must not receive a message about trailing, and vice versa.
+
+        The flags themselves are owned by :meth:`_read_kill_switch` and
+        :meth:`_read_live_kill_switch`.
         """
-        previous = bool(self.config.get("trailing_kill_switch", False))
+        previous_trailing = bool(self.config.get("trailing_kill_switch", False))
+        previous_global = bool(self.config.get("live_kill_switch", True))
         self._read_kill_switch()
-        current = bool(self.config.get("trailing_kill_switch", False))
-        if current == previous:
-            return
-        self._notify(
-            "kill_switch_on" if current else "kill_switch_off",
-            "Kill switch ВКЛЮЧЁН" if current else "Kill switch ВЫКЛЮЧЕН",
-            [
+        self._read_live_kill_switch()
+        current_trailing = bool(self.config.get("trailing_kill_switch", False))
+        current_global = bool(self.config.get("live_kill_switch", True))
+
+        # Order is deliberate: the trailing switch existed first (#151/#177) and
+        # keeps its position in the alert stream, so a consumer that reads the
+        # first message of a refresh still sees what it saw before #178.
+        if current_trailing != previous_trailing:
+            self._notify(
+                "kill_switch_on" if current_trailing else "kill_switch_off",
+                "Kill switch ВКЛЮЧЁН" if current_trailing else "Kill switch ВЫКЛЮЧЕН",
+                [
+                    (
+                        "Эффект",
+                        "трейлинг-переносы остановлены, выставленные стопы сохранены"
+                        if current_trailing
+                        else "трейлинг-переносы снова разрешены",
+                    ),
+                    ("Источник", self._kill_switch_source),
+                ],
+                critical=current_trailing,
+            )
+        if current_global != previous_global:
+            self._notify(
+                "kill_switch_on" if current_global else "kill_switch_off",
                 (
-                    "Эффект",
-                    "трейлинг-переносы остановлены, выставленные стопы сохранены"
-                    if current
-                    else "трейлинг-переносы снова разрешены",
+                    "Глобальный kill switch ВКЛЮЧЁН"
+                    if current_global
+                    else "Глобальный kill switch ВЫКЛЮЧЕН"
                 ),
-                ("Источник", self._kill_switch_source),
-            ],
-            critical=current,
-        )
-        # Decision D5: the kill switch is exactly the state the monitoring API is
-        # asked about, so the persisted snapshot must not lag behind the alert.
-        self._flush_metrics(force=True)
+                [
+                    (
+                        "Эффект",
+                        "новые входы отклоняются, открытые позиции и их стопы сохранены"
+                        if current_global
+                        else "новые входы снова разрешены",
+                    ),
+                    ("Источник", self._live_kill_switch_source),
+                ],
+                critical=current_global,
+            )
+        if current_global != previous_global or current_trailing != previous_trailing:
+            # Decision D5: the kill switches are exactly the state the monitoring
+            # API is asked about, so the snapshot must not lag behind the alert.
+            self._flush_metrics(force=True)
 
     def _read_kill_switch(self) -> None:
         """Read trailing_kill_switch from trading.app_settings (Issue #151).
@@ -1021,6 +1116,60 @@ class LiveExecutor:
             )
             self.config["trailing_kill_switch"] = True
             self._kill_switch_source = f"db_error:{type(exc).__name__}"
+
+    def _read_live_kill_switch(self) -> None:
+        """Read the GLOBAL ``live_kill_switch`` from trading.app_settings (#178).
+
+        Decision D2 - fail-safe by construction. A missing row, a NULL value or
+        any database error leaves the switch ON, so an executor that lost access
+        to its emergency stop blocks new entries instead of continuing to trade.
+        Existing positions are never touched in either state: protection stays
+        with the broker stops armed by #175 and there is no flatten.
+
+        The trailing switch keeps its own reader (:meth:`_read_kill_switch`) with
+        its historical fail-*open* default for a missing key; the two flags are
+        independent, and so are their provenance strings.
+        """
+        try:
+            result = self.db.select(
+                """
+                SELECT value FROM trading.app_settings
+                WHERE key = %s
+                """,
+                (LIVE_KILL_SWITCH_KEY,),
+            ).to_dataframe()
+            if result.empty:
+                logger.warning(
+                    "%s not found in trading.app_settings; the global kill switch "
+                    "stays ON (fail-safe). Run `alembic upgrade head` "
+                    "(migration 20260928_001_live_trading_kill_switch).",
+                    LIVE_KILL_SWITCH_KEY,
+                )
+                self.config["live_kill_switch"] = True
+                self._live_kill_switch_source = "app_settings:missing_key"
+                return
+            raw = result.iloc[0]["value"]
+            if raw is None or (isinstance(raw, float) and math.isnan(raw)):
+                # NULL is not "false": an unreadable switch stays ON.
+                logger.warning(
+                    "%s is NULL in trading.app_settings; the global kill switch "
+                    "stays ON (fail-safe)",
+                    LIVE_KILL_SWITCH_KEY,
+                )
+                self.config["live_kill_switch"] = True
+                self._live_kill_switch_source = "app_settings:null_value"
+                return
+            self.config["live_kill_switch"] = _coerce_bool(raw)
+            self._live_kill_switch_source = "app_settings"
+        except Exception as exc:
+            logger.warning(
+                "Failed to read %s from DB: %s; the global kill switch stays ON "
+                "(fail-safe)",
+                LIVE_KILL_SWITCH_KEY,
+                exc,
+            )
+            self.config["live_kill_switch"] = True
+            self._live_kill_switch_source = f"db_error:{type(exc).__name__}"
 
     # --- Issue #176: live equity snapshots and daily drawdown gate -----------
 
@@ -1564,6 +1713,19 @@ class LiveExecutor:
         """Validate and execute one BUY decision from ``StrategyEvaluator``."""
         if decision.get("action") not in (None, "enter"):
             return self._skip_signal(ticker, "not_buy_signal")
+        # Issue #178: the GLOBAL emergency stop, evaluated before the session
+        # window, the order book, sizing and any broker call - a stopped contour
+        # must cost nothing and must not be reachable through any entry path.
+        # Open positions are deliberately untouched: their broker stops stay
+        # armed and nothing is flattened (Epic #172 red line).
+        if bool(self.config.get("live_kill_switch", True)):
+            self.kill_switch_rejections_total += 1
+            return self._skip_signal(
+                ticker,
+                KILL_SWITCH_SKIP_REASON,
+                warning=True,
+                source=self._live_kill_switch_source,
+            )
         now = self.now_fn()
         if not is_entry_window(now):
             session = get_moex_session_config()
@@ -1840,7 +2002,7 @@ class LiveExecutor:
         # Issue #177: an entry is a rare one-shot event - no debounce (decision D2).
         self._notify(
             "live_entry",
-            "Открыта live-позиция (песочница)",
+            f"Открыта live-позиция ({self.contour_label})",
             [
                 ("Тикер", ticker),
                 ("Статус", status),
@@ -2429,7 +2591,7 @@ class LiveExecutor:
         }.get(str(reason), "📉")
         self._notify(
             "live_exit",
-            "Закрыта live-позиция (песочница)",
+            f"Закрыта live-позиция ({self.contour_label})",
             [
                 ("Тикер", row["ticker"]),
                 ("Причина", reason),
@@ -3377,6 +3539,9 @@ class LiveExecutor:
             "errors_total": self.errors_total,
             "errors_consecutive": self._consecutive_errors,
             "last_error_at": self.last_error_at,
+            # Issue #178: which broker contour this process trades on
+            # ("sandbox" / "real" / the injected class name in the tests).
+            "broker_contour": self.broker_contour,
             # Issue #175: broker-side protection health.
             "stops_armed_total": self.stops_armed_total,
             "stop_amend_total": self.stop_amend_total,
@@ -3414,6 +3579,10 @@ class LiveExecutor:
                 self.config.get("max_position_size"), 0.0
             ),
             "max_open_positions": int(self.config.get("max_open_positions", 0)),
+            # Issue #178: the global entry kill switch and what it rejected.
+            "live_kill_switch": bool(self.config.get("live_kill_switch", True)),
+            "live_kill_switch_source": self._live_kill_switch_source,
+            "kill_switch_rejections_total": self.kill_switch_rejections_total,
         }
 
     def shutdown(self) -> None:
@@ -3525,8 +3694,9 @@ class LiveExecutor:
             check_interval = float(self.config["check_interval_seconds"])
             self._notify(
                 "live_start",
-                "Live-контур запущен (песочница)",
+                f"Live-контур запущен ({self.contour_label})",
                 [
+                    ("Контур брокера", self.broker_contour),
                     ("Стратегия", self.strategy_name or None),
                     ("Тикеров", len(self.config.get('tickers', []))),
                     ("Тикеры", ",".join(sorted(self.config.get('tickers', []))) or None),
@@ -3555,8 +3725,9 @@ class LiveExecutor:
                 session_end_for_run(self.now_fn()) if until_session_end else None
             )
             logger.info(
-                "Sandbox LiveExecutor started: strategy=%s tickers=%s "
+                "LiveExecutor started: contour=%s strategy=%s tickers=%s "
                 "ticker_count=%s rate=%.1f/s until_session_end=%s session_end=%s",
+                self.broker_contour,
                 self.strategy_name,
                 ",".join(self.evaluators),
                 len(self.evaluators),
@@ -3693,7 +3864,9 @@ class LiveExecutor:
                 close_pool = getattr(self.db, "close_pool", None)
                 if callable(close_pool):
                     close_pool()
-                logger.info("Sandbox LiveExecutor stopped cleanly")
+                logger.info(
+                    "LiveExecutor stopped cleanly: contour=%s", self.broker_contour
+                )
                 # Issue #177: the stop alert is the counterpart of live_start; it
                 # is sent after shutdown() so the counters are already final.
                 self._notify(
