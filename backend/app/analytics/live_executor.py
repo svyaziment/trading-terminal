@@ -3522,6 +3522,7 @@ class LiveExecutor:
         """
         self.install_signal_handlers()
         try:
+            check_interval = float(self.config["check_interval_seconds"])
             self._notify(
                 "live_start",
                 "Live-контур запущен (песочница)",
@@ -3566,7 +3567,6 @@ class LiveExecutor:
                         # Issue #177 (fix): `check_interval` was previously defined after
             # `self.initialize()`; computing it here so the early start alert
             # can reference it before `wait_for_session_open` returns.
-            check_interval = float(self.config["check_interval_seconds"])
             # Issue #177: the operator must see the process come up - and whether
             # it came up with Telegram credentials or in the log-only contour.
             entry_closed_logged = False
