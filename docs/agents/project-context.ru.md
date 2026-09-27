@@ -881,3 +881,6 @@ env-override `LIVE_ALERTING`, валидацию диапазонов и `valida
 прогон `backend/tests` — 765 passed.
 
 **SSL-сертификаты для T-Bank gRPC:** на хосте Windows требуется явно задать `GRPC_DEFAULT_SSL_ROOTS_FILE_PATH="$(pwd)/backend/certs/tbank-root.pem"` (автоматически устанавливается в `start_processes.sh`), иначе gRPC-подключение к `sandbox-invest-public-api.tbank.ru` падает с `CERTIFICATE_VERIFY_FAILED`.
+
+## Приложение (2026-09-27, follow-up #177): тайминг алерта live_start
+Алерт `live_start` отправляется сразу при старте процесса `LiveExecutor` - до ночного ожидания сессии 10:00 MSK (`wait_for_session_open()`), поэтому воскресный запуск виден в Telegram немедленно. Поскольку алерт идёт до `initialize()`, поле «Тикеров» равно 0 и имя стратегии пусто до открытия сессии - это ожидаемое значение «ещё не инициализировано», а не дефект. `check_interval` вычисляется до формирования алерта, поэтому payload не может упасть на неинициализированной переменной.
