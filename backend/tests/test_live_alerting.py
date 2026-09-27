@@ -1899,6 +1899,59 @@ class TestMetricsEndpointDegradation:
         assert payload["source"]["age_seconds"] == 900.0
         assert payload["source"]["flush_stale"] is True
 
+    def test_a_repr_snapshot_from_the_dataframe_path_is_readable(self, monkeypatch):
+        """``to_dataframe()`` stringifies the JSONB cell - that is not corruption.
+
+        ``SelectResult.to_dataframe`` normalises the column with ``astype(str)``,
+        so against the real database the snapshot arrives as
+        ``"{'schema_version': 1, ...}"`` (single quotes, ``None``/``True``). Reading
+        that as malformed pinned ``available=false`` in the container while every
+        fake stayed green - only the smoke run caught it.
+        """
+        payload = read_metrics(metrics_db(str(metrics_snapshot())), monkeypatch)
+
+        assert payload["available"] is True
+        assert payload["reason"] is None
+        assert payload["error"] is None
+        assert payload["state"] == "running"
+        assert payload["loop"]["iterations_total"] == 120
+        assert payload["loop"]["tickers"] == ["GAZP", "SBER"]
+        assert payload["protection"]["stops_armed_total"] == 6
+        assert payload["risk"]["limits"]["max_daily_loss_pct"] == 2.0
+        assert payload["alerting"]["notifier_configured"] is True
+        assert payload["heartbeat"]["age_seconds"] == 60.0
+        assert payload["source"]["age_seconds"] == 30.0
+        assert payload["extra"] == {}
+
+    def test_the_executor_snapshot_survives_the_dataframe_round_trip(self, monkeypatch):
+        """End to end: what ``_flush_metrics`` wrote is what the endpoint serves."""
+        db = MetricsDB()
+        executor = make_metrics_executor(db=db)
+        executor.iterations_total = 7
+        executor.heartbeat_ts = executor.now_fn()
+        assert executor._flush_metrics(force=True) is True
+
+        payload = read_metrics(
+            metrics_db(str(db.payloads[0])),
+            monkeypatch,
+            now=IN_SESSION_NOW + timedelta(seconds=45),
+        )
+
+        assert payload["available"] is True
+        assert payload["state"] == "running"
+        assert payload["loop"]["iterations_total"] == 7
+        assert payload["heartbeat"]["known"] is True
+        assert payload["heartbeat"]["age_seconds"] == 45.0
+        assert payload["source"]["age_seconds"] == 45.0
+
+    def test_a_broken_repr_is_still_malformed(self, monkeypatch):
+        """The literal fallback must not turn garbage into a snapshot."""
+        payload = read_metrics(metrics_db("{'schema_version': }"), monkeypatch)
+
+        assert payload["available"] is False
+        assert payload["reason"] == "malformed_snapshot"
+        assert payload["state"] == "unknown"
+
 
 class TestMetricsHeartbeatFreshness:
     """Freshness is derived at read time - a stored age would be a lie."""

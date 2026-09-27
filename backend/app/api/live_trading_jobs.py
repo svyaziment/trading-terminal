@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import math
 from datetime import date, datetime
@@ -256,12 +257,33 @@ def _metrics_age_seconds(moment: Optional[datetime], now: datetime) -> Optional[
     return round(max(0.0, (now - moment).total_seconds()), 3)
 
 
+def _loads_metrics_text(text: str) -> Any:
+    """JSON first, then the Python ``repr`` that ``to_dataframe()`` produces.
+
+    psycopg2 hands a JSONB cell back as a dict, and ``SelectResult.to_dataframe``
+    normalises text-ish columns with ``astype(str)`` - so in the container the
+    snapshot reaches this reader as ``"{'schema_version': 1}"``: single quotes,
+    ``None``/``True`` instead of ``null``/``true``. Calling that corrupted would
+    pin ``available=false`` forever in the only environment that matters, so
+    ``ast.literal_eval`` is the fallback: it parses literals and executes nothing.
+    """
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError):
+        pass
+    try:
+        return ast.literal_eval(text)
+    except (SyntaxError, ValueError, TypeError, MemoryError, RecursionError):
+        return None
+
+
 def _parse_metrics_value(value: Any) -> tuple[Optional[dict], Optional[str]]:
     """JSONB cell -> ``(snapshot, reason)``.
 
-    psycopg2 hands JSONB back as a dict, a text/legacy driver path hands back a
-    JSON string, and a corrupted row must degrade to ``available=false`` with a
-    reason instead of breaking the endpoint.
+    The cell arrives as a dict (psycopg2), as a JSON string (text/legacy driver
+    path) or as the ``repr`` of that dict (DataFrame normalisation) - see
+    :func:`_loads_metrics_text`. A row that is none of those degrades to
+    ``available=false`` with a reason instead of breaking the endpoint.
     """
     if value is None:
         return None, LIVE_METRICS_REASON_EMPTY
@@ -276,10 +298,7 @@ def _parse_metrics_value(value: Any) -> tuple[Optional[dict], Optional[str]]:
         text = value.strip()
         if not text:
             return None, LIVE_METRICS_REASON_EMPTY
-        try:
-            parsed = json.loads(text)
-        except (TypeError, ValueError):
-            return None, LIVE_METRICS_REASON_MALFORMED
+        parsed = _loads_metrics_text(text)
         if isinstance(parsed, dict) and parsed:
             return parsed, None
         return None, LIVE_METRICS_REASON_MALFORMED
