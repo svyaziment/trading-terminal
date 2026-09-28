@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-28 (task-178 - the broker layer: sandbox and the real contour, new §24; the global kill switch; deploy migrations); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-29 (task-191 - live equity price marking: a zero / negative / non-finite broker price no longer manufactures a phantom drawdown, the `risk_breach` alert carries its measurement context, a latch flushes metrics immediately; §22); previously 2026-09-28 (task-178 - the broker layer: sandbox and the real contour, new §24; the global kill switch; deploy migrations); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -692,6 +692,23 @@ understate the drawdown the gate is measured on. `realized_pnl_rub` (sum of
 `live_positions.pnl_rub` over closed rows) and `unrealized_pnl_rub`
 (`market_value - cost_basis`) are persisted as separate observability columns.
 
+**Price marking (Issue #191)**: a broker price is only usable when it parses to a
+**finite number strictly greater than zero** (`LiveExecutor._mark_price`). A
+`current_price` of `0`, a negative or a non-finite value falls back to `average_price`
+and the ticker is recorded in `stale_priced_holding_tickers`; if `average_price` is
+unusable too, the holding is left out of `market_value` and its ticker lands in
+`unpriced_holding_tickers` (one `live equity: no usable price for holding ...` warning
+per holding per snapshot). Both degradations are counted in `holdings_unpriced_total` /
+`holdings_stale_priced_total` (cumulative for the life of the process), alerted in
+Telegram (`unpriced_holding:<TICKER>` and `holding_marked_at_average:<TICKER>`, both
+critical and deduplicated, plus `unpriced_holding_resolved:<TICKER>` once the broker
+quotes the holding again), carried into the `risk_breach` alert details and exposed
+through `get_metrics()` next to `equity_last_cash_rub` / `equity_last_market_value_rub`.
+The ticker lists describe the latest snapshot only and reset to empty on the next fully
+readable one, so a counter that keeps growing means the broker feed is still bad. This is
+what stops a freshly opened position from being marked at zero and manufacturing a
+drawdown the account never had.
+
 **Daily drawdown basis**: `session_key` is the MSK calendar day of the snapshot.
 `peak_equity_rub` is the peak *within that session_key*, which is what makes
 `max_daily_loss_pct` a daily limit; a lifetime peak would turn it into an all-time
@@ -753,19 +770,33 @@ stop arming or an amend needs. Before the first snapshot the drawdown gate is
 **fail-open** and logs a warning once - blocking every entry on a rate-limit hiccup
 would be worse than trading one cycle without a fresh reading.
 
-**Alerting**: a breach transition logs `logger.critical` once (not every cycle) and
-exposes counters through `get_metrics()`: `risk_breach_active`, `risk_breach_total`,
+**Alerting**: a breach transition logs `logger.critical` once (not every cycle),
+**flushes the metrics snapshot immediately** (#191 - the alert must not stay invisible
+for up to 60 s while the entry gate is already rejecting) and exposes counters through
+`get_metrics()`: `risk_breach_active`, `risk_breach_total`,
 `risk_breach_resets_total`, `risk_gate_rejections_total`, `position_size_rejections_total`,
 `equity_snapshots_total`, `equity_snapshot_errors_total`, `equity_snapshot_skipped_total`,
-`last_equity_rub`, `last_drawdown_pct`, `last_peak_equity_rub`, `last_equity_session_key`
-and the effective limits. Telegram delivery for `risk_breach` is implemented by task E
-(#177): see §23.
+`holdings_unpriced_total`, `holdings_stale_priced_total`,
+`unpriced_holding_tickers`, `stale_priced_holding_tickers`,
+`last_equity_rub`, `last_drawdown_pct`, `last_peak_equity_rub`, `last_equity_session_key`,
+`equity_last_cash_rub`, `equity_last_market_value_rub`
+and the effective limits. The `*_total` holding counters are cumulative for the life of
+the process, the ticker lists describe the most recent snapshot only. The `risk_breach`
+Telegram message carries the same measurement context (cash, market value, the unpriced
+tickers and the tickers marked at their average price) and the drawdown-gate rejection
+payload adds an `unpriced_holdings` detail, which is what lets an operator tell a real
+drawdown from a marking failure without reading the container log.
+`GET /api/live-trading/metrics` re-exposes the split as `risk.last_cash_rub` /
+`risk.last_market_value_rub` next to `risk.unpriced_holding_tickers` /
+`risk.stale_priced_holding_tickers`. Telegram delivery for `risk_breach`
+is implemented by task E (#177): see §23.
 
-**Testing**: `backend/tests/test_live_equity_risk_gates.py` (62 tests) covers the schema
+**Testing**: `backend/tests/test_live_equity_risk_gates.py` (83 tests) covers the schema
 contract and migration chain, config defaults / env overrides / range validation, the
-equity formula and its no-double-count property, the daily versus all-time peak, breach
-latching and recovery (auto, manual, restart), both entry gates, rate-limit deferral,
-failure containment, `get_metrics()` and the three endpoints.
+equity formula and its no-double-count property, price marking and the unpriced /
+stale-price bookkeeping, the 28.09 phantom-breach sequence, the daily versus all-time
+peak, breach latching and recovery (auto, manual, restart), both entry gates,
+rate-limit deferral, failure containment, `get_metrics()` and the three endpoints.
 
 
 
@@ -886,7 +917,7 @@ wrapped in `try/except`, log a warning and increment their own error counter.
 `alerts_failed_total` and `metrics_flush_errors_total` are what an operator watches, not the
 loop.
 
-**Testing**: `backend/tests/test_live_alerting.py` (160 tests) covers `LIVE_ALERTING` defaults
+**Testing**: `backend/tests/test_live_alerting.py` (167 tests) covers `LIVE_ALERTING` defaults
 and env overrides, range validation and `validate_live_alerting_values()`, the `_notify()`
 guarantees (a raising notifier, `enabled=False`, the master switch off, per-event-key
 debouncing), every event hook, the heartbeat and its throttle, `_flush_metrics()` (throttle,

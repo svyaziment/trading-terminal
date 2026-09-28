@@ -1,6 +1,6 @@
 # Контекст проекта: Trading Terminal
 
-Последнее обновление: 2026-09-28 (task-178 — брокерский слой: песочница и реальный контур, новый §24; глобальный kill switch; деплой-миграции); ранее 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-18 (task-173); ранее 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-14 (task-147); 2026-09-09 (задача #146 — Lab умеет настраивать `config.trailing_stop`: переключатель и таблица ступеней, отрисованные из нового read-only `GET /api/strategies/trailing-schema`; ответ собирает `trading_config.get_trailing_stop_schema()` на основе `TRAILING_STOP` (handover §38). Ни одно поле или число трейлинга не продублировано в TSX, нетронутая стратегия по-прежнему сохраняется без ключа, а таблица сделок наконец отличает выход `trailing` от простого `stop`). Предыдущее обновление: 2026-09-08 (в §18 зафиксировано решение Product Owner: `ultra_late_tight` — самая поздняя и плотная лестница решётки `143-trailing-v3` — становится боевым дефолтом сетки трейлинг-стопа для #144; эпик #142 / roadmap Block W; контракт `config.trailing_stop` из #144 уже в коде — только валидация, полный контракт полей в §6, тесты `backend/tests/test_trailing_contract.py`). Источник: docs/refresh/context_collector.py + git ls-files.
+Последнее обновление: 2026-09-29 (task-191 — маркировка цен live equity: нулевая / отрицательная / неконечная цена брокера больше не порождает фантомную просадку, алерт `risk_breach` несёт контекст измерения, взведение latch сразу сбрасывает метрики; §22); ранее 2026-09-28 (task-178 — брокерский слой: песочница и реальный контур, новый §24; глобальный kill switch; деплой-миграции); ранее 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-18 (task-173); ранее 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-14 (task-147); 2026-09-09 (задача #146 — Lab умеет настраивать `config.trailing_stop`: переключатель и таблица ступеней, отрисованные из нового read-only `GET /api/strategies/trailing-schema`; ответ собирает `trading_config.get_trailing_stop_schema()` на основе `TRAILING_STOP` (handover §38). Ни одно поле или число трейлинга не продублировано в TSX, нетронутая стратегия по-прежнему сохраняется без ключа, а таблица сделок наконец отличает выход `trailing` от простого `stop`). Предыдущее обновление: 2026-09-08 (в §18 зафиксировано решение Product Owner: `ultra_late_tight` — самая поздняя и плотная лестница решётки `143-trailing-v3` — становится боевым дефолтом сетки трейлинг-стопа для #144; эпик #142 / roadmap Block W; контракт `config.trailing_stop` из #144 уже в коде — только валидация, полный контракт полей в §6, тесты `backend/tests/test_trailing_contract.py`). Источник: docs/refresh/context_collector.py + git ls-files.
 Этот файл — канонический контекст проекта для агентов. Держите его актуальным.
 
 ## 1. Обзор проекта
@@ -681,6 +681,22 @@ drawdown, по которому считается гейт. `realized_pnl_rub` 
 по закрытым строкам) и `unrealized_pnl_rub` (`market_value - cost_basis`) пишутся
 отдельными наблюдательными колонками.
 
+**Маркировка цен (задача #191)**: цена брокера пригодна, только если она парсится в
+**конечное число строго больше нуля** (`LiveExecutor._mark_price`). `current_price` равный
+`0`, отрицательный или неконечный откатывается на `average_price`, а тикер попадает в
+`stale_priced_holding_tickers`; если и `average_price` непригодна, позиция исключается из
+`market_value`, а её тикер — в `unpriced_holding_tickers` (по одному warning'у
+`live equity: no usable price for holding ...` на каждую такую позицию в снимке). Обе
+деградации считаются в `holdings_unpriced_total` / `holdings_stale_priced_total`
+(накопительно за время жизни процесса), уходят в Telegram (`unpriced_holding:<TICKER>` и
+`holding_marked_at_average:<TICKER>` — оба critical и с dedupe, плюс
+`unpriced_holding_resolved:<TICKER>`, когда брокер снова дал цену), передаются в детали
+алерта `risk_breach` и отдаются через `get_metrics()` рядом с `equity_last_cash_rub` /
+`equity_last_market_value_rub`. Списки тикеров описывают только последний снимок и
+очищаются на следующем полностью читаемом, поэтому растущий счётчик означает, что
+брокерская лента всё ещё неисправна. Именно это не даёт свежеоткрытой позиции быть
+оценённой в ноль и породить просадку, которой у счёта никогда не было.
+
 **Базис дневного убытка**: `session_key` — календарный день МСК снимка.
 `peak_equity_rub` — пик **в пределах этого `session_key`**, что и делает
 `max_daily_loss_pct` дневным лимитом; пожизненный пик превратил бы его в лимит
@@ -744,18 +760,32 @@ rate-limit `equity` с `blocking=False` и тем же резервом токе
 раз пишет warning: блокировать все входы из-за заминки rate-limit хуже, чем отторговать
 один цикл без свежего значения.
 
-**Алерты**: переход в breach один раз пишет `logger.critical` (не каждый цикл) и отдаёт
-счётчики через `get_metrics()`: `risk_breach_active`, `risk_breach_total`,
+**Алерты**: переход в breach один раз пишет `logger.critical` (не каждый цикл),
+**немедленно сбрасывает снимок метрик** (#191 — алерт не должен оставаться невидимым до
+60 с, пока гейт входа уже отклоняет сигналы) и отдаёт счётчики через `get_metrics()`:
+`risk_breach_active`, `risk_breach_total`,
 `risk_breach_resets_total`, `risk_gate_rejections_total`, `position_size_rejections_total`,
 `equity_snapshots_total`, `equity_snapshot_errors_total`, `equity_snapshot_skipped_total`,
-`last_equity_rub`, `last_drawdown_pct`, `last_peak_equity_rub`, `last_equity_session_key`
-и действующие лимиты. Telegram-доставка `risk_breach` реализована блоком E (#177) — см. §23.
+`holdings_unpriced_total`, `holdings_stale_priced_total`,
+`unpriced_holding_tickers`, `stale_priced_holding_tickers`,
+`last_equity_rub`, `last_drawdown_pct`, `last_peak_equity_rub`, `last_equity_session_key`,
+`equity_last_cash_rub`, `equity_last_market_value_rub`
+и действующие лимиты. Счётчики позиций `*_total` накопительные за время жизни процесса,
+списки тикеров описывают только последний снимок. Telegram-сообщение `risk_breach` несёт
+тот же контекст измерения (кэш, стоимость позиций, тикеры без цены и тикеры, отмеченные по
+средней), а payload отклонения гейта просадки дополнен полем `unpriced_holdings` — именно
+это позволяет отличить реальную просадку от сбоя маркировки без чтения лога контейнера.
+`GET /api/live-trading/metrics` отдаёт то же разложение как `risk.last_cash_rub` /
+`risk.last_market_value_rub` рядом с `risk.unpriced_holding_tickers` /
+`risk.stale_priced_holding_tickers`. Telegram-доставка `risk_breach` реализована блоком E
+(#177) — см. §23.
 
-**Тестирование**: `backend/tests/test_live_equity_risk_gates.py` (62 теста) покрывает
+**Тестирование**: `backend/tests/test_live_equity_risk_gates.py` (83 тестов) покрывает
 контракт схемы и цепочку миграций, дефолты / env-override / валидацию диапазонов, формулу
-эквити и отсутствие двойного счёта, дневной и глобальный пик, взведение и снятие breach
-(авто, ручное, рестарт), оба гейта входа, отложение по rate-limit, изоляцию сбоев,
-`get_metrics()` и три эндпоинта.
+эквити и отсутствие двойного счёта, маркировку цен и учёт позиций без цены / с устаревшей
+ценой, последовательность 28.09 с фантомным breach, дневной и глобальный пик, взведение и
+снятие breach (авто, ручное, рестарт), оба гейта входа, отложение по rate-limit, изоляцию
+сбоев, `get_metrics()` и три эндпоинта.
 
 
 
@@ -874,7 +904,7 @@ kill switch и graceful shutdown (уже после освобождения adv
 обёрнуты в `try/except`, пишут warning и увеличивают свой счётчик ошибок. `alerts_failed_total`
 и `metrics_flush_errors_total` — то, за чем должен следить оператор, а не за циклом.
 
-**Тестирование**: `backend/tests/test_live_alerting.py` (160 тестов) покрывает дефолты и
+**Тестирование**: `backend/tests/test_live_alerting.py` (167 тестов) покрывает дефолты и
 env-override `LIVE_ALERTING`, валидацию диапазонов и `validate_live_alerting_values()`,
 гарантии `_notify()` (исключение из нотари, `enabled=False`, выключенный мастер, debounce по
 ключу события), каждый событийный хук, heartbeat и его throttle, `_flush_metrics()`

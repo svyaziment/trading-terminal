@@ -730,6 +730,8 @@ class TestRiskBreachAlerts:
 
         assert executor._risk_breach_active is True
         assert executor.risk_breach_total == 1
+        # Issue #191: with no snapshot behind the latch the measurement fields
+        # say so explicitly instead of rendering as blanks.
         assert notifier.messages == [
             "🚨 *Превышен дневной лимит убытка*\n"
             "*Уровень:* `critical`\n"
@@ -737,9 +739,54 @@ class TestRiskBreachAlerts:
             "*Лимит:* `5.0000%`\n"
             "*Equity:* `90000.00 RUB`\n"
             "*Пик дня:* `100000.00 RUB`\n"
+            "*Кэш:* `нет данных`\n"
+            "*Стоимость позиций:* `нет данных`\n"
+            "*Без цены:* `нет`\n"
+            "*По средней цене:* `нет`\n"
             "*Сессия:* `2026-09-27`\n"
             "*Эффект:* `новые входы заблокированы, стопы сохранены`"
         ]
+
+    def test_the_breach_alert_carries_the_measurement_behind_the_number(self):
+        """A drawdown nobody can trace back to cash and positions is useless (#191)."""
+        notifier = FakeNotifier()
+        executor = make_hook_executor(notifier=notifier)
+        executor.last_cash_rub = 90_000.0
+        executor.last_market_value_rub = 0.0
+        executor.unpriced_holding_tickers = ["GAZP", "SBER"]
+        executor.stale_priced_holding_tickers = ["LKOH"]
+
+        self._breach(executor)
+
+        message = notifier.messages[0]
+        assert "*Кэш:* `90000.00 RUB`" in message
+        assert "*Стоимость позиций:* `0.00 RUB`" in message
+        assert "*Без цены:* `GAZP, SBER`" in message
+        assert "*По средней цене:* `LKOH`" in message
+
+    def test_latching_a_breach_publishes_the_metrics_snapshot_at_once(self):
+        """The panel must not serve a pre-breach row for ``metrics_flush_seconds``."""
+        db = MetricsDB()
+        executor = make_hook_executor(notifier=FakeNotifier(), db=db)
+
+        assert db.metrics_writes == []
+
+        self._breach(executor)
+
+        assert db.keys == ["live_executor_metrics"]
+        payload = db.payloads[0]
+        assert payload["risk_breach_active"] is True
+        assert payload["risk_breach_total"] == 1
+
+    def test_a_failed_metrics_flush_never_blocks_the_breach_latch(self):
+        db = MetricsDB(fail=True)
+        executor = make_hook_executor(notifier=FakeNotifier(), db=db)
+
+        self._breach(executor)
+
+        assert executor._risk_breach_active is True
+        assert executor.metrics_flush_errors_total == 1
+        assert len(executor.notifier.messages) == 1
 
     def test_clearing_a_breach_announces_the_recovery_once(self):
         notifier = FakeNotifier()
@@ -1072,6 +1119,113 @@ class TestEquitySnapshotAlerts:
         assert executor._write_live_equity() is not None
         assert executor.equity_snapshots_total == 1
         assert notifier.messages == []
+
+
+def priced_holding(ticker="SBER", quantity=100, average=95.0, current=90.0):
+    """One broker portfolio holding, shaped like ``SandboxPosition`` (#191)."""
+    return SimpleNamespace(
+        ticker=ticker,
+        quantity=quantity,
+        average_price=average,
+        current_price=current,
+    )
+
+
+class TestHoldingPriceAlerts:
+    """A holding the broker cannot price used to vanish silently (#191).
+
+    The 28.09 incident: a fresh position came back with ``current_price = 0``,
+    ``market_value`` lost its whole notional while cash had already dropped, and
+    the daily drawdown gate latched a breach that never happened in the account.
+    Both degradations are now counted, published and announced.
+    """
+
+    def test_an_unpriced_holding_alerts_once_and_resolves_once(self):
+        clock = FakeClock()
+        notifier = FakeNotifier()
+        broker = FakeBroker(
+            positions=[priced_holding(average=0.0, current=0.0)], balance=10000.0
+        )
+        executor = make_hook_executor(
+            notifier=notifier, clock=clock, broker=broker, alert_debounce_seconds=60
+        )
+
+        equity = executor._compute_live_equity()
+
+        assert equity["market_value_rub"] == 0.0
+        assert equity["equity_rub"] == 10000.0
+        assert executor.holdings_unpriced_total == 1
+        assert executor.unpriced_holding_tickers == ["SBER"]
+        assert notifier.messages[0].startswith("🚨 *Позиция без цены: equity занижен*")
+        assert "*Тикер:* `SBER`" in notifier.messages[0]
+        assert "*Штук:* `100`" in notifier.messages[0]
+        assert "*Событий всего:* `1`" in notifier.messages[0]
+
+        # Still unpriced on the next cycle: inside the debounce window.
+        clock.advance(1)
+        executor._compute_live_equity()
+        assert len(notifier.messages) == 1
+        assert executor.holdings_unpriced_total == 2
+
+        # The broker starts quoting again: exactly one resolution message.
+        clock.advance(60)
+        broker.positions = [priced_holding(average=95.0, current=90.0)]
+        executor._compute_live_equity()
+
+        assert executor.unpriced_holding_tickers == []
+        assert len(notifier.messages) == 2
+        assert notifier.messages[-1].startswith(
+            "ℹ️ *Цена позиции появилась: equity снова полный*"
+        )
+        assert "*Тикер:* `SBER`" in notifier.messages[-1]
+
+    def test_a_holding_marked_at_its_average_price_is_reported_separately(self):
+        """Equity stays whole, but intraday moves are blind - say so."""
+        notifier = FakeNotifier()
+        broker = FakeBroker(
+            positions=[priced_holding(average=95.0, current=0.0)], balance=50000.0
+        )
+        executor = make_hook_executor(notifier=notifier, broker=broker)
+
+        equity = executor._compute_live_equity()
+
+        assert equity["market_value_rub"] == 9500.0
+        assert equity["equity_rub"] == 59500.0
+        assert equity["unrealized_pnl_rub"] == 0.0
+        assert executor.holdings_stale_priced_total == 1
+        assert executor.stale_priced_holding_tickers == ["SBER"]
+        assert executor.unpriced_holding_tickers == []
+        assert notifier.messages[0].startswith("🚨 *Позиция отмечена по средней цене*")
+        assert "*Тикер:* `SBER`" in notifier.messages[0]
+
+    def test_a_fully_priced_portfolio_stays_silent(self):
+        notifier = FakeNotifier()
+        broker = FakeBroker(
+            positions=[priced_holding(average=95.0, current=90.0)], balance=50000.0
+        )
+        executor = make_hook_executor(notifier=notifier, broker=broker)
+
+        equity = executor._compute_live_equity()
+
+        assert equity["market_value_rub"] == 9000.0
+        assert executor.holdings_unpriced_total == 0
+        assert executor.holdings_stale_priced_total == 0
+        assert notifier.messages == []
+
+    def test_the_measurement_quality_is_published_in_the_metrics(self):
+        broker = FakeBroker(
+            positions=[priced_holding(average=0.0, current=0.0)], balance=10000.0
+        )
+        executor = make_hook_executor(broker=broker)
+
+        executor._compute_live_equity()
+        metrics = executor.get_metrics()
+
+        assert metrics["holdings_unpriced_total"] == 1
+        assert metrics["unpriced_holding_tickers"] == ["SBER"]
+        assert metrics["stale_priced_holding_tickers"] == []
+        assert metrics["equity_last_cash_rub"] is None
+        assert metrics["equity_last_market_value_rub"] is None
 
 
 class TestTradingEventAlerts:
@@ -1622,6 +1776,13 @@ def metrics_snapshot(**overrides) -> dict:
         "equity_snapshot_errors_total": 0,
         "equity_snapshot_skipped_total": 1,
         "equity_snapshot_enabled": True,
+        # how that equity was measured (#191)
+        "equity_last_cash_rub": 45000.0,
+        "equity_last_market_value_rub": 15000.0,
+        "holdings_unpriced_total": 2,
+        "holdings_stale_priced_total": 1,
+        "unpriced_holding_tickers": ["GAZP"],
+        "stale_priced_holding_tickers": ["LKOH"],
         "last_equity_rub": 60000.0,
         "last_drawdown_pct": 1.25,
         "last_peak_equity_rub": 60760.0,
@@ -1775,6 +1936,14 @@ class TestMetricsEndpointContract:
         assert payload["risk"]["last_drawdown_pct"] == 1.25
         assert payload["risk"]["last_equity_session_key"] == "2026-08-31"
         assert payload["risk"]["position_size_rejections_total"] == 1
+        # Issue #191: the measurement behind the drawdown is published too, so a
+        # phantom breach can be recognised from the panel without log diving.
+        assert payload["risk"]["last_cash_rub"] == 45000.0
+        assert payload["risk"]["last_market_value_rub"] == 15000.0
+        assert payload["risk"]["holdings_unpriced_total"] == 2
+        assert payload["risk"]["holdings_stale_priced_total"] == 1
+        assert payload["risk"]["unpriced_holding_tickers"] == ["GAZP"]
+        assert payload["risk"]["stale_priced_holding_tickers"] == ["LKOH"]
         # The panel reads the limits from the API instead of hardcoding them.
         assert payload["risk"]["limits"]["max_daily_loss_pct"] == 2.0
         assert payload["risk"]["snapshot_limits"]["max_open_positions"] == 5

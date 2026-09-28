@@ -602,6 +602,13 @@ _METRICS_SNAPSHOT_FIELDS = frozenset(
         "equity_snapshot_errors_total",
         "equity_snapshot_skipped_total",
         "equity_snapshot_enabled",
+        # how the equity above was actually measured (#191)
+        "equity_last_cash_rub",
+        "equity_last_market_value_rub",
+        "holdings_unpriced_total",
+        "holdings_stale_priced_total",
+        "unpriced_holding_tickers",
+        "stale_priced_holding_tickers",
         "max_daily_loss_pct",
         "max_position_size",
         "max_open_positions",
@@ -697,6 +704,26 @@ def _metrics_risk_section(snapshot: dict) -> dict:
         "last_drawdown_pct": _metrics_float(snapshot.get("last_drawdown_pct")),
         "last_peak_equity_rub": _metrics_float(snapshot.get("last_peak_equity_rub")),
         "last_equity_session_key": _metrics_text(snapshot.get("last_equity_session_key")),
+        # Issue #191: how that equity was measured. During the 28.09 phantom
+        # breach the panel showed a drawdown with no way to trace it back to
+        # cash and positions, and no signal that the broker could not price part
+        # of the portfolio. Publishing the split plus the unpriced / stale-priced
+        # tickers turns "the account lost 13%" into "the account lost 13% because
+        # two holdings were valued at their purchase price".
+        "last_cash_rub": _metrics_float(snapshot.get("equity_last_cash_rub")),
+        "last_market_value_rub": _metrics_float(
+            snapshot.get("equity_last_market_value_rub")
+        ),
+        "holdings_unpriced_total": _metrics_int(snapshot.get("holdings_unpriced_total")),
+        "holdings_stale_priced_total": _metrics_int(
+            snapshot.get("holdings_stale_priced_total")
+        ),
+        "unpriced_holding_tickers": _metrics_str_list(
+            snapshot.get("unpriced_holding_tickers")
+        ),
+        "stale_priced_holding_tickers": _metrics_str_list(
+            snapshot.get("stale_priced_holding_tickers")
+        ),
         "equity_snapshots_total": _metrics_int(snapshot.get("equity_snapshots_total")),
         "equity_snapshot_errors_total": _metrics_int(
             snapshot.get("equity_snapshot_errors_total")
