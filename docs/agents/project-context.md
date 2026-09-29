@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-29 (task-191 - live equity price marking: a zero / negative / non-finite broker price no longer manufactures a phantom drawdown, the `risk_breach` alert carries its measurement context, a latch flushes metrics immediately; §22); previously 2026-09-28 (task-178 - the broker layer: sandbox and the real contour, new §24; the global kill switch; deploy migrations); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-29 (task-192 - verification tooling for the real T-Bank contour: credential-free contract check + guarded read-only live smoke, new §24.5); previously 2026-09-29 (task-191 - live equity price marking: a zero / negative / non-finite broker price no longer manufactures a phantom drawdown, the `risk_breach` alert carries its measurement context, a latch flushes metrics immediately; §22); previously 2026-09-28 (task-178 - the broker layer: sandbox and the real contour, new §24; the global kill switch; deploy migrations); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -1010,3 +1010,23 @@ git through the `!.env.example` exception (closing D14 of #176).
 **Tests:** `test_tinkoff_live.py` (51), `test_live_kill_switch.py` (41),
 `test_deploy_migrations.py` (15). Operational details and the go-live runbook:
 `handover.md` §46.
+
+### 24.5 Verification tooling (Issue #192)
+
+The broker layer has two read-only diagnostics, kept with the working artifacts in
+`reports/190-production-trading-infrastructure/192-g1-production-client-verify/`:
+
+- `192-contract-check.py` - verifies the safety contract without credentials and
+  without network calls: the global gate is closed, the factory defaults to the
+  sandbox client, a forced real construction fails closed, live/sandbox method
+  and keyword parity holds, mutating vs read-only methods are classified
+  correctly, live error types inherit the sandbox ones.
+- `192-live-smoke.py` - read-only smoke of the real contour with a `--self-test`
+  dry run on an in-process fake client. The diagnostic constructor argument
+  `allow_real_trading=True` is used instead of flipping `ALLOW_REAL_TRADING`, and
+  the mutating methods are shadowed by raising guards before the first API call;
+  only `get_accounts` / balance / positions / orders / stop orders / operations
+  are read. Tokens and account ids are masked in every artifact.
+
+Run order, masking rules and the current blocked status: `handover.md` §46.10.
+
