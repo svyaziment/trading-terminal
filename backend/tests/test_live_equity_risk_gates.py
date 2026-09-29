@@ -632,6 +632,142 @@ def test_snapshot_failure_never_propagates_into_the_trading_loop():
     assert executor._consecutive_errors == 0
 
 
+# --- Issue #191: price marking quality ---------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value",
+    [None, 0, 0.0, Decimal("0"), Decimal("-95"), -1.5, float("nan"), float("inf"), "nope"],
+)
+def test_mark_price_rejects_everything_that_is_not_a_positive_number(value):
+    """Zero is not a price: it deletes the holding's notional from equity."""
+    assert LiveExecutor._mark_price(value) is None
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [(Decimal("95.50"), 95.5), ("90", 90.0), (0.01, 0.01), (Decimal("1E+2"), 100.0)],
+)
+def test_mark_price_accepts_positive_finite_prices(value, expected):
+    assert LiveExecutor._mark_price(value) == pytest.approx(expected)
+
+
+def test_a_zero_current_price_falls_back_to_the_average_price():
+    """The 28.09 fault: the broker costed a fresh position at zero."""
+    broker = RiskFakeBroker(
+        cash=Decimal("50000"),
+        positions=[holding(quantity="100", average="95", current="0")],
+    )
+    executor = make_risk_executor(broker=broker)
+
+    equity = executor._compute_live_equity()
+
+    assert equity["market_value_rub"] == 9500.0
+    assert equity["equity_rub"] == 59500.0
+    # Marked at cost: no profit or loss is invented by the fallback.
+    assert equity["unrealized_pnl_rub"] == 0.0
+    assert executor.stale_priced_holding_tickers == ["SBER"]
+    assert executor.unpriced_holding_tickers == []
+    assert executor.holdings_stale_priced_total == 1
+
+
+def test_the_28_09_sequence_never_latches_a_phantom_breach():
+    """Regression: cash fell, the position was costed at 0, the gate fired.
+
+    Peak of the day 60000 RUB. The buy took 9500 RUB of cash (50500 left) and
+    the broker returned ``current_price = 0``. Before Issue #191 market_value
+    stayed 0, equity read 50500 and the 2% daily limit latched a 15.83%
+    drawdown that never existed in the account.
+    """
+    db = RiskFakeDB(
+        equity_rows=[
+            equity_row(peak_equity_rub=60000.0, peak_equity_all_time_rub=60000.0)
+        ]
+    )
+    broker = RiskFakeBroker(
+        cash=Decimal("50500"),
+        positions=[holding(quantity="100", average="95", current="0")],
+    )
+    executor = make_risk_executor(db=db, broker=broker, max_daily_loss_pct=2.0)
+
+    snapshot = executor._write_live_equity()
+
+    assert snapshot["market_value_rub"] == 9500.0
+    assert snapshot["equity_rub"] == 60000.0
+    assert snapshot["drawdown_pct"] == 0.0
+    assert snapshot["risk_breach"] is False
+    assert executor._risk_breach_active is False
+    assert executor.risk_breach_total == 0
+
+
+def test_a_holding_with_no_price_at_all_is_still_marked_out_and_counted():
+    """Excluding it understates equity - so the gap has to stay visible."""
+    broker = RiskFakeBroker(
+        cash=Decimal("10000"),
+        positions=[holding(quantity="10", average=None, current=None)],
+    )
+    executor = make_risk_executor(broker=broker)
+
+    equity = executor._compute_live_equity()
+    metrics = executor.get_metrics()
+
+    assert equity["market_value_rub"] == 0.0
+    assert metrics["holdings_unpriced_total"] == 1
+    assert metrics["unpriced_holding_tickers"] == ["SBER"]
+    assert metrics["stale_priced_holding_tickers"] == []
+
+
+def test_a_negative_price_is_rejected_like_a_missing_one():
+    broker = RiskFakeBroker(
+        cash=Decimal("10000"),
+        positions=[holding(quantity="10", average=None, current="-95")],
+    )
+    executor = make_risk_executor(broker=broker)
+
+    assert executor._compute_live_equity()["market_value_rub"] == 0.0
+    assert executor.unpriced_holding_tickers == ["SBER"]
+
+
+def test_the_price_state_recovers_on_the_next_readable_snapshot():
+    broker = RiskFakeBroker(
+        cash=Decimal("50000"),
+        positions=[holding(quantity="100", average="95", current="0")],
+    )
+    executor = make_risk_executor(broker=broker)
+
+    executor._compute_live_equity()
+    assert executor.stale_priced_holding_tickers == ["SBER"]
+
+    broker.positions = [holding(quantity="100", average="95", current="90")]
+    equity = executor._compute_live_equity()
+
+    assert equity["market_value_rub"] == 9000.0
+    assert equity["unrealized_pnl_rub"] == -500.0
+    assert executor.stale_priced_holding_tickers == []
+    assert executor.unpriced_holding_tickers == []
+    # Cumulative for the life of the process, like every other *_total counter.
+    assert executor.holdings_stale_priced_total == 1
+
+
+def test_the_cash_and_market_value_split_of_the_last_snapshot_is_kept():
+    broker = RiskFakeBroker(
+        cash=Decimal("50000"),
+        positions=[holding(quantity="100", average="95", current="90")],
+    )
+    executor = make_risk_executor(broker=broker)
+
+    assert executor.last_cash_rub is None
+    assert executor.last_market_value_rub is None
+
+    executor._write_live_equity()
+
+    assert executor.last_cash_rub == 50000.0
+    assert executor.last_market_value_rub == 9000.0
+    metrics = executor.get_metrics()
+    assert metrics["equity_last_cash_rub"] == 50000.0
+    assert metrics["equity_last_market_value_rub"] == 9000.0
+
+
 # --- Daily drawdown basis -----------------------------------------------------
 
 
@@ -729,6 +865,36 @@ def test_breach_blocks_new_entries_with_the_risk_breach_reason(caplog):
     assert "risk_breach" in caplog.text
     # The gate runs before sizing and execution: nothing reached the broker.
     assert [call[0] for call in broker.calls if call[0] == "execute_order"] == []
+
+
+def test_a_blocked_entry_reports_what_the_gate_could_not_measure(caplog):
+    """Issue #191: a rejection must say whether the drawdown was fully measured.
+
+    Without this the only trace of a phantom breach was the log line ``RISK
+    BREACH ... equity=50500``, which reads exactly like a real loss.
+    """
+    executor, _, broker = breached_executor(cash="58000")
+    broker.positions = [holding(quantity="100", average=None, current=None)]
+    executor._write_live_equity()
+
+    assert executor._risk_breach_active is True
+
+    with caplog.at_level("WARNING", logger=module.__name__):
+        result = executor.process_signal("SBER", buy_decision(), imbalance=1.5)
+
+    assert result["reason"] == RISK_SKIP_REASON_BREACH
+    assert executor._risk_gate()["details"]["unpriced_holdings"] == "SBER"
+    assert "unpriced_holdings=SBER" in caplog.text
+
+
+def test_a_fully_measured_breach_reports_no_unpriced_holdings():
+    executor, _, _ = breached_executor()
+    executor._write_live_equity()
+
+    gate = executor._risk_gate()
+
+    assert gate["reason"] == RISK_SKIP_REASON_BREACH
+    assert gate["details"]["unpriced_holdings"] is None
 
 
 def test_breach_never_flattens_or_cancels_protection():

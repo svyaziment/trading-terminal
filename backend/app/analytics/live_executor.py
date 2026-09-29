@@ -479,6 +479,23 @@ class LiveExecutor:
         self.risk_breach_resets_total = 0
         self.risk_gate_rejections_total = 0
         self.position_size_rejections_total = 0
+        # Issue #191: how the equity snapshots were measured. A holding the
+        # broker cannot price at all is excluded from market_value, which
+        # understates equity and can latch a drawdown breach that never happened
+        # in the account; a holding marked at its average cost keeps equity whole
+        # but is blind to intraday moves. Both states were completely invisible
+        # during the 28.09 incident, so they are counted, published and alerted.
+        self.holdings_unpriced_total = 0
+        self.holdings_stale_priced_total = 0
+        self.unpriced_holding_tickers: list[str] = []
+        self.stale_priced_holding_tickers: list[str] = []
+        # Tickers an ``unpriced_holding`` alert was already sent for, so the
+        # resolution message fires exactly once when the broker starts quoting.
+        self._unpriced_alerted: set[str] = set()
+        # Cash / market_value split of the last snapshot: the first thing an
+        # operator compares when a breach looks wrong.
+        self.last_cash_rub: Optional[float] = None
+        self.last_market_value_rub: Optional[float] = None
         self._risk_gate_warned = False
         self._account_id_value: Optional[str] = None
 
@@ -1266,31 +1283,130 @@ class LiveExecutor:
         cash_rub = _finite_float(cash, 0.0)
         market_value = 0.0
         cost_basis = 0.0
+        unpriced: Dict[str, float] = {}
+        stale_priced: Dict[str, Dict[str, float]] = {}
         for position in positions or ():
             quantity = _finite_float(getattr(position, "quantity", None), 0.0)
             if quantity == 0:
                 continue
-            current = getattr(position, "current_price", None)
-            average = getattr(position, "average_price", None)
+            ticker = str(getattr(position, "ticker", None) or "?")
+            current = self._mark_price(getattr(position, "current_price", None))
+            average = self._mark_price(getattr(position, "average_price", None))
             price = current if current is not None else average
             if price is None:
-                # Unpriced holding: keep it out of market_value rather than
-                # inventing a price that would move the drawdown.
+                # Issue #191: the broker cannot price this holding at all. It
+                # stays out of market_value rather than being guessed at, but it
+                # is counted, published and alerted: cash already fell when the
+                # position was bought, so dropping its notional understates
+                # equity and can latch a drawdown breach that never happened.
+                unpriced[ticker] = unpriced.get(ticker, 0.0) + quantity
                 logger.warning(
-                    "live equity: no price for holding %s; excluded from "
-                    "market_value",
-                    getattr(position, "ticker", "?"),
+                    "live equity: no usable price for holding %s (qty=%.0f); "
+                    "excluded from market_value - equity is understated",
+                    ticker,
+                    quantity,
                 )
                 continue
-            market_value += _finite_float(price, 0.0) * quantity
+            market_value += price * quantity
+            if current is None:
+                # Issue #191: current_price was unusable, so this holding is
+                # marked at its average cost. Equity stays whole (no phantom
+                # drawdown) but intraday moves are invisible until the broker
+                # quotes it again - tracked and reported on its own.
+                stale_priced[ticker] = {"price": price, "quantity": quantity}
             if average is not None:
-                cost_basis += _finite_float(average, 0.0) * quantity
+                cost_basis += average * quantity
+        self._report_holding_marks(unpriced, stale_priced)
         return {
             "cash_rub": cash_rub,
             "market_value_rub": market_value,
             "equity_rub": cash_rub + market_value,
             "unrealized_pnl_rub": market_value - cost_basis,
         }
+
+    @staticmethod
+    def _mark_price(value: Any) -> Optional[float]:
+        """A usable holding price, or ``None`` (Issue #191).
+
+        The broker sends ``current_price`` / ``average_price`` as a MoneyValue
+        that is occasionally a zero-filled placeholder while a fresh position is
+        still being costed. Zero is not a price: marking a holding at 0 rubles
+        deletes its whole notional from ``market_value`` while ``cash`` has
+        already dropped by the same amount, so equity loses the position and the
+        daily drawdown gate latches a phantom breach. Only a positive finite
+        number is accepted; everything else is reported as "not measurable".
+        """
+        number = _finite_float(value, math.nan)
+        if math.isnan(number) or number <= 0:
+            return None
+        return number
+
+    def _report_holding_marks(
+        self,
+        unpriced: Dict[str, float],
+        stale_priced: Dict[str, Dict[str, float]],
+    ) -> None:
+        """Publish and alert on the marking quality of one snapshot (#191).
+
+        Both degradations used to be invisible: the operator only received the
+        resulting ``risk_breach`` alert with no way to tell a real loss from a
+        position the broker could not price. The counters feed ``get_metrics()``,
+        the ticker lists feed the monitoring API, and Telegram gets one debounced
+        critical message per ticker plus a single resolution message when the
+        broker starts quoting it again.
+        """
+        self.holdings_unpriced_total += len(unpriced)
+        self.holdings_stale_priced_total += len(stale_priced)
+        self.unpriced_holding_tickers = sorted(unpriced)
+        self.stale_priced_holding_tickers = sorted(stale_priced)
+
+        for ticker in sorted(unpriced):
+            self._unpriced_alerted.add(ticker)
+            self._notify(
+                f"unpriced_holding:{ticker}",
+                "Позиция без цены: equity занижен",
+                [
+                    ("Тикер", ticker),
+                    ("Штук", int(unpriced[ticker])),
+                    ("Причина", "current_price и average_price отсутствуют или <= 0"),
+                    (
+                        "Эффект",
+                        "позиция исключена из market_value - просадка может быть фантомной",
+                    ),
+                    ("Событий всего", self.holdings_unpriced_total),
+                ],
+                critical=True,
+                dedupe=True,
+            )
+        for ticker in sorted(self._unpriced_alerted - set(unpriced)):
+            self._unpriced_alerted.discard(ticker)
+            self._notify(
+                f"unpriced_holding_resolved:{ticker}",
+                "Цена позиции появилась: equity снова полный",
+                [
+                    ("Тикер", ticker),
+                    ("Эффект", "позиция снова входит в market_value"),
+                ],
+            )
+        for ticker in sorted(stale_priced):
+            detail = stale_priced[ticker]
+            mark_price = detail["price"]
+            self._notify(
+                f"holding_marked_at_average:{ticker}",
+                "Позиция отмечена по средней цене",
+                [
+                    ("Тикер", ticker),
+                    ("Цена", f"{mark_price:.6f}"),
+                    ("Штук", int(detail["quantity"])),
+                    ("Причина", "current_price отсутствует или <= 0"),
+                    (
+                        "Эффект",
+                        "equity полный, но внутридневное движение не видно",
+                    ),
+                ],
+                critical=True,
+                dedupe=True,
+            )
 
     def _account_id(self) -> Optional[str]:
         """Account id stamped on every live_equity row (Issue #176).
@@ -1346,6 +1462,21 @@ class LiveExecutor:
         )
         # Issue #177: the latch already fires once per session, so the alert is
         # a one-shot event and needs no debounce (decision D2).
+        # Issue #191: the alert now carries the measurement behind the number.
+        # During the 28.09 incident the only thing the operator received was a
+        # drawdown percentage with no way to see that it came from a portfolio the
+        # broker could not price - so the cash / market_value split and the list
+        # of unmeasurable holdings are published right next to it.
+        cash_rub = self.last_cash_rub
+        market_value_rub = self.last_market_value_rub
+        cash_text = "нет данных" if cash_rub is None else f"{cash_rub:.2f} RUB"
+        market_value_text = (
+            "нет данных"
+            if market_value_rub is None
+            else f"{market_value_rub:.2f} RUB"
+        )
+        unpriced_text = ", ".join(self.unpriced_holding_tickers) or "нет"
+        stale_text = ", ".join(self.stale_priced_holding_tickers) or "нет"
         self._notify(
             "risk_breach",
             "Превышен дневной лимит убытка",
@@ -1354,11 +1485,21 @@ class LiveExecutor:
                 ("Лимит", f"{max_daily_loss_pct:.4f}%"),
                 ("Equity", f"{equity:.2f} RUB"),
                 ("Пик дня", f"{peak:.2f} RUB"),
+                ("Кэш", cash_text),
+                ("Стоимость позиций", market_value_text),
+                ("Без цены", unpriced_text),
+                ("По средней цене", stale_text),
                 ("Сессия", session_key),
                 ("Эффект", "новые входы заблокированы, стопы сохранены"),
             ],
             critical=True,
         )
+        # Issue #191: push the monitoring snapshot out immediately instead of
+        # waiting for the paced flush (``metrics_flush_seconds``, 300 by default).
+        # Without this the panel could keep serving the pre-breach row for minutes
+        # after the gate had already stopped every new entry. ``_flush_metrics``
+        # never raises, so a dead database cannot break the trading loop.
+        self._flush_metrics(force=True)
 
     def _clear_risk_breach(self, *, reason: str) -> None:
         """Release a latched breach; idempotent and logged on transition only."""
@@ -1500,6 +1641,10 @@ class LiveExecutor:
                     "session_key": str(
                         last.get("session_key") or self._risk_breach_session_key or ""
                     ),
+                    # Issue #191: a rejection has to say whether the drawdown it
+                    # acted on was measured on a portfolio the broker could price.
+                    "unpriced_holdings": ",".join(self.unpriced_holding_tickers)
+                    or None,
                 },
             }
         if (
@@ -1599,6 +1744,12 @@ class LiveExecutor:
 
             self.equity_snapshots_total += 1
             self.last_equity = snapshot
+            # Issue #191: keep the cash / market_value split of the very snapshot
+            # the drawdown was measured from. A phantom breach is recognisable by
+            # cash falling while market_value never picked the notional up, so
+            # that comparison must be available in the alert and in the metrics.
+            self.last_cash_rub = float(snapshot["cash_rub"])
+            self.last_market_value_rub = float(snapshot["market_value_rub"])
             if breached and not self._risk_breach_active:
                 self._activate_risk_breach(
                     session_key=session_key,
@@ -3556,6 +3707,15 @@ class LiveExecutor:
             "equity_snapshots_total": self.equity_snapshots_total,
             "equity_snapshot_errors_total": self.equity_snapshot_errors_total,
             "equity_snapshot_skipped_total": self.equity_snapshot_skipped_total,
+            # Issue #191: how the last snapshot was measured. ``*_total`` are
+            # cumulative for the life of the process (like every other counter
+            # here); the ticker lists describe the most recent snapshot only.
+            "holdings_unpriced_total": self.holdings_unpriced_total,
+            "holdings_stale_priced_total": self.holdings_stale_priced_total,
+            "unpriced_holding_tickers": list(self.unpriced_holding_tickers),
+            "stale_priced_holding_tickers": list(self.stale_priced_holding_tickers),
+            "equity_last_cash_rub": self.last_cash_rub,
+            "equity_last_market_value_rub": self.last_market_value_rub,
             "equity_snapshot_enabled": bool(
                 self.config.get("equity_snapshot_enabled", True)
             ),

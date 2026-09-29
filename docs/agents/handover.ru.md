@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-09-28 (task-178 — реальный контур T-Bank `TinkoffLiveClient`, фабрика выбора контура по `ALLOW_REAL_TRADING`, глобальный kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, деплой-миграции через one-shot сервис `migrate`; новый §46); ранее 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-29 (task-191 — триаж фантомной просадки и новые поля измерения эквити в §44); ранее 2026-09-28 (task-178 — реальный контур T-Bank `TinkoffLiveClient`, фабрика выбора контура по `ALLOW_REAL_TRADING`, глобальный kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, деплой-миграции через one-shot сервис `migrate`; новый §46); ранее 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -1036,9 +1036,59 @@ psql -c "UPDATE trading.app_settings SET value='true'::jsonb, updated_at=now() \
 MAX_DAILY_LOSS_PCT=1.5 MAX_POSITION_SIZE=50000 MAX_OPEN_POSITIONS=3 \
   python -m app.analytics.live_executor
 
-# Тесты (62)
+# Тесты (83)
 cd backend && python -m pytest tests/test_live_equity_risk_gates.py -q
 ```
+
+### Триаж фантомной просадки (задача #191)
+
+28.09.2026 исполнитель взвёл `risk_breach`, которого у счёта не было: свежеоткрытая
+позиция вернулась из `GetSandboxPortfolio` с `current_price = 0`, `market_value` молча
+потерял эту позицию, эквити просел и сработал дневной гейт просадки. #191 делает
+маркировку явной вместо молчаливой.
+
+- Цена пригодна, только если парсится в **конечное строго положительное** число
+  (`LiveExecutor._mark_price`). Непригодный `current_price` (`0` / отрицательный / `nan`)
+  откатывается на `average_price`, а тикер попадает в `stale_priced_holding_tickers`.
+  Если пригодной цены нет вовсе, позиция остаётся вне `market_value`, а её тикер — в
+  `unpriced_holding_tickers`.
+- Оба списка публикуются по каждому снимку: в Telegram (`unpriced_holding:<TICKER>`
+  critical, `unpriced_holding_resolved:<TICKER>` когда брокер снова дал цену,
+  `holding_marked_at_average:<TICKER>` — оба `critical` + `dedupe=True`; сообщение
+  о возврате цены без debounce, исполнитель отправляет его ровно один раз на тикер),
+  в `get_metrics()`
+  (`unpriced_holding_tickers`, `stale_priced_holding_tickers`, накопительные
+  `holdings_unpriced_total` / `holdings_stale_priced_total`, `equity_last_cash_rub`,
+  `equity_last_market_value_rub`) и в блоке `risk` ответа
+  `GET /api/live-trading/metrics` (`unpriced_holding_tickers`,
+  `stale_priced_holding_tickers`, `holdings_unpriced_total`,
+  `holdings_stale_priced_total`, `last_cash_rub`, `last_market_value_rub`). Списки
+  тикеров описывают только последний снимок и очищаются на следующем полностью читаемом;
+  счётчики `*_total` накопительные за время жизни процесса, поэтому их рост означает, что
+  лента всё ещё неисправна.
+- Алерт `risk_breach` несёт то же измерение рядом с процентом (`Кэш`,
+  `Стоимость позиций`, `Без цены`, `По средней цене`), а payload отклонения гейта
+  просадки дополнен полем `unpriced_holdings` — заблокированный вход сообщает, было ли
+  просадка измерена на портфеле, который брокер способен оценить.
+- Взведение breach теперь **немедленно сбрасывает снимок метрик**
+  (`_flush_metrics(force=True)`), поэтому `risk_breach_active` в `/metrics` больше не
+  отстаёт на `LIVE_ALERTING.metrics_flush_seconds` (300 по умолчанию) от гейта, который
+  уже отклоняет входы.
+
+**Порядок триажа при срабатывании `risk_breach`:**
+
+1. Прочитать алерт (или `/api/live-trading/metrics`). Непустой `unpriced_holding_tickers`
+   или `stale_priced_holding_tickers` означает, что просадка измерена на неполном
+   портфеле — сначала разбираемся с этим как с инцидентом брокерской ленты.
+2. Сверить разложение: `last_cash_rub + last_market_value_rub` должно равняться
+   `last_equity_rub`. Обвал `market_value` при неизменном `cash` — это маркировка, а не
+   убытки.
+3. Подтвердить историей и логом:
+   `curl -s "http://localhost:8000/api/live-trading/equity/history?limit=50"` и
+   warning'и `live equity: N holding(s) ...` в `docker compose logs backend`.
+4. Если цифры настоящие — оставляем breach взведённым до конца дня МСК. Если это артефакт
+   ленты — дожидаемся чистого снимка (счётчики сбросятся сами) и только потом снимаем
+   latch через `live_risk_breach_reset`.
 
 ### Известные ограничения
 
@@ -1090,7 +1140,7 @@ cd backend && python -m pytest tests/test_live_equity_risk_gates.py -q
   (`_metrics_endpoint_payload()` и `_metrics_*`-helper'ы). Модуль
   `app.analytics.live_executor` здесь намеренно не импортируется: веб-слой не должен
   зависеть от торгового цикла, общий контракт — ключ строки `app_settings`.
-- `backend/tests/test_live_alerting.py` — 160 тестов: конфиг и валидация, `_notify`
+- `backend/tests/test_live_alerting.py` — 167 тестов: конфиг и валидация, `_notify`
   и debounce, каждый событийный хук, heartbeat, flush снимка, весь ответ endpoint'а
   и деградации.
 - `backend/app/notifications/telegram_notifier.py` — `_escape_markdown` стал публичным

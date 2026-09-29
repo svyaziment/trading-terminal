@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-28 (task-178 - the real T-Bank contour `TinkoffLiveClient`, the contour factory driven by `ALLOW_REAL_TRADING`, the global kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, deploy migrations through the one-shot `migrate` service; new §46); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-29 (task-191 - phantom drawdown triage and the new equity measurement fields in §44); previously 2026-09-28 (task-178 - the real T-Bank contour `TinkoffLiveClient`, the contour factory driven by `ALLOW_REAL_TRADING`, the global kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, deploy migrations through the one-shot `migrate` service; new §46); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -1004,9 +1004,59 @@ psql -c "UPDATE trading.app_settings SET value='true'::jsonb, updated_at=now() \
 MAX_DAILY_LOSS_PCT=1.5 MAX_POSITION_SIZE=50000 MAX_OPEN_POSITIONS=3 \
   python -m app.analytics.live_executor
 
-# Tests (62)
+# Tests (83)
 cd backend && python -m pytest tests/test_live_equity_risk_gates.py -q
 ```
+
+### Phantom drawdown triage (Issue #191)
+
+On 2026-09-28 the executor latched a `risk_breach` the account never had: a freshly
+opened position came back from `GetSandboxPortfolio` with `current_price = 0`,
+`market_value` silently lost that holding, equity dropped and the daily drawdown gate
+fired. #191 makes the marking explicit instead of silent.
+
+- A price is usable only when it parses to a **finite, strictly positive** number
+  (`LiveExecutor._mark_price`). An unusable `current_price` (`0` / negative / `nan`)
+  falls back to `average_price` and the ticker lands in `stale_priced_holding_tickers`;
+  with no usable price at all the holding stays out of `market_value` and its ticker
+  lands in `unpriced_holding_tickers`.
+- Both lists are published per snapshot: Telegram (`unpriced_holding:<TICKER>` critical,
+  `unpriced_holding_resolved:<TICKER>` once the broker quotes it again,
+  `holding_marked_at_average:<TICKER>` - both `critical` + `dedupe=True`; the resolved
+  message is not debounced because the executor sends it exactly once per ticker),
+  `get_metrics()`
+  (`unpriced_holding_tickers`, `stale_priced_holding_tickers`, the cumulative
+  `holdings_unpriced_total` / `holdings_stale_priced_total`, `equity_last_cash_rub`,
+  `equity_last_market_value_rub`) and the `risk` block of
+  `GET /api/live-trading/metrics` (`unpriced_holding_tickers`,
+  `stale_priced_holding_tickers`, `holdings_unpriced_total`,
+  `holdings_stale_priced_total`, `last_cash_rub`, `last_market_value_rub`). The ticker
+  lists describe the latest snapshot only and empty themselves on the next fully readable
+  one; the `*_total` counters are cumulative for the life of the process, so a counter
+  that keeps growing means the feed is still bad.
+- The `risk_breach` alert carries that measurement next to the percentage (`Кэш`,
+  `Стоимость позиций`, `Без цены`, `По средней цене`), and the drawdown-gate rejection
+  payload adds an `unpriced_holdings` detail, so a blocked entry states whether the
+  drawdown it acted on was measured on a portfolio the broker could price.
+- A breach latch now **flushes the metrics snapshot immediately**
+  (`_flush_metrics(force=True)`), so `risk_breach_active` in `/metrics` is no longer up
+  to `LIVE_ALERTING.metrics_flush_seconds` (300 by default) behind a gate that is already
+  rejecting entries.
+
+**Triage order when `risk_breach` fires:**
+
+1. Read the alert (or `/api/live-trading/metrics`). A non-empty `unpriced_holding_tickers`
+   or `stale_priced_holding_tickers` means the drawdown was measured on an incomplete
+   portfolio - handle it as a broker-feed incident first.
+2. Cross-check the split: `last_cash_rub + last_market_value_rub` must equal
+   `last_equity_rub`. A collapsing `market_value` against an unchanged `cash` is marking,
+   not losses.
+3. Confirm against history and the log:
+   `curl -s "http://localhost:8000/api/live-trading/equity/history?limit=50"` and the
+   `live equity: N holding(s) ...` warnings in `docker compose logs backend`.
+4. If the numbers are real, leave the breach latched for the MSK day. If it is a feed
+   artefact, wait for the next clean snapshot (the counters reset by themselves) and then
+   clear the latch through `live_risk_breach_reset`.
 
 ### Known limitations
 
@@ -1061,7 +1111,7 @@ heartbeat, and a persisted metrics snapshot with an HTTP reader,
   (`_metrics_endpoint_payload()` plus the `_metrics_*` helpers). The module deliberately
   does **not** import `app.analytics.live_executor`: the web layer must not depend on the
   trading loop, the shared contract is the `app_settings` row key.
-- `backend/tests/test_live_alerting.py` - 160 tests: config and validation, `_notify` and
+- `backend/tests/test_live_alerting.py` - 167 tests: config and validation, `_notify` and
   debouncing, every event hook, the heartbeat, the snapshot flush, the whole endpoint
   response and its degradations.
 - `backend/app/notifications/telegram_notifier.py` - `_escape_markdown` became the public
