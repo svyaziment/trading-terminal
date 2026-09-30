@@ -844,6 +844,9 @@ def test_until_session_end_waits_until_ten_then_stops_when_flat_after_nineteen(c
     assert "Waiting for MOEX session open at 2026-08-31 10:00 MSK" in caplog.text
     assert "monitoring stop/take until positions close" in caplog.text
     assert "No open sandbox positions after session close" in caplog.text
+    # Issue #200: a flat contour after the session close is a planned exit, and
+    # the panel must be able to tell it from a halt or a signal.
+    assert executor.stopped_reason == "session_end"
 
 
 def test_stop_take_monitor_continues_after_nineteen_until_position_closes(caplog):
@@ -1565,113 +1568,199 @@ def test_advisory_lock_uses_dedicated_connection(monkeypatch):
 
 
 # --- Issue #174: main loop protection against transient errors ----------------
+# Issue #200: the two loop tests below used to run on the REAL wall clock and let
+# run() install the process-wide SIGTERM/SIGINT handlers. Their outcome therefore
+# depended on the time of day: inside the MOEX entry window run() also calls
+# process_latest_bars(), whose success used to reset the shared error counter, so
+# a permanently failing monitor_positions() never reached the threshold and the
+# test died with `assert 0 >= 5`. Both now pin the clock, neutralise the signal
+# handlers and stub the bootstrap - like every other run() test in this file.
 
 
-def test_run_continues_after_transient_error(monkeypatch):
-    """Issue #174: single error in monitor_positions does not stop the executor."""
-    instruments = pd.DataFrame(
-        [{"ticker": "SBER", "figi": "figi-sber", "lot_size": 10}]
+class _PinnedClock:
+    """Clock triple whose WALL time never moves, so the session phase is fixed.
+
+    ``mono`` advances by the requested sleep, so the loop still makes progress
+    and ``duration_minutes`` still ends the run. Unlike ``_FakeWallClock`` there
+    is no 15-minute jump: these tests need ``is_entry_window(now_fn())`` to stay
+    the same for the whole run.
+    """
+
+    def __init__(self, wall: datetime):
+        self.wall = wall
+        self.mono = 0.0
+
+    def now(self) -> datetime:
+        return self.wall
+
+    def clock(self) -> float:
+        return self.mono
+
+    def sleep(self, seconds: float) -> None:
+        self.mono += seconds
+
+
+def _run_loop_executor(wall, *, notifier=None, **config):
+    """Executor for run()-loop tests: no signals, no bootstrap, no DB writes."""
+    clock = _PinnedClock(wall)
+    executor = make_executor(
+        now_fn=clock.now,
+        clock=clock.clock,
+        sleep_fn=clock.sleep,
+        check_interval_seconds=1,
+        context_refresh_seconds=10**6,
+        **config,
     )
-    db = FakeDB(instruments=instruments)
+    executor.install_signal_handlers = lambda: None
 
-    class Evaluator:
-        def __init__(self, config):
-            pass
+    def initialize():
+        executor.evaluators = {"SBER": object()}
+        executor.strategy_name = "active-strategy"
 
-        def load_context(self, *args):
-            pass
+    executor.initialize = initialize
+    executor.refresh_contexts = lambda: None
+    executor.shutdown = lambda: None
+    executor._active_positions = lambda: pd.DataFrame()
+    executor._flush_metrics = lambda **_kwargs: False
+    executor.config["equity_snapshot_enabled"] = False
+    executor.config["close_positions_on_shutdown"] = False
+    if notifier is not None:
+        executor.notifier = notifier
+        executor.alerting = {
+            **executor.alerting,
+            "telegram_alerts_enabled": True,
+            "alert_debounce_seconds": 0,
+        }
+    return executor
 
-    strategy = {"patterns": ["levels_reversal"]}
-    monkeypatch.setattr(
-        module,
-        "get_paper_strategy",
-        lambda _db: (strategy, ["SBER"], "strategy-1"),
-    )
-    monkeypatch.setattr(
-        module,
-        "build_4h_context",
-        lambda *_args: {
-            "levels": ["level"],
-            "ts_4h": ["ts"],
-            "atr_by_ts": {"ts": 1},
-            "buy_ts": [],
-        },
-    )
-    executor = LiveExecutor(
-        db=db,
-        broker=FakeBroker(),
-        config={"enabled": True, "check_interval_seconds": 0.1, "context_refresh_seconds": 60},
-        evaluator_factory=Evaluator,
-    )
 
-    # Make monitor_positions fail once
-    call_count = [0]
-    original_monitor = executor.monitor_positions
+def test_run_continues_after_transient_error():
+    """Issue #174: one failed cycle does not stop the executor.
 
-    def failing_monitor():
-        call_count[0] += 1
-        if call_count[0] == 1:
+    Issue #200: pinned INSIDE the entry window, so process_latest_bars() runs and
+    succeeds every cycle - the exact condition under which the old per-phase reset
+    used to wipe the error streak.
+    """
+    executor = _run_loop_executor(IN_SESSION_NOW)
+    calls = [0]
+
+    def flaky_monitor():
+        calls[0] += 1
+        if calls[0] == 1:
             raise RuntimeError("Transient error")
-        return original_monitor()
 
-    executor.monitor_positions = failing_monitor
+    executor.monitor_positions = flaky_monitor
+    executor.process_latest_bars = lambda: 0
 
-    # Run for 0.3 seconds (should complete 3 cycles)
-    executor.run(duration_minutes=0.005)
+    executor.run(duration_minutes=1)
 
-    # Verify executor continued after error
-    assert call_count[0] >= 2
-    assert executor._consecutive_errors == 0  # reset after successful call
+    # The executor survived the single failure and kept cycling.
+    assert calls[0] >= 2
+    assert executor._consecutive_errors == 0  # reset after a clean cycle
+    assert executor.errors_total == 1
+    assert executor.stopped_reason == "duration"
 
 
-def test_run_stops_after_max_errors(monkeypatch):
-    """Issue #174: executor stops after MAX_CONSECUTIVE_ERRORS consecutive failures."""
-    instruments = pd.DataFrame(
-        [{"ticker": "SBER", "figi": "figi-sber", "lot_size": 10}]
-    )
-    db = FakeDB(instruments=instruments)
+def test_run_stops_after_max_errors():
+    """Issue #174 / #200: MAX_CONSECUTIVE_ERRORS failed cycles halt the contour.
 
-    class Evaluator:
-        def __init__(self, config):
-            pass
+    The clock is pinned INSIDE the MOEX entry window on purpose - that is where
+    the defect lived. process_latest_bars() succeeds every cycle, so before #200
+    its success reset the shared counter, the permanently failing
+    monitor_positions() never reached the threshold and the loop ran out
+    ``duration_minutes`` leaving ``_consecutive_errors == 0`` - the reported
+    ``assert 0 >= 5``. The window is now long enough that ONLY the threshold can
+    end the run, which is what makes the halt itself observable.
+    """
+    notifier = RecordingNotifier()
+    executor = _run_loop_executor(IN_SESSION_NOW, notifier=notifier)
+    calls = [0]
 
-        def load_context(self, *args):
-            pass
-
-    strategy = {"patterns": ["levels_reversal"]}
-    monkeypatch.setattr(
-        module,
-        "get_paper_strategy",
-        lambda _db: (strategy, ["SBER"], "strategy-1"),
-    )
-    monkeypatch.setattr(
-        module,
-        "build_4h_context",
-        lambda *_args: {
-            "levels": ["level"],
-            "ts_4h": ["ts"],
-            "atr_by_ts": {"ts": 1},
-            "buy_ts": [],
-        },
-    )
-    executor = LiveExecutor(
-        db=db,
-        broker=FakeBroker(),
-        config={"enabled": True, "check_interval_seconds": 0.1, "context_refresh_seconds": 60},
-        evaluator_factory=Evaluator,
-    )
-
-    # Make monitor_positions always fail
     def failing_monitor():
+        calls[0] += 1
         raise RuntimeError("Persistent error")
 
     executor.monitor_positions = failing_monitor
+    executor.process_latest_bars = lambda: 0  # entries keep working fine
 
-    # Run for 1 second (should stop after MAX_CONSECUTIVE_ERRORS)
-    executor.run(duration_minutes=0.02)
+    executor.run(duration_minutes=60)
 
-    # Verify executor stopped after MAX_CONSECUTIVE_ERRORS
+    # The loop really halted on the threshold instead of running out the window.
+    assert calls[0] == MAX_CONSECUTIVE_ERRORS
     assert executor._consecutive_errors >= MAX_CONSECUTIVE_ERRORS
+    # The halting cycle breaks before the iteration counter is bumped.
+    assert executor.iterations_total == MAX_CONSECUTIVE_ERRORS - 1
+    assert executor.stopped_reason == "max_consecutive_errors"
+
+    # Issue #177: one critical alert naming the phase that kept failing.
+    halts = [message for message in notifier.messages if "серия ошибок" in message]
+    assert len(halts) == 1
+    assert "*Уровень:* `critical`" in halts[0]
+    assert "*Фаза:* `monitor\\_positions`" in halts[0]
+    assert f"*Ошибок подряд:* `{MAX_CONSECUTIVE_ERRORS}`" in halts[0]
+
+    # Issue #200: the reason is published through the metrics, not only logged.
+    metrics = executor.get_metrics()
+    assert metrics["stopped_reason"] == "max_consecutive_errors"
+    assert metrics["errors_consecutive"] == MAX_CONSECUTIVE_ERRORS
+
+
+def test_both_phases_failing_counts_as_one_failed_cycle():
+    """Issue #200: the streak counts CYCLES, so two broken phases are not two strikes.
+
+    Before the fix a cycle where both monitor_positions() and
+    process_latest_bars() raised added 2 to the counter, so the documented
+    "MAX_CONSECUTIVE_ERRORS in a row" actually fired after half as many cycles.
+    errors_total still counts every individual phase failure.
+    """
+    executor = _run_loop_executor(IN_SESSION_NOW)
+    calls = [0]
+
+    def counting_boom():
+        calls[0] += 1
+        raise RuntimeError("broker down")
+
+    def boom():
+        raise RuntimeError("broker down")
+
+    executor.monitor_positions = counting_boom
+    executor.process_latest_bars = boom
+
+    executor.run(duration_minutes=60)
+
+    assert calls[0] == MAX_CONSECUTIVE_ERRORS
+    assert executor._consecutive_errors == MAX_CONSECUTIVE_ERRORS
+    assert executor.errors_total == 2 * MAX_CONSECUTIVE_ERRORS
+    assert executor.stopped_reason == "max_consecutive_errors"
+
+
+def test_stopped_reason_is_exception_when_the_bootstrap_fails():
+    """Issue #200: a run that never got going must not be reported as a signal."""
+    executor = _run_loop_executor(IN_SESSION_NOW)
+
+    def broken_initialize():
+        raise RuntimeError("No active locked strategy is available")
+
+    executor.initialize = broken_initialize
+
+    with pytest.raises(RuntimeError):
+        executor.run(duration_minutes=1)
+
+    assert executor.stopped_reason == "exception"
+    assert executor.get_metrics()["stopped_reason"] == "exception"
+
+
+def test_stopped_reason_is_signal_when_shutdown_is_requested():
+    """Issue #200: an operator/SIGTERM stop is distinguishable from a halt."""
+    executor = _run_loop_executor(IN_SESSION_NOW)
+    executor.monitor_positions = lambda: None
+    executor.process_latest_bars = lambda: 0
+    executor.sleep_fn = lambda _seconds: executor.request_shutdown()
+
+    executor.run(duration_minutes=60)
+
+    assert executor.stopped_reason == "signal"
+    assert executor._consecutive_errors == 0
 
 
 
