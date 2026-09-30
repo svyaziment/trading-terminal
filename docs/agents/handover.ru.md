@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-09-30 (task-192 — верификация реального контура: четыре фикса формы вызовов под SDK 1.51.0 в `TinkoffLiveClient`, пины `t-tech-investments` / `sqlalchemy`, opt-in `ALLOW_LIVE_TOKEN_REUSE`, новые строки §46.7); ранее 2026-09-29 (task-191 — триаж фантомной просадки и новые поля измерения эквити в §44); ранее 2026-09-28 (task-178 — реальный контур T-Bank `TinkoffLiveClient`, фабрика выбора контура по `ALLOW_REAL_TRADING`, глобальный kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, деплой-миграции через one-shot сервис `migrate`; новый §46); ранее 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-30 (task-193 — остановка потока без flatten-all: матрица трёх рычагов, операционные runbook A/B/C, песочный drill `193-shutdown-drill.py` и его находка про сиротские стопы; новый §46.11); ранее 2026-09-30 (task-192 — верификация реального контура: четыре фикса формы вызовов под SDK 1.51.0 в `TinkoffLiveClient`, пины `t-tech-investments` / `sqlalchemy`, opt-in `ALLOW_LIVE_TOKEN_REUSE`, новые строки §46.7); ранее 2026-09-29 (task-191 — триаж фантомной просадки и новые поля измерения эквити в §44); ранее 2026-09-28 (task-178 — реальный контур T-Bank `TinkoffLiveClient`, фабрика выбора контура по `ALLOW_REAL_TRADING`, глобальный kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, деплой-миграции через one-shot сервис `migrate`; новый §46); ранее 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -1637,4 +1637,178 @@ docker compose exec -T -e TINVEST_LIVE_TOKEN -e TINVEST_LIVE_ACC backend \
 продуктовой миграции из шага 3 §46.3 не стартует, пока гейт закрыт и live-токена
 нет. На биржу не отправлено ничего: реальный контур поднимался только для чтения
 балансов, позиций и истории.
+
+
+### 46.11 Остановка потока без flatten-all: три рычага, runbook, drill (задача #193)
+
+**Зачем этот раздел.** Эпик #190 сохраняет решение PO: **flatten-all запрещён**.
+Остановка потока не имеет права ничего продавать. Рычагов три, действуют они
+по-разному, и на реальных деньгах разница между «управляемым остановом» и «голой
+позицией» — это ровно тот рычаг, который дёрнули. Нового кода здесь нет:
+механизмы поставлены в #174 (SIGTERM/shutdown), #151 (трейлинг-переключатель) и
+#178 (глобальный переключатель). Этот раздел — матрица, операционный runbook и
+drill, который все три доказывает.
+
+**Матрица трёх рычагов.**
+
+| | Рычаг 1: глобальный kill switch | Рычаг 2: трейлинг kill switch | Рычаг 3: SIGTERM / SIGINT |
+|---|---|---|---|
+| Механизм | `trading.app_settings.live_kill_switch` (#178, миграция `20260928_001`) | `trading.app_settings.trailing_kill_switch` (#151) | сигнал процессу: `stop_processes.sh`, `docker compose stop backend`, Ctrl+C |
+| Как включить | `POST /api/live-trading/kill-switch {"enabled": true, "reason": "..."}` или SQL | **только SQL — API-эндпоинта нет** (§41) | `./stop_processes.sh` (SIGTERM исполнителю) |
+| Задержка | ≤ `check_interval_seconds` (30 с): перечитывается каждый цикл, рестарт не нужен | ≤ 30 с: перечитывается каждый цикл, рестарт не нужен | мгновенно: обработчик взводит `shutdown_requested`, очистка — в `shutdown()` |
+| Новые входы | **блокируются** — причина пропуска `kill_switch`, счётчик `kill_switch_rejections_total`; проверка идёт до сессионного окна, стакана, сайзинга и любого брокерского вызова | разрешены — этот рычаг входов не касается | отсутствуют: процесса нет |
+| Трейлинг-храповик | продолжает работать | **заморожен**: нет арминга, нет переноса, нет брокерского amend | останавливается вместе с процессом |
+| Открытые позиции | не трогаются | не трогаются | не трогаются — **flatten отсутствует** (`close_positions_on_shutdown=false`) |
+| Брокерские стопы | остаются выставленными | остаются выставленными | остаются выставленными; отменяются только **pending-заявки на вход**, их строки помечаются `cancelled` (причина `shutdown`) |
+| Fail-safe | нет строки / `NULL` / ошибка БД → **ВКЛЮЧЕНО** (`app_settings:missing_key`, `app_settings:null_value`, `db_error:<тип>`) | нет строки → **False** (исторический fail-open); ошибка БД → **True** (fail-safe) | n/a |
+| Нужен ли рестарт | нет | нет | `./start_processes.sh` при `START_LIVE_EXECUTOR=1`; состояние восстанавливается из БД |
+| Где проверить | `global_kill_switch.*` в `GET /api/live-trading/metrics`; аудит-строка `Global live kill switch set to ON (confirmed=... reason=...)`; Telegram `kill_switch_on` | `kill_switch.*` в `/metrics`; Telegram `kill_switch_on`; §41 | строка лога `Position <id> left protected with broker_stop_id=...`; `positions.protected_total` / `unprotected_total` в `/metrics` |
+
+Отменяет что-либо только рычаг 3, и только pending-входы. Рычаги 1-2 не
+отменяют ничего: они меняют то, что циклу разрешено сделать следующим, и оба
+перечитываются каждый цикл. Единственная настройка, при которой shutdown
+закрывает позиции, — `close_positions_on_shutdown=true`; проект её не поставляет,
+а эпик #190 её запрещает.
+
+**Runbook A — штатная остановка потока, позиции остаются открытыми.**
+
+1. Блокируем новые входы:
+   ```bash
+   curl -s -X POST http://localhost:8000/api/live-trading/kill-switch \
+     -H 'Content-Type: application/json' \
+     -d '{"enabled": true, "reason": "плановая остановка 2026-09-30"}'
+   ```
+   В ответе обязаны быть `"ok": true, "confirmed": true` — `confirmed` это
+   чтение строки обратно. `ok=false` означает, что запись не легла: продолжать
+   нельзя.
+2. Проверяем: `curl -s http://localhost:8000/api/live-trading/metrics | python -m json.tool`
+   → `global_kill_switch.active=true`, `state="kill_switch"`; в логе контейнера
+   есть `Global live kill switch set to ON (confirmed=True reason=...)`;
+   в Telegram пришёл `kill_switch_on`.
+3. По желанию — дополнительно морозим храповик (только SQL):
+   ```sql
+   UPDATE trading.app_settings SET value='true'::jsonb, updated_at=now()
+   WHERE key='trailing_kill_switch';
+   ```
+4. Ждём один цикл (≤ 30 с), чтобы исполнитель закончил уже начатую работу.
+5. Останавливаем процесс: `./stop_processes.sh` (SIGTERM). Никаких
+   `docker compose kill` и `kill -9`: SIGKILL пропускает `shutdown()`, поэтому
+   resting-заявки на вход останутся у брокера, а финальный снимок метрик не
+   будет записан.
+6. Проверяем, что защита уцелела:
+   - лог: по одной строке `Position <id> left protected with broker_stop_id=... broker_take_id=...`
+     на каждую открытую позицию;
+   - `/api/live-trading/metrics` → `positions.open_total == positions.protected_total`,
+     `unprotected_total = 0`, `unprotected_tickers = []`;
+   - строки `trading.live_positions` не изменились: `status='open'`, те же
+     `broker_stop_id` / `broker_take_id`, тот же `updated_at`;
+   - стопы живы у брокера — read-only `get_stop_orders(status='active')`
+     (`193-shutdown-drill.py` делает ровно это до и после сигнала).
+7. Только после этого закрываем позиции руками в приложении брокера, если нужно.
+
+**Runbook B — аварийно: остановить входы, процесс оставить работать.**
+
+Применяется, когда контур ведёт себя нештатно, но позиции должны оставаться
+защищёнными и управляемыми (стопы продолжают срабатывать, храповик работает, если
+рычаг 2 не взведён): шаги 1-2 Runbook A, и больше ничего. Снятие —
+`{"enabled": false, "reason": "..."}` с проверкой
+`global_kill_switch.active=false` и алерта `kill_switch_off`. Пока переключатель
+включён, каждый отклонённый сигнал считается
+(`global_kill_switch.rejections_total`) и логируется как
+`reason=kill_switch source=<происхождение>`.
+
+**Runbook C — реальный контур: порядок действий перед ручным закрытием позиции.**
+
+Решение PO прямое: без flatten-all, закрытие руками через приложение брокера.
+Порядок важен, потому что работающий исполнитель реконсилирует всё, что видит у
+брокера:
+
+1. Рычаг 1 ВКЛ (входы заблокированы) — чтобы исполнитель не открыл новую позицию,
+   пока вы работаете в приложении брокера.
+2. По желанию рычаг 2 ВКЛ — чтобы стопы не двигались у вас под руками.
+3. Рычаг 3: `./stop_processes.sh`. На реальном контуре брокерский стоп живёт
+   независимо от процесса: позиция остаётся защищённой, пока ничего не
+   отправляется.
+4. Проверяем по шагу 6 Runbook A. На реальном контуре у `GetStopOrders` нет
+   фильтра по датам (§46.8) — читайте список идентификаторов, а не угадывайте.
+5. Закрываем позицию вручную в приложении брокера.
+6. На следующем запуске исполнитель выполняет реконсиляцию: исчезнувшая позиция
+   закрывается реальным филлом из `GetOperations`, а оставшийся парный ордер
+   (стоп или тейк) отменяется. **Классификацию читайте правильно**: при всё ещё
+   `ACTIVE` стопе ручное закрытие записывается как `closed_take`, если тейк-ордер
+   существовал, и как `closed_broker` в противном случае
+   (`_classify_exit_reason`); причины «manual» в замороженном списке статусов #173
+   нет, поэтому доверять надо `exit_price_actual` / `lots_executed` из филла, а не
+   слову в `exit_reason`. Неоднозначный случай логируется как
+   `exit_reason_ambiguous position_id=...`.
+7. Снимаем рычаг 1 только когда контур снова под исполнителем.
+
+**Drill (задача #193).** `193-shutdown-drill.py` лежит вместе с артефактами в
+`reports/190-production-trading-infrastructure/193-g2-stream-shutdown-no-flatten/`
+(в образ не входит, в торговый путь не попадает). Он прогоняет все три рычага и
+**по построению песочничный**: если `create_execution_client()` разрешается в
+реальный контур, drill останавливается с `DRILL_BLOCKED` (exit 3), ничего не
+успев сделать. Каждый мутирующий метод брокера затеняется считающей заглушкой,
+установка которой проверяется по маркеру (без call-probe), единственная запись в
+БД — строка `live_kill_switch` в round-trip (восстанавливается в `finally`, с
+SQL-страховкой), а `_flush_metrics` на фазе shutdown заменяется регистратором,
+чтобы drill не перезаписал снимок `live_executor_metrics`, который отдаёт панель.
+
+Фазы: `environment` (поставляемая политика + заглушки) → `kill_switch_roundtrip`
+→ `audit_line` → `entry_gate` (с негативным контролем при выключенном рычаге) →
+`fail_safe` → `trailing_lever` → `stop_liveness_before` → `sigterm_shutdown`
+(настоящий SIGTERM самому процессу drill, затем `shutdown()` ровно так, как его
+вызывает `run()`) → `stop_liveness_after` → `flatten_contrast` (только в
+`--self-test`). Коды возврата: `0` `DRILL_OK` / `1` `DRILL_FAIL` / `3`
+`DRILL_BLOCKED`. Drill также fail-closed при наличии `pending`-строки:
+`shutdown()` отменил бы эту заявку у брокера, а это мутирующее действие.
+
+```bash
+cd reports/190-production-trading-infrastructure/193-g2-stream-shutdown-no-flatten
+docker compose cp 193-shutdown-drill.py backend:/tmp/193-shutdown-drill.py
+
+# герметично: только фейки, без БД / API / брокера — безопасно где угодно
+docker compose exec -T backend python /tmp/193-shutdown-drill.py --self-test
+
+# реальный drill на песочнице
+docker compose exec -T backend sh -c \
+  'python /tmp/193-shutdown-drill.py --json /tmp/drill-193.json > /tmp/drill.txt 2>&1; echo exit=$?'
+docker compose cp backend:/tmp/drill.txt      <папка-задачи>/drill-sandbox.txt
+docker compose cp backend:/tmp/drill-193.json <папка-задачи>/drill-sandbox.json
+```
+
+Статус на 2026-09-30 (песочница; `drill-sandbox.txt`, `drill-sandbox.json`):
+`DRILL_OK`, exit `0`, **`mutating calls: 0`**, все четыре заглушки `blocked`.
+Round-trip подтвердил включение (`state="kill_switch"`, строка `true`,
+`positions.protected_total` не изменился) и вернул базовое `false`; гейт входов
+вернул `kill_switch` при включённом рычаге и `unknown_instrument` при выключенном;
+аудит-строка содержала `confirmed=True reason=drill-193 audit probe`;
+fail-safe матрица воспроизвела все три «включающих» происхождения; настоящий
+SIGTERM взвёл `shutdown_requested`, `shutdown()` оставил открытую строку (id 10,
+PLZL) побайтово прежней (включая `updated_at`) и записал в лог
+`Position 10 left protected with broker_stop_id=01a0df17-...`, а этот стоп был жив
+в `GetStopOrders` и до, и после. `--self-test` (`drill-selftest.txt`) также зелёный
+и добавляет две ветки, которые песочница показать не могла: pending-строка
+отменяется и помечается `cancelled`/`shutdown`, а открытая строка не
+записывается вовсе; `close_positions_on_shutdown=true` действительно закрывает
+позиции — конфигурация, которую проект не поставляет.
+
+**Находка drill (здесь не исправляется — нужна отдельная issue).** Песочный
+`GetStopOrders(active)` вернул 4 стопа при одной открытой позиции: три
+идентификатора (`01a0d4fc-1e39...`, `01a0d4fc-7e55...`, `01a0def6-354f...`) не
+упоминаются ни одной строкой `live_positions` (`drill-orphan-stops.txt`).
+Сиротские sell-стопы — ровно то, вокруг чего `_reconcile_protection` отказывается
+перевыставлять защиту, а на реальном контуре это были бы голые ордера. Очистка и
+реконсиляция сиротских стопов — отдельная задача: #193 не добавляет кода в
+торговый цикл.
+
+**Регрессионные тесты за drill (второй слой доказательств):**
+`test_live_executor.py::test_shutdown_leaves_position_protected_by_default`,
+`::test_shutdown_cancels_all_pending_orders_without_flattening_by_default`,
+`::test_shutdown_still_flattens_when_explicitly_requested`,
+`::test_shutdown_cancels_broker_stop_through_the_stop_api`,
+`::test_kill_switch_preserves_armed_positions`,
+`::test_apply_trailing_returns_none_when_kill_switch_on`,
+`test_live_kill_switch.py` (миграция, гейт, fail-safe, API),
+`test_live_alerting.py::test_graceful_shutdown_persists_the_final_snapshot`.
 

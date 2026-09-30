@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-30 (task-192 - real-contour verification: four SDK 1.51.0 call-shape fixes in `TinkoffLiveClient`, pinned `t-tech-investments` / `sqlalchemy`, the `ALLOW_LIVE_TOKEN_REUSE` opt-in, new §46.7 rows); previously 2026-09-29 (task-191 - phantom drawdown triage and the new equity measurement fields in §44); previously 2026-09-28 (task-178 - the real T-Bank contour `TinkoffLiveClient`, the contour factory driven by `ALLOW_REAL_TRADING`, the global kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, deploy migrations through the one-shot `migrate` service; new §46); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-30 (task-193 - stopping the stream without flatten-all: the matrix of the three levers, operator runbooks A/B/C, the `193-shutdown-drill.py` sandbox drill and its orphan-stop finding; new §46.11); previously 2026-09-30 (task-192 - real-contour verification: four SDK 1.51.0 call-shape fixes in `TinkoffLiveClient`, pinned `t-tech-investments` / `sqlalchemy`, the `ALLOW_LIVE_TOKEN_REUSE` opt-in, new §46.7 rows); previously 2026-09-29 (task-191 - phantom drawdown triage and the new equity measurement fields in §44); previously 2026-09-28 (task-178 - the real T-Bank contour `TinkoffLiveClient`, the contour factory driven by `ALLOW_REAL_TRADING`, the global kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, deploy migrations through the one-shot `migrate` service; new §46); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -1605,4 +1605,172 @@ in this environment. The preflight probe (`192-preflight-check.py` with
 production migration path of §46.3 step 3 cannot start while the gate is closed
 and no live token exists. Nothing was ever sent to the exchange: the real contour
 was constructed only to read balances, positions and history.
+
+
+### 46.11 Stopping the stream without flatten-all: three levers, runbook, drill (Issue #193)
+
+**Why this section exists.** Epic #190 keeps the PO decision: **no flatten-all**.
+Stopping the stream must never sell anything. Three levers stop the stream, they
+do different things, and on real money the difference between "a managed stop"
+and "a naked position" is exactly which lever was pulled. Nothing here is new
+code - the mechanisms shipped in #174 (SIGTERM/shutdown), #151 (trailing switch)
+and #178 (global switch). This section is the matrix, the operator runbook and
+the drill that proves all three.
+
+**The matrix of the three levers.**
+
+| | Lever 1: global kill switch | Lever 2: trailing kill switch | Lever 3: SIGTERM / SIGINT |
+|---|---|---|---|
+| Mechanism | `trading.app_settings.live_kill_switch` (#178, migration `20260928_001`) | `trading.app_settings.trailing_kill_switch` (#151) | signal to the process: `stop_processes.sh`, `docker compose stop backend`, Ctrl+C |
+| How to engage | `POST /api/live-trading/kill-switch {"enabled": true, "reason": "..."}` or SQL | **SQL only - there is no API endpoint** (§41) | `./stop_processes.sh` (SIGTERM to `LiveExecutor`) |
+| Latency | ≤ `check_interval_seconds` (30 s): re-read every cycle, no restart | ≤ 30 s: re-read every cycle, no restart | immediate: the handler sets `shutdown_requested`, cleanup runs in `shutdown()` |
+| New entries | **blocked** - skip reason `kill_switch`, counted in `kill_switch_rejections_total`, evaluated before the session window / order book / sizing / any broker call | allowed - this lever does not touch entries at all | none: the process is gone |
+| Trailing ratchet | keeps working | **frozen**: no arming, no ratchet, no broker amend | stops with the process |
+| Open positions | untouched | untouched | untouched - **no flatten** (`close_positions_on_shutdown=false`) |
+| Broker stops | stay armed | stay armed | stay armed; only **pending entry orders** are cancelled and their rows marked `cancelled` (reason `shutdown`) |
+| Fail-safe | missing row / `NULL` / DB error → **ON** (`app_settings:missing_key`, `app_settings:null_value`, `db_error:<type>`) | missing row → **False** (fail-open, historical default); DB error → **True** (fail-safe) | n/a |
+| Restart needed | no | no | `./start_processes.sh` with `START_LIVE_EXECUTOR=1`; all state is restored from the DB |
+| Where to verify | `global_kill_switch.*` in `GET /api/live-trading/metrics`; audit line `Global live kill switch set to ON (confirmed=... reason=...)`; Telegram `kill_switch_on` | `kill_switch.*` in `/metrics`; Telegram `kill_switch_on`; §41 | log line `Position <id> left protected with broker_stop_id=...`; `positions.protected_total` / `unprotected_total` in `/metrics` |
+
+Only lever 3 cancels anything, and only pending entries. Levers 1-2 cancel
+nothing: they change what the loop is allowed to do next, and both are read again
+on every cycle. `close_positions_on_shutdown=true` is the only setting that makes
+shutdown flatten - the project does not ship it and Epic #190 forbids it.
+
+**Runbook A - planned stop of the stream, positions stay open.**
+
+1. Block new entries:
+   ```bash
+   curl -s -X POST http://localhost:8000/api/live-trading/kill-switch \
+     -H 'Content-Type: application/json' \
+     -d '{"enabled": true, "reason": "planned stop 2026-09-30"}'
+   ```
+   The answer must carry `"ok": true, "confirmed": true` - `confirmed` is the
+   read-back of the row. `ok=false` means the write did not stick: do not continue.
+2. Verify: `curl -s http://localhost:8000/api/live-trading/metrics | python -m json.tool`
+   → `global_kill_switch.active=true`, `state="kill_switch"`; the container log
+   carries `Global live kill switch set to ON (confirmed=True reason=...)`;
+   Telegram got `kill_switch_on`.
+3. Optional - freeze the ratchet as well (SQL only):
+   ```sql
+   UPDATE trading.app_settings SET value='true'::jsonb, updated_at=now()
+   WHERE key='trailing_kill_switch';
+   ```
+4. Wait one cycle (≤ 30 s) so the loop finishes the work it already started.
+5. Stop the process: `./stop_processes.sh` (SIGTERM). Never `docker compose kill`
+   and never `kill -9`: SIGKILL skips `shutdown()`, so resting pending entry
+   orders stay at the broker and the final metrics snapshot is never written.
+6. Verify that the protection survived:
+   - log: one `Position <id> left protected with broker_stop_id=... broker_take_id=...`
+     per open position;
+   - `/api/live-trading/metrics` → `positions.open_total == positions.protected_total`,
+     `unprotected_total = 0`, `unprotected_tickers = []`;
+   - the rows in `trading.live_positions` are unchanged: `status='open'`, the same
+     `broker_stop_id` / `broker_take_id`, the same `updated_at`;
+   - the stops are alive at the broker - read-only `get_stop_orders(status='active')`
+     (`193-shutdown-drill.py` does exactly this before and after the signal).
+7. Only now close positions by hand in the broker application, if you want out.
+
+**Runbook B - emergency: stop the entries, keep the process running.**
+
+Use this when the contour misbehaves but the positions must stay protected and
+managed (stops keep firing, the ratchet keeps working unless lever 2 is pulled):
+step 1-2 of Runbook A, and nothing else. Release with
+`{"enabled": false, "reason": "..."}` and verify `global_kill_switch.active=false`
+plus the `kill_switch_off` alert. While the switch is ON every rejected signal is
+counted (`global_kill_switch.rejections_total`) and logged with
+`reason=kill_switch source=<provenance>`.
+
+**Runbook C - the real contour: what to do before closing a position by hand.**
+
+The PO decision is explicit: no flatten-all, manual closing through the broker
+application. The order matters, because a running executor reconciles whatever it
+sees at the broker:
+
+1. Lever 1 ON (entries blocked) - so the executor cannot open a new position
+   while you are working in the broker app.
+2. Optional lever 2 ON - so stops do not move under your hands.
+3. Lever 3: `./stop_processes.sh`. On the real contour the broker stop survives
+   independently of the process: the position stays protected while nothing is
+   being sent.
+4. Verify as in Runbook A step 6. On the real contour `GetStopOrders` has no date
+   filter (§46.8) - read the id list, do not guess.
+5. Close the position manually in the broker application.
+6. On the next start the executor reconciles: a vanished position is closed with
+   the real fill from `GetOperations` and the leftover sibling order (stop or
+   take) is cancelled. **Read the classification correctly**: with the stop still
+   `ACTIVE` a manual close is recorded as `closed_take` when a take order existed
+   and `closed_broker` otherwise (`_classify_exit_reason`); there is no "manual"
+   reason in the frozen #173 status list, so trust `exit_price_actual` /
+   `lots_executed` from the fill, not the word in `exit_reason`. An ambiguous case
+   is logged as `exit_reason_ambiguous position_id=...`.
+7. Release lever 1 only when the contour is back under the executor.
+
+**Drill (Issue #193).** `193-shutdown-drill.py` lives with its artifacts in
+`reports/190-production-trading-infrastructure/193-g2-stream-shutdown-no-flatten/`
+(not part of the image, never in the trading path). It exercises all three levers
+and is **sandbox-only by construction**: when `create_execution_client()` resolves
+to the real contour it stops with `DRILL_BLOCKED` (exit 3) before touching
+anything. Every mutating broker method is shadowed by a counting guard verified by
+marker (no call-probe), the only database write is the `live_kill_switch` row of
+the round trip (restored in a `finally`, with a SQL fallback), and `_flush_metrics`
+is stubbed during the shutdown phase so the drill cannot overwrite the
+`live_executor_metrics` snapshot the panel serves.
+
+Phases: `environment` (shipped policy + guards) → `kill_switch_roundtrip` →
+`audit_line` → `entry_gate` (with the OFF negative control) → `fail_safe` →
+`trailing_lever` → `stop_liveness_before` → `sigterm_shutdown` (a real SIGTERM to
+the drill process, then `shutdown()` the way `run()` calls it) →
+`stop_liveness_after` → `flatten_contrast` (`--self-test` only). Exit codes:
+`0` `DRILL_OK` / `1` `DRILL_FAIL` / `3` `DRILL_BLOCKED`. The drill is also
+fail-closed when a `pending` row exists: `shutdown()` would cancel that order at
+the broker, which is a mutating action.
+
+```bash
+cd reports/190-production-trading-infrastructure/193-g2-stream-shutdown-no-flatten
+docker compose cp 193-shutdown-drill.py backend:/tmp/193-shutdown-drill.py
+
+# hermetic: fakes only, no DB / API / broker - safe anywhere
+docker compose exec -T backend python /tmp/193-shutdown-drill.py --self-test
+
+# real sandbox drill
+docker compose exec -T backend sh -c \
+  'python /tmp/193-shutdown-drill.py --json /tmp/drill-193.json > /tmp/drill.txt 2>&1; echo exit=$?'
+docker compose cp backend:/tmp/drill.txt      <issue-dir>/drill-sandbox.txt
+docker compose cp backend:/tmp/drill-193.json <issue-dir>/drill-sandbox.json
+```
+
+Status 2026-09-30 (sandbox; `drill-sandbox.txt`, `drill-sandbox.json`):
+`DRILL_OK`, exit `0`, **`mutating calls: 0`**, all four guards `blocked`. The
+round trip was confirmed ON (`state="kill_switch"`, row `true`,
+`positions.protected_total` unchanged) and restored the baseline `false`; the
+entry gate returned `kill_switch` with the lever ON and `unknown_instrument` with
+it OFF; the audit line carried `confirmed=True reason=drill-193 audit probe`; the
+fail-safe matrix reproduced all three ON provenances; a real SIGTERM set
+`shutdown_requested`, `shutdown()` left the open row (id 10, PLZL) byte-identical
+(`updated_at` included) and logged `Position 10 left protected with
+broker_stop_id=01a0df17-...`, and that stop was alive in `GetStopOrders` both
+before and after. `--self-test` (`drill-selftest.txt`) is green too and adds the
+two branches the sandbox could not show: a pending row is cancelled and marked
+`cancelled`/`shutdown` while the open row is never written, and
+`close_positions_on_shutdown=true` really does flatten - the configuration this
+project does not ship.
+
+**Finding of the drill (not fixed here - needs its own issue).** The sandbox
+`GetStopOrders(active)` returned 4 stops while only 1 position is open: three stop
+ids (`01a0d4fc-1e39...`, `01a0d4fc-7e55...`, `01a0def6-354f...`) are referenced by
+no `live_positions` row (`drill-orphan-stops.txt`). Orphan sell stops are exactly
+what `_reconcile_protection` refuses to re-arm around, and on the real contour
+they would be naked orders. Cleanup and reconciliation of orphan stops is a
+separate issue: #193 adds no code to the trading cycle.
+
+**Regression tests behind the drill** (they are the second layer of evidence):
+`test_live_executor.py::test_shutdown_leaves_position_protected_by_default`,
+`::test_shutdown_cancels_all_pending_orders_without_flattening_by_default`,
+`::test_shutdown_still_flattens_when_explicitly_requested`,
+`::test_shutdown_cancels_broker_stop_through_the_stop_api`,
+`::test_kill_switch_preserves_armed_positions`,
+`::test_apply_trailing_returns_none_when_kill_switch_on`,
+`test_live_kill_switch.py` (migration, gate, fail-safe, API),
+`test_live_alerting.py::test_graceful_shutdown_persists_the_final_snapshot`.
 
