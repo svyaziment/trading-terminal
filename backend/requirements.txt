@@ -5,6 +5,12 @@ pyyaml
 psycopg2-binary
 pandas
 asyncpg
-t-tech-investments
+t-tech-investments==1.51.0
 requests
 alembic
+# Issue #192: SQLAlchemy 2.1 switched the default driver of a bare
+# `postgresql://` URL to psycopg3, which is not installed here (the project uses
+# psycopg2-binary). Unpinned, a plain image rebuild silently broke
+# `alembic upgrade head` in the one-shot `migrate` job and therefore the whole
+# deploy. Keep 2.0.x until moving to psycopg3 is a deliberate task.
+sqlalchemy<2.1

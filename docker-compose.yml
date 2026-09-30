@@ -16,6 +16,10 @@ x-backend-env: &backend-env
   TINVEST_LIVE_TOKEN: ${TINVEST_LIVE_TOKEN:-}
   TINVEST_LIVE_ACC: ${TINVEST_LIVE_ACC:-}
   ALLOW_REAL_TRADING: ${ALLOW_REAL_TRADING:-false}
+  # Issue #192: explicit opt-in for ONE physical token serving market data and the
+  # real contour. false (default) = identical values in TINVEST_TOKEN and
+  # TINVEST_LIVE_TOKEN are refused when TinkoffLiveClient is constructed.
+  ALLOW_LIVE_TOKEN_REUSE: ${ALLOW_LIVE_TOKEN_REUSE:-false}
   TGM_TOKEN: ${TGM_TOKEN:-}
   TGM_CHAT: ${TGM_CHAT:-}
   TGM_CHAT_ID: ${TGM_CHAT_ID:-}

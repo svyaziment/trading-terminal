@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-29 (task-192 - verification tooling for the real T-Bank contour: credential-free contract check + guarded read-only live smoke, new §24.5); previously 2026-09-29 (task-191 - live equity price marking: a zero / negative / non-finite broker price no longer manufactures a phantom drawdown, the `risk_breach` alert carries its measurement context, a latch flushes metrics immediately; §22); previously 2026-09-28 (task-178 - the broker layer: sandbox and the real contour, new §24; the global kill switch; deploy migrations); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-30 (task-192 - the real T-Bank contour: keyword-only call shapes of SDK 1.51.0, `order_id` as the idempotency key, pinned dependencies, the `ALLOW_LIVE_TOKEN_REUSE` opt-in); previously 2026-09-29 (task-191 - live equity price marking: a zero / negative / non-finite broker price no longer manufactures a phantom drawdown, the `risk_breach` alert carries its measurement context, a latch flushes metrics immediately; §22); previously 2026-09-28 (task-178 - the broker layer: sandbox and the real contour, new §24; the global kill switch; deploy migrations); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -965,6 +965,16 @@ the sandbox module - there is no second copy).
 | Cash | `sandbox.get_sandbox_positions` | `operations.get_positions` |
 | Accounts | `sandbox.get_sandbox_accounts` | `users.get_accounts` |
 
+Every real service method is keyword-only in `t-tech-investments` 1.51.0 and none
+of them accepts a `request=` payload object (only `SandboxService` does); the
+idempotency key of `orders.post_order` is `order_id`. Issue #192 found four call
+sites violating this: the client authenticated and read the real account, yet every
+order and stop-order call died with `TypeError` before the request left the process
+- invisible to fakes that accepted any keyword. `backend/requirements.txt` therefore
+pins `t-tech-investments==1.51.0` (and `sqlalchemy<2.1`, see §46.7 of the handover),
+and `tests/test_tinkoff_live.py` binds every broker call against the installed SDK
+signature through `sdk_bound_stub()`.
+
 ### 24.2 The contour selection point
 
 The single source of truth is `SANDBOX_TRADING.allow_real_trading`
@@ -978,6 +988,9 @@ open the sandbox client refuses to be constructed, so the two contours cannot be
 mixed inside one process. Credentials are separated: `TINVEST_TOKEN`/`TINVEST_ACC`
 (market data), `TINVEST_SANDBOX`/`TINVEST_SANDBOX_ACC` (sandbox),
 `TINVEST_LIVE_TOKEN`/`TINVEST_LIVE_ACC` (real); cross-fallback is refused in code.
+Since Issue #192 one physical token may serve market data and the real contour, but
+only through the explicit `ALLOW_LIVE_TOKEN_REUSE=true` opt-in (`False` in code,
+strict parsing, WARNING logged); refusing identical values stays the default.
 
 ### 24.3 The global kill switch
 

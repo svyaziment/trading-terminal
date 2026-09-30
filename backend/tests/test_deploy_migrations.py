@@ -140,6 +140,9 @@ def test_the_real_money_gate_is_closed_by_default():
     assert environment["ALLOW_REAL_TRADING"] == "${ALLOW_REAL_TRADING:-false}"
     assert environment["TINVEST_LIVE_TOKEN"] == "${TINVEST_LIVE_TOKEN:-}"
     assert environment["TINVEST_LIVE_ACC"] == "${TINVEST_LIVE_ACC:-}"
+    # Issue #192: reusing one physical token for market data and the real contour
+    # is opt-in and must stay closed unless .env opens it explicitly.
+    assert environment["ALLOW_LIVE_TOKEN_REUSE"] == "${ALLOW_LIVE_TOKEN_REUSE:-false}"
 
 
 def test_the_live_risk_and_alerting_overrides_reach_the_container():

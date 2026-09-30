@@ -1,6 +1,6 @@
 # Agent Handover Guide: Trading Terminal
 
-Last refreshed: 2026-09-29 (task-192 - read-only verification of the real T-Bank contour: credential-free contract check, guarded live smoke and its --self-test, new §46.10); previously 2026-09-29 (task-191 - phantom drawdown triage and the new equity measurement fields in §44); previously 2026-09-28 (task-178 - the real T-Bank contour `TinkoffLiveClient`, the contour factory driven by `ALLOW_REAL_TRADING`, the global kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, deploy migrations through the one-shot `migrate` service; new §46); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-30 (task-192 - real-contour verification: four SDK 1.51.0 call-shape fixes in `TinkoffLiveClient`, pinned `t-tech-investments` / `sqlalchemy`, the `ALLOW_LIVE_TOKEN_REUSE` opt-in, new §46.7 rows); previously 2026-09-29 (task-191 - phantom drawdown triage and the new equity measurement fields in §44); previously 2026-09-28 (task-178 - the real T-Bank contour `TinkoffLiveClient`, the contour factory driven by `ALLOW_REAL_TRADING`, the global kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, deploy migrations through the one-shot `migrate` service; new §46); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-16 (task-151); previously 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the operational guide for agents. Read project-context.md first for architecture.
 
 ## 1. Purpose
@@ -1318,7 +1318,13 @@ original: `handover.ru.md` §46; architecture: `project-context.md` §24.
 
 Cross-pair fallback is refused in code: `TinkoffLiveClient` raises
 `LiveConfigurationError` when `TINVEST_LIVE_TOKEN` is empty **or equals**
-`TINVEST_TOKEN` (the "filled the wrong variable" case). The token is never
+`TINVEST_TOKEN` (the "filled the wrong variable" case). Since Issue #192 the second
+refusal has an explicit opt-out for a deployment that deliberately runs ONE
+physical token for market data and for the real account:
+`ALLOW_LIVE_TOKEN_REUSE=true` (`false` by default, `False` in code, parsed strictly
+like `ALLOW_REAL_TRADING`). The client then builds and logs a WARNING, because
+rotating that token changes both contours at once. The opt-in never introduces a
+fallback - each client still reads its own variable only. The token is never
 logged; the account id is logged masked (`***1234`). `TINVEST_LIVE_ACC` may stay
 empty - the first open account from `users.get_accounts()` is then used, with a
 WARNING recommending an explicit id when several accounts are open.
@@ -1507,7 +1513,9 @@ feature back means the previous image plus no `ALLOW_REAL_TRADING` in `.env`.
 | Symptom | Cause | Action |
 |---|---|---|
 | `LiveConfigurationError: TINVEST_LIVE_TOKEN is empty` | gate open, no token | fill `.env` or set `ALLOW_REAL_TRADING=false` |
-| `... must not reuse the market-data TINVEST_TOKEN` | one token in two variables | check which token T-Bank issued |
+| `... must not reuse the market-data TINVEST_TOKEN` | one token in two variables | deliberate setup: `ALLOW_LIVE_TOKEN_REUSE=true`; otherwise check which token T-Bank issued |
+| `LiveAPIError: T-Bank live <method> failed` with `TypeError ... unexpected keyword argument` in the log | the call shape drifted from the installed SDK | `192-callshape-check.py` (Issue #192); `t-tech-investments` is pinned to `1.51.0` |
+| `migrate` exits 1 with `No module named 'psycopg'` | SQLAlchemy 2.1 made psycopg3 the default driver of a bare `postgresql://` URL | keep `sqlalchemy<2.1` pinned (Issue #192) or install `psycopg[binary]` |
 | `Refusing to build a real-money client` | `ALLOW_REAL_TRADING` never reached the container | `docker compose exec backend env \| grep ALLOW_REAL` |
 | No entries, `reason=kill_switch`, `found=false` | the `live_kill_switch` row is missing | `docker compose run --rm migrate` |
 | `alembic` not found in the container | stale image | `docker compose up -d --build backend` |
