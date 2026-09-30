@@ -587,6 +587,12 @@ _METRICS_SNAPSHOT_FIELDS = frozenset(
         "oco_orphans_cancelled_total",
         "oco_checks_pending",
         "fills_reconciled_total",
+        # account-wide orphan stop sweep (#199)
+        "orphan_stop_sweep_enabled",
+        "orphan_stop_sweep_runs_total",
+        "orphan_stop_candidates",
+        "orphan_stops_cancelled_total",
+        "orphan_sweep_fail_closed_total",
         # equity and the daily drawdown gate (#176)
         "risk_breach_active",
         "risk_breach_session_key",
@@ -681,6 +687,24 @@ def _metrics_protection_section(snapshot: dict) -> dict:
         ),
         "oco_checks_pending": _metrics_int(snapshot.get("oco_checks_pending")),
         "fills_reconciled_total": _metrics_int(snapshot.get("fills_reconciled_total")),
+        # Issue #199: the account-wide sweep of orphaned broker stops. The OCO
+        # counters above only cover the legs of the closes *this* process made;
+        # these cover everything else the broker still holds. ``fail_closed_total``
+        # is the one an operator must never ignore: it means more orphans than the
+        # cap were confirmed and the sweep deliberately cancelled nothing.
+        "orphan_stop_sweep_enabled": _metrics_bool(
+            snapshot.get("orphan_stop_sweep_enabled")
+        ),
+        "orphan_stop_sweep_runs_total": _metrics_int(
+            snapshot.get("orphan_stop_sweep_runs_total")
+        ),
+        "orphan_stop_candidates": _metrics_int(snapshot.get("orphan_stop_candidates")),
+        "orphan_stops_cancelled_total": _metrics_int(
+            snapshot.get("orphan_stops_cancelled_total")
+        ),
+        "orphan_sweep_fail_closed_total": _metrics_int(
+            snapshot.get("orphan_sweep_fail_closed_total")
+        ),
     }
 
 

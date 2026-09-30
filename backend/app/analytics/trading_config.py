@@ -112,6 +112,29 @@ LIVE_TRADING: Dict[str, Any] = {
     # entries can never starve stop arming / amend-trailing
     # (priority: protection > trailing > entry).
     'entry_token_reserve': 1.0,
+    # Issue #199: account-wide sweep of orphaned broker stop orders. The OCO
+    # pass of #175 only knows the legs of the closes *this* process performed,
+    # so a stop orphaned by a restart, a failed DB close or a manual
+    # intervention stays at the broker as a naked sell order. The sweep is the
+    # safety net; false disables it and leaves the #175 behaviour untouched.
+    'orphan_stop_sweep_enabled': True,
+    # Minimum seconds between two sweeps (independent of check_interval_seconds:
+    # the sweep is a reconciliation net, not a per-cycle pass).
+    'orphan_stop_sweep_interval_seconds': 300,
+    # Consecutive sweeps that must report the same orphan before it is
+    # cancelled, so one inconsistent GetStopOrders/GetPositions pair cannot
+    # remove protection.
+    'orphan_stop_confirmations': 2,
+    # A stop armed by this process less than this many seconds ago is never
+    # swept: it is younger than any DB write that could reference it.
+    'orphan_stop_grace_seconds': 900,
+    # Hard cap of cancellations per sweep. More orphans than the cap means our
+    # model of the account is wrong, so the sweep refuses to act (fail closed)
+    # and raises a critical alert instead of emptying the stop book.
+    'orphan_stop_max_cancels': 3,
+    # Minimum seconds between two "fail closed" alerts while the condition lasts,
+    # so a stuck sweep warns the operator without flooding Telegram.
+    'orphan_stop_alert_interval_seconds': 3600,
 }
 
 # Issue #137: MOEX main-session clock for overnight LiveExecutor.
