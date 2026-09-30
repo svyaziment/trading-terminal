@@ -1023,3 +1023,23 @@ git through the `!.env.example` exception (closing D14 of #176).
 **Tests:** `test_tinkoff_live.py` (51), `test_live_kill_switch.py` (41),
 `test_deploy_migrations.py` (15). Operational details and the go-live runbook:
 `handover.md` §46.
+
+### 24.5 Verification tooling (Issue #192)
+
+The broker layer has two read-only diagnostics, kept with the working artifacts in
+`reports/190-production-trading-infrastructure/192-g1-production-client-verify/`:
+
+- `192-contract-check.py` - verifies the safety contract without credentials and
+  without network calls: the global gate is closed, the factory defaults to the
+  sandbox client, a forced real construction fails closed, live/sandbox method
+  and keyword parity holds, mutating vs read-only methods are classified
+  correctly, live error types inherit the sandbox ones.
+- `192-live-smoke.py` - read-only smoke of the real contour with a `--self-test`
+  dry run on an in-process fake client. The diagnostic constructor argument
+  `allow_real_trading=True` is used instead of flipping `ALLOW_REAL_TRADING`, and
+  the mutating methods are shadowed by raising guards before the first API call;
+  only `get_accounts` / balance / positions / orders / stop orders / operations
+  are read. Tokens and account ids are masked in every artifact.
+
+Run order, masking rules and the current blocked status: `handover.md` §46.10.
+

@@ -1549,3 +1549,60 @@ python -m pytest tests/test_live_kill_switch.py -q    # migration, gate, fail-sa
 python -m pytest tests/test_deploy_migrations.py -q   # alembic chain, Dockerfile, compose, DSN (15)
 ```
 
+
+### 46.10 Read-only verification of the real contour (Issue #192)
+
+Two diagnostics live with the working artifacts in
+`reports/190-production-trading-infrastructure/192-g1-production-client-verify/`
+(they are not part of the image and never enter the trading path):
+
+- **`192-contract-check.py`** - the safety contract of the broker layer, verified
+  without credentials and without a single network call. Checks: the global gate
+  stays closed, `create_execution_client()` returns the sandbox client by default,
+  a forced real construction fails closed, live/sandbox method and keyword
+  parity, mutating vs read-only method classification, live error types inherit
+  the sandbox ones. Verdict `CONTRACT_OK`, exit `0`.
+- **`192-live-smoke.py`** - read-only smoke of the real contour. It never flips
+  `ALLOW_REAL_TRADING`: the client is built through the diagnostic constructor
+  argument `allow_real_trading=True`, then every mutating method
+  (`execute_order`, `cancel_order`, `post_stop_order`, `cancel_stop_order`) is
+  shadowed on the instance by a raising guard. The guard installation is verified
+  through a marker attribute, **not** by calling the method - a call-probe on the
+  real contour would itself be a mutating request. Only read-only APIs are
+  called: `users.get_accounts`, `check_balance`, `get_positions`, `get_orders`,
+  `get_stop_orders(status="active")`, `get_operations(state="executed", 7 days)`.
+  `--self-test` runs the same logic against an in-process fake client (no
+  credentials, no network) and additionally call-probes the guards there.
+  Exit codes: `0` green / self-test green, `1` failed, `3` blocked because
+  `TINVEST_LIVE_TOKEN` is absent.
+
+Run order (from the issue folder; artifacts are produced inside the container and
+copied back with `docker compose cp`, which keeps them UTF-8):
+
+```bash
+cd reports/190-production-trading-infrastructure/192-g1-production-client-verify
+docker compose cp 192-contract-check.py backend:/tmp/192-contract-check.py
+docker compose cp 192-live-smoke.py backend:/tmp/192-live-smoke.py
+
+docker compose exec -T backend sh -c \
+  'python /tmp/192-contract-check.py > /tmp/contract-check.txt 2>&1; echo exit=$?'
+docker compose exec -T backend python /tmp/192-live-smoke.py --self-test
+docker compose exec -T -e TINVEST_LIVE_TOKEN -e TINVEST_LIVE_ACC backend \
+  python /tmp/192-live-smoke.py --json /tmp/smoke-real.json
+```
+
+Masking rules of the artifacts: tokens are reported only as presence and length
+(`set(len=88)` / `(empty)` / `<not-set>`), never as a prefix; account ids are
+reduced to the last four characters (`***7890`).
+
+Status 2026-09-29: `contract-check.txt` = 9/9 green, `smoke-self-test.txt` =
+`SELF_TEST_OK` (9 read-only steps, `orders_placed=0`), the authenticated run is
+`BLOCKED_NO_CREDENTIALS` (exit `3`) because `TINVEST_LIVE_TOKEN` is not present
+in this environment. The preflight probe (`192-preflight-check.py` with
+`PREFLIGHT_EXPECT_CONTOUR=real`) confirms the expected fail-closed behaviour:
+`contour_now=sandbox`, `sandbox_gate=true`, `real_gate=false`,
+`real_expectation_passes=false`, verdict `FAIL_CLOSED_OK` (exit `0`) - the
+production migration path of §46.3 step 3 cannot start while the gate is closed
+and no live token exists. Nothing was ever sent to the exchange: the real contour
+was constructed only to read balances, positions and history.
+
