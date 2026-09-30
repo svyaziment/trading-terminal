@@ -1,6 +1,6 @@
 # Project Context: Trading Terminal
 
-Last refreshed: 2026-09-30 (task-192 - the real T-Bank contour: keyword-only call shapes of SDK 1.51.0, `order_id` as the idempotency key, pinned dependencies, the `ALLOW_LIVE_TOKEN_REUSE` opt-in); previously 2026-09-29 (task-191 - live equity price marking: a zero / negative / non-finite broker price no longer manufactures a phantom drawdown, the `risk_breach` alert carries its measurement context, a latch flushes metrics immediately; §22); previously 2026-09-28 (task-178 - the broker layer: sandbox and the real contour, new §24; the global kill switch; deploy migrations); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
+Last refreshed: 2026-09-30 (task-193 - stream shutdown without flatten-all: the three levers, their fail-safe asymmetry, the reconciliation of a manually closed position and the drill tooling; new §24.6); previously 2026-09-30 (task-192 - the real T-Bank contour: keyword-only call shapes of SDK 1.51.0, `order_id` as the idempotency key, pinned dependencies, the `ALLOW_LIVE_TOKEN_REUSE` opt-in); previously 2026-09-29 (task-191 - live equity price marking: a zero / negative / non-finite broker price no longer manufactures a phantom drawdown, the `risk_breach` alert carries its measurement context, a latch flushes metrics immediately; §22); previously 2026-09-28 (task-178 - the broker layer: sandbox and the real contour, new §24; the global kill switch; deploy migrations); previously 2026-09-27 (task-177-live-start-fix); previously 2026-09-27 (task-177); previously 2026-09-27 (task-176); previously 2026-09-19 (task-174); previously 2026-09-18 (task-173); previously 2026-09-16 (task-151); 2026-09-16 (task-150); 2026-09-15 (task-149); 2026-09-15 (task-148); 2026-09-14 (task-147)
 This file is the canonical project context for agents. Keep it current.
 
 ## 1. Project Overview
@@ -1042,4 +1042,40 @@ The broker layer has two read-only diagnostics, kept with the working artifacts 
   are read. Tokens and account ids are masked in every artifact.
 
 Run order, masking rules and the current blocked status: `handover.md` §46.10.
+
+### 24.6 Stream shutdown without flatten-all: the three levers (Issue #193)
+
+Epic #190 keeps flatten-all out of the product: stopping the stream never sells
+anything. Three independent levers stop it, all shipped earlier (#151, #174,
+#178), and they differ in what they touch:
+
+| Lever | Source of truth | New entries | Trailing ratchet | Open positions | Broker stops |
+|---|---|---|---|---|---|
+| Global kill switch | `trading.app_settings.live_kill_switch`; `POST /api/live-trading/kill-switch` | blocked, skip reason `kill_switch`, counted in `kill_switch_rejections_total` | keeps working | untouched | untouched |
+| Trailing kill switch | `trading.app_settings.trailing_kill_switch`; SQL only, no API endpoint | allowed | frozen: no arming, no ratchet, no broker amend | untouched | untouched |
+| SIGTERM / SIGINT | `install_signal_handlers()` → `shutdown_requested` → `shutdown()` | no process, no entries | stops with the process | untouched, no flatten (`close_positions_on_shutdown=false`) | stay armed; only pending entry orders are cancelled and marked `cancelled` |
+
+Both switches are re-read every cycle by `_refresh_kill_switch()` (≤
+`check_interval_seconds`, 30 s), so neither needs a restart, and every transition
+is a one-shot Telegram event carrying its own provenance string. The fail-safe
+rules are deliberately different: an unreadable `live_kill_switch` (missing row,
+`NULL`, DB error) means ON, while a missing `trailing_kill_switch` row keeps its
+historical fail-open `False` and only a DB error turns it ON.
+
+`shutdown()` is the only place that cancels anything, and it cancels pending
+entries only: for an `open` row with `close_positions_on_shutdown=false` it logs
+`Position <id> left protected with broker_stop_id=...`, writes nothing to
+`live_positions`, releases advisory lock `151001` and forces the final metrics
+flush (decision D5). A restart restores everything from the database. A position
+closed by hand in the broker application is reconciled on the next cycle through
+`GetOperations` and `_classify_exit_reason`, and lands as `closed_take` /
+`closed_broker` - the frozen #173 status list has no "manual" reason, so
+`exit_price_actual` / `lots_executed` are the trustworthy fields.
+
+Verification: `193-shutdown-drill.py` in
+`reports/190-production-trading-infrastructure/193-g2-stream-shutdown-no-flatten/`
+- sandbox-only by construction, every mutating broker method guarded, the
+`live_kill_switch` row restored after the round trip, `DRILL_OK` on 2026-09-30 with
+`mutating calls: 0` - plus the #174/#151/#178 regressions. The operator matrix,
+runbooks A/B/C and the drill run order: `handover.md` §46.11.
 
