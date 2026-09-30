@@ -21,7 +21,10 @@ Safety model (Epic #172 red lines):
   allowed or does not exist;
 * the real token is read from ``TINVEST_LIVE_TOKEN`` only. ``TINVEST_TOKEN``
   (market data) and ``TINVEST_SANDBOX`` (sandbox) are never consulted, so a
-  real token cannot leak into the sandbox contour and vice versa;
+  real token cannot leak into the sandbox contour and vice versa. Filling both
+  variables with the *same* secret is refused as a misconfiguration unless the
+  deployment opts in explicitly through ``ALLOW_LIVE_TOKEN_REUSE`` (Issue #192) -
+  and even then the two variables stay independent: no fallback is introduced;
 * the token is never logged; the account id is logged masked.
 """
 
@@ -64,12 +67,9 @@ from app.core.config_manager import load_settings
 try:
     from t_tech.invest import (
         AccountStatus,
-        CancelStopOrderRequest,
         Client,
-        GetStopOrdersRequest,
         OrderDirection,
         OrderType,
-        PostStopOrderRequest,
     )
     from t_tech.invest.constants import INVEST_GRPC_API
     from t_tech.invest.exceptions import RequestError
@@ -87,7 +87,6 @@ try:
 except ImportError:  # pragma: no cover - exercised only in a broken deployment
     AccountStatus = Client = None
     OrderDirection = OrderType = None
-    CancelStopOrderRequest = GetStopOrdersRequest = PostStopOrderRequest = None
     INVEST_GRPC_API = None
     IS_LIVE_SDK_AVAILABLE = False
     LIVE_SDK_RETRYABLE_ERRORS = ()
@@ -145,16 +144,17 @@ class TinkoffLiveClient:
     account discovery           ``users.get_accounts``
     ==========================  =====================================
 
-    Two contract differences from the sandbox are absorbed here so no caller has
-    to know which contour it runs against:
+    Two contract details differ from the sandbox and are absorbed here so no
+    caller has to know which contour it runs against:
 
-    * ``orders.post_order`` takes the client idempotency key as
-      ``idempotence_id`` (its ``order_id`` parameter is the *exchange* order id),
-      while ``post_sandbox_order`` takes that key as ``order_id``;
-    * ``GetStopOrdersRequest`` has only ``account_id`` and ``status``, so the
-      ``from_date`` / ``to_date`` arguments of :meth:`get_stop_orders` are
-      accepted for call-signature parity and ignored (the sandbox client raises
-      on them because the protobuf has no such field).
+    * every real service method is keyword-only in t-tech-investments 1.51.0 and
+      takes its arguments directly - unlike ``SandboxService``, none of them
+      accepts a ``request=`` payload object (Issue #192: passing one raised
+      ``TypeError`` before the request left the process). ``orders.post_order``
+      takes the client idempotency key as ``order_id``, like the sandbox one;
+    * ``GetStopOrders`` does support ``from_`` / ``to``, but
+      :meth:`get_stop_orders` keeps ignoring ``from_date`` / ``to_date`` and
+      filtering client-side, so the executor sees one behaviour on both contours.
     """
 
     def __init__(
@@ -215,6 +215,12 @@ class TinkoffLiveClient:
         self.retry_attempts = max(1, int(policy["retry_attempts"]))
         self.retry_base_delay = max(0.0, float(policy["retry_base_delay_seconds"]))
         self.discover_account = bool(policy["discover_account_when_missing"])
+        # Issue #192: explicit opt-in for one physical token serving both the
+        # market-data and the real contour. ``False`` in code (trading_config),
+        # overridable per deployment through ``ALLOW_LIVE_TOKEN_REUSE``. It never
+        # enables a fallback between contours - it only stops the duplicate-value
+        # check below from refusing a deliberate configuration.
+        self.allow_token_reuse = bool(policy.get("allow_live_token_reuse", False))
         self._client_factory = client_factory or Client
         self._sleep = sleep_fn
         self._before_request = before_request or (lambda: None)
@@ -223,10 +229,23 @@ class TinkoffLiveClient:
             raise LiveConfigurationError("TINVEST_LIVE_TOKEN is empty")
         market_token = str(settings.api.token or "").strip()
         if market_token and self.live_token == market_token:
-            # Same secret in both variables means the operator filled the wrong
-            # one; refusing is cheaper than trading on an ambiguous credential.
-            raise LiveConfigurationError(
-                "TINVEST_LIVE_TOKEN must not reuse the market-data TINVEST_TOKEN"
+            # Same secret in both variables usually means the operator filled the
+            # wrong one; refusing is cheaper than trading on an ambiguous
+            # credential, so this stays the default. A deployment that
+            # deliberately runs one physical token for market data AND for the
+            # real contour opts in explicitly (``ALLOW_LIVE_TOKEN_REUSE``, Issue
+            # #192, PO decision of 2026-09-30). Even then there is no fallback:
+            # the real client reads ``TINVEST_LIVE_TOKEN`` only.
+            if not self.allow_token_reuse:
+                raise LiveConfigurationError(
+                    "TINVEST_LIVE_TOKEN must not reuse the market-data "
+                    "TINVEST_TOKEN (set ALLOW_LIVE_TOKEN_REUSE=true only when one "
+                    "physical token is intended for both contours)"
+                )
+            logger.warning(
+                "TINVEST_LIVE_TOKEN reuses the market-data TINVEST_TOKEN "
+                "(ALLOW_LIVE_TOKEN_REUSE=true): one physical token serves both "
+                "contours; rotating it changes market data and trading together"
             )
         if not self.account_id and not self.discover_account:
             raise LiveConfigurationError(
@@ -417,8 +436,11 @@ class TinkoffLiveClient:
                 direction=ORDER_DIRECTION_MAP[direction_key],
                 account_id=account_id,
                 order_type=ORDER_TYPE_MAP[order_type_key],
-                # Real contour: the client idempotency key is `idempotence_id`.
-                idempotence_id=request_id,
+                # Issue #192: the real contour keys idempotency on ``order_id``
+                # (``PostOrderRequest.order_id``). ``idempotence_id`` does not
+                # exist in t-tech-investments 1.51.0 and raised TypeError before
+                # the request ever left the process.
+                order_id=request_id,
             )
 
         response = self._call("execute_order", "orders", request)
@@ -571,20 +593,24 @@ class TinkoffLiveClient:
         if not request_id:
             raise ValueError("order_id must not be empty")
         def request(stop_orders: Any) -> Any:
-            payload = PostStopOrderRequest()
-            payload.account_id = self._resolve_account_id()
-            payload.instrument_id = instrument_id
-            payload.quantity = quantity
-            payload.stop_price = _quotation(decimal_stop)
+            # Issue #192: ``StopOrdersService.post_stop_order`` is keyword-only in
+            # t-tech-investments 1.51.0 and does NOT accept ``request=``; passing
+            # the dataclass raised TypeError before the request left the process.
+            kwargs: Dict[str, Any] = {
+                "account_id": self._resolve_account_id(),
+                "instrument_id": instrument_id,
+                "quantity": quantity,
+                "stop_price": _quotation(decimal_stop),
+                "direction": STOP_ORDER_DIRECTION_MAP[direction_key],
+                "stop_order_type": STOP_ORDER_TYPE_MAP[type_key],
+                "expiration_type": STOP_ORDER_EXPIRATION_MAP[expiration_key],
+                "order_id": request_id,
+            }
             if decimal_price is not None:
-                payload.price = _quotation(decimal_price)
-            payload.direction = STOP_ORDER_DIRECTION_MAP[direction_key]
-            payload.stop_order_type = STOP_ORDER_TYPE_MAP[type_key]
-            payload.expiration_type = STOP_ORDER_EXPIRATION_MAP[expiration_key]
+                kwargs["price"] = _quotation(decimal_price)
             if expire_date is not None:
-                payload.expire_date = expire_date
-            payload.order_id = request_id
-            return stop_orders.post_stop_order(request=payload)
+                kwargs["expire_date"] = expire_date
+            return stop_orders.post_stop_order(**kwargs)
 
         response = self._call("post_stop_order", "stop_orders", request)
         result = LiveStopOrder(
@@ -619,9 +645,10 @@ class TinkoffLiveClient:
         amend-trailing step before cancelling the older one.
 
         ``from_date`` / ``to_date`` are accepted for call-signature parity with
-        the sandbox client and **ignored**: ``GetStopOrdersRequest`` carries only
-        ``account_id`` and ``status``. ``instrument_id`` narrows the result
-        client-side by uid / FIGI / ticker, exactly like the sandbox client.
+        the sandbox client and **ignored**: the real ``GetStopOrders`` does take
+        ``from_`` / ``to``, but filtering stays client-side so both contours
+        behave identically. ``instrument_id`` narrows the result client-side by
+        uid / FIGI / ticker, exactly like the sandbox client.
         """
         status_key = status.strip().lower()
         if status_key not in STOP_ORDER_STATUS_MAP:
@@ -636,10 +663,14 @@ class TinkoffLiveClient:
         needle = (instrument_id or "").strip()
 
         def request(stop_orders: Any) -> Any:
-            payload = GetStopOrdersRequest()
-            payload.account_id = self._resolve_account_id()
-            payload.status = STOP_ORDER_STATUS_MAP[status_key]
-            return stop_orders.get_stop_orders(request=payload)
+            # Issue #192: keyword-only in t-tech-investments 1.51.0 - ``request=``
+            # raised TypeError. ``from_`` / ``to`` exist in the SDK but stay
+            # unused on purpose: date filtering remains client-side so the
+            # executor keeps the behaviour it has on the sandbox contour.
+            return stop_orders.get_stop_orders(
+                account_id=self._resolve_account_id(),
+                status=STOP_ORDER_STATUS_MAP[status_key],
+            )
 
         response = self._call("get_stop_orders", "stop_orders", request)
         stops: List[LiveStopOrderState] = []
@@ -683,10 +714,12 @@ class TinkoffLiveClient:
         if not stop_order_id:
             raise ValueError("stop_order_id must not be empty")
         def request(stop_orders: Any) -> Any:
-            payload = CancelStopOrderRequest()
-            payload.account_id = self._resolve_account_id()
-            payload.stop_order_id = stop_order_id
-            return stop_orders.cancel_stop_order(request=payload)
+            # Issue #192: keyword-only in t-tech-investments 1.51.0 (``request=``
+            # raised TypeError, exactly like the two other stop-order methods).
+            return stop_orders.cancel_stop_order(
+                account_id=self._resolve_account_id(),
+                stop_order_id=stop_order_id,
+            )
 
         response = self._call("cancel_stop_order", "stop_orders", request)
         logger.info("LIVE stop order %s cancelled", stop_order_id)

@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-09-29 (task-191 — триаж фантомной просадки и новые поля измерения эквити в §44); ранее 2026-09-28 (task-178 — реальный контур T-Bank `TinkoffLiveClient`, фабрика выбора контура по `ALLOW_REAL_TRADING`, глобальный kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, деплой-миграции через one-shot сервис `migrate`; новый §46); ранее 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-30 (task-192 — верификация реального контура: четыре фикса формы вызовов под SDK 1.51.0 в `TinkoffLiveClient`, пины `t-tech-investments` / `sqlalchemy`, opt-in `ALLOW_LIVE_TOKEN_REUSE`, новые строки §46.7); ранее 2026-09-29 (task-191 — триаж фантомной просадки и новые поля измерения эквити в §44); ранее 2026-09-28 (task-178 — реальный контур T-Bank `TinkoffLiveClient`, фабрика выбора контура по `ALLOW_REAL_TRADING`, глобальный kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, деплой-миграции через one-shot сервис `migrate`; новый §46); ранее 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -1350,7 +1350,13 @@ cd backend && python -m pytest tests/test_live_alerting.py -q
 
 Fallback между парами запрещён кодом: `TinkoffLiveClient` падает с
 `LiveConfigurationError`, если `TINVEST_LIVE_TOKEN` пуст **или совпадает** с
-`TINVEST_TOKEN` (защита от заполненной не той переменной). Токен не логируется;
+`TINVEST_TOKEN` (защита от заполненной не той переменной). С Issue #192 у второго
+отказа есть явный opt-out для деплоя, который намеренно использует ОДИН физический
+токен и для market data, и для реального счёта: `ALLOW_LIVE_TOKEN_REUSE=true`
+(по умолчанию `false`, в коде `False`, парсится строго как `ALLOW_REAL_TRADING`).
+Клиент тогда строится и пишет WARNING: ротация такого токена меняет оба контура
+сразу. Opt-in не вводит fallback — каждый клиент по-прежнему читает только свою
+переменную. Токен не логируется;
 счёт логируется маскированным (`***1234`). `TINVEST_LIVE_ACC` может быть пустым —
 тогда берётся первый открытый счёт из `users.get_accounts()` (при нескольких
 открытых счетах пишется WARNING с рекомендацией зафиксировать счёт явно).
@@ -1536,7 +1542,9 @@ docker compose run --rm migrate alembic downgrade 20260927_001
 | Симптом | Причина | Действие |
 |---|---|---|
 | `LiveConfigurationError: TINVEST_LIVE_TOKEN is empty` | gate открыт, токена нет | заполнить `.env` или вернуть `ALLOW_REAL_TRADING=false` |
-| `... must not reuse the market-data TINVEST_TOKEN` | один токен в двух переменных | проверить, какой токен выдан в кабинете T-Bank |
+| `... must not reuse the market-data TINVEST_TOKEN` | один токен в двух переменных | осознанная схема: `ALLOW_LIVE_TOKEN_REUSE=true`; иначе проверить, какой токен выдан в кабинете T-Bank |
+| `LiveAPIError: T-Bank live <method> failed`, в логе `TypeError ... unexpected keyword argument` | форма вызова разошлась с установленным SDK | `192-callshape-check.py` (Issue #192); `t-tech-investments` запинен на `1.51.0` |
+| `migrate` завершается с кодом 1 и `No module named 'psycopg'` | SQLAlchemy 2.1 сделал psycopg3 драйвером по умолчанию для «голого» `postgresql://` | держать пин `sqlalchemy<2.1` (Issue #192) или поставить `psycopg[binary]` |
 | `Refusing to build a real-money client` | `ALLOW_REAL_TRADING` не дошёл до контейнера | `docker compose exec backend env \| grep ALLOW_REAL` |
 | Входы не открываются, `reason=kill_switch`, `found=false` | нет строки `live_kill_switch` | `docker compose run --rm migrate` |
 | `alembic` не найден в контейнере | старый образ | `docker compose up -d --build backend` |

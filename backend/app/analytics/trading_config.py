@@ -522,6 +522,12 @@ SANDBOX_TRADING: Dict[str, Any] = {
     'retry_attempts': 3,
     'retry_base_delay_seconds': 0.5,
     'discover_account_when_missing': True,
+    # Issue #192: red line - stays False in code. Only ALLOW_LIVE_TOKEN_REUSE on
+    # the deployment may let TINVEST_LIVE_TOKEN hold the same secret as the
+    # market-data TINVEST_TOKEN (one physical token for both contours). It never
+    # introduces a fallback between contours: each client still reads its own
+    # variable only.
+    'allow_live_token_reuse': False,
 }
 
 
@@ -537,11 +543,18 @@ def get_sandbox_trading_config() -> Dict[str, Any]:
     The retry policy, the default currency and the account-discovery switch in
     this dict are shared by both clients - :class:`TinkoffLiveClient` is the
     mirror of :class:`TinkoffSandboxClient`, not a second policy.
+
+    Issue #192: ``allow_live_token_reuse`` follows exactly the same pattern -
+    ``False`` in code, ``ALLOW_LIVE_TOKEN_REUSE`` env override, strict parsing.
     """
     config = dict(SANDBOX_TRADING)
     config['allow_real_trading'] = _env_strict_bool(
         'ALLOW_REAL_TRADING',
         bool(SANDBOX_TRADING['allow_real_trading']),
+    )
+    config['allow_live_token_reuse'] = _env_strict_bool(
+        'ALLOW_LIVE_TOKEN_REUSE',
+        bool(SANDBOX_TRADING['allow_live_token_reuse']),
     )
     return config
 

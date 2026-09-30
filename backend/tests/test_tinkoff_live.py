@@ -5,10 +5,11 @@ the request objects the SDK defines, so the assertions are about *which* service
 and *which* arguments the client uses.
 """
 
+import inspect
+import logging
 from decimal import Decimal
 from types import SimpleNamespace
-
-import logging
+from typing import Any, Dict, Tuple
 
 import pytest
 
@@ -42,6 +43,7 @@ def policy(**overrides):
         "retry_attempts": 3,
         "retry_base_delay_seconds": 0.5,
         "discover_account_when_missing": True,
+        "allow_live_token_reuse": False,
     }
     base.update(overrides)
     return base
@@ -70,6 +72,56 @@ def services_factory(captured=None, **services):
         return FakeClientContext(**services)
 
     return factory
+
+
+#: Sub-service name -> the SDK class that defines the real signature.
+SDK_SERVICE_CLASSES = {
+    "orders": "OrdersService",
+    "stop_orders": "StopOrdersService",
+    "operations": "OperationsService",
+    "users": "UsersService",
+}
+
+
+def sdk_bound_stub(
+    service_name: str, method_name: str, result: Any
+) -> Tuple[Any, Dict[str, Any]]:
+    """A fake sub-service method that enforces the INSTALLED SDK signature.
+
+    Issue #192: the previous fakes accepted anything (``**kwargs`` or a
+    positional ``request``), which is how four call shapes of
+    :class:`TinkoffLiveClient` drifted away from ``t-tech-investments`` 1.51.0
+    unnoticed - only the real contour could reveal the ``TypeError``. Binding
+    every call against the real signature turns that drift into a unit-test
+    failure. Without the SDK installed the stub stays permissive.
+
+    Returns ``(stub, captured)``: the object to inject into ``services_factory``
+    and the dict holding the keyword arguments of the last call.
+    """
+    captured: Dict[str, Any] = {}
+    signature = None
+    try:
+        import t_tech.invest.services as sdk_services
+    except ImportError:  # pragma: no cover - SDK-less environment
+        sdk_services = None
+    if sdk_services is not None:
+        service_class = getattr(
+            sdk_services, SDK_SERVICE_CLASSES[service_name], None
+        )
+        if service_class is not None:
+            signature = inspect.signature(getattr(service_class, method_name))
+
+    def method(*args, **kwargs):
+        if signature is not None:
+            # ``self`` is positional in an unbound signature; None is enough for
+            # a pure binding check. A wrong keyword raises TypeError, exactly
+            # like the real SDK does.
+            signature.bind(None, *args, **kwargs)
+        captured.clear()
+        captured.update(kwargs)
+        return result() if callable(result) else result
+
+    return SimpleNamespace(**{method_name: method}), captured
 
 
 def make_client(**kwargs):
@@ -199,6 +251,51 @@ def test_reusing_the_market_data_token_is_refused(monkeypatch):
         TinkoffLiveClient(client_factory=services_factory())
 
 
+def test_token_reuse_needs_an_explicit_opt_in(monkeypatch, caplog):
+    """One physical token for both contours is a deliberate deployment choice.
+
+    Issue #192 (PO decision of 2026-09-30): the operator may run market data and
+    the real contour on the same token, but only through
+    ``ALLOW_LIVE_TOKEN_REUSE=true`` - and it is logged as a warning because
+    rotating that token then changes both contours at once.
+    """
+    monkeypatch.setattr(
+        module,
+        "load_settings",
+        lambda: api_settings(token="same-token", live_token="same-token"),
+    )
+    monkeypatch.setattr(
+        module,
+        "get_sandbox_trading_config",
+        lambda: policy(allow_live_token_reuse=True),
+    )
+    caplog.set_level(logging.WARNING)
+
+    client = TinkoffLiveClient(client_factory=services_factory())
+
+    assert client.live_token == "same-token"
+    assert client.allow_token_reuse is True
+    assert "ALLOW_LIVE_TOKEN_REUSE=true" in caplog.text
+
+
+def test_token_reuse_flag_defaults_to_false_in_code(monkeypatch):
+    """Red line: the opt-in is never on by default (like allow_real_trading)."""
+    monkeypatch.delenv("ALLOW_LIVE_TOKEN_REUSE", raising=False)
+
+    assert trading_config.SANDBOX_TRADING["allow_live_token_reuse"] is False
+    assert get_sandbox_trading_config()["allow_live_token_reuse"] is False
+
+
+def test_token_reuse_env_override_is_parsed_strictly(monkeypatch):
+    """A typo must fail fast instead of silently choosing a credential policy."""
+    monkeypatch.setenv("ALLOW_LIVE_TOKEN_REUSE", "true")
+    assert get_sandbox_trading_config()["allow_live_token_reuse"] is True
+
+    monkeypatch.setenv("ALLOW_LIVE_TOKEN_REUSE", "ture")
+    with pytest.raises(ValueError, match="ALLOW_LIVE_TOKEN_REUSE"):
+        get_sandbox_trading_config()
+
+
 def test_missing_account_without_discovery_fails_fast(monkeypatch):
     monkeypatch.setattr(
         module,
@@ -232,13 +329,10 @@ def test_disabled_trading_policy_is_refused(monkeypatch):
 # --- the mirrored contract ---------------------------------------------------
 
 
-def test_execute_order_uses_the_orders_service_and_idempotence_id():
-    class Orders:
-        def post_order(self, **kwargs):
-            self.kwargs = kwargs
-            return order_response("broker-order-1")
-
-    orders = Orders()
+def test_execute_order_uses_the_orders_service_and_order_id_key():
+    orders, sent = sdk_bound_stub(
+        "orders", "post_order", order_response("broker-order-1")
+    )
     captured = {}
     client = make_client(client_factory=services_factory(captured, orders=orders))
 
@@ -254,15 +348,17 @@ def test_execute_order_uses_the_orders_service_and_idempotence_id():
     assert result.order_id == "broker-order-1"
     assert result.lots_executed == 2
     assert result.executed_order_price == Decimal("101.3")
-    assert orders.kwargs["account_id"] == "real-account"
-    assert orders.kwargs["instrument_id"] == "instrument-uid"
-    assert orders.kwargs["price"].units == 101
-    assert orders.kwargs["price"].nano == 250_000_000
-    assert orders.kwargs["order_type"] == module.ORDER_TYPE_MAP["limit"]
-    assert orders.kwargs["direction"] == module.ORDER_DIRECTION_MAP["buy"]
-    # The real contour keys idempotency on `idempotence_id`, not `order_id`.
-    assert orders.kwargs["idempotence_id"] == "stable-request-id"
-    assert "order_id" not in orders.kwargs
+    assert sent["account_id"] == "real-account"
+    assert sent["instrument_id"] == "instrument-uid"
+    assert sent["price"].units == 101
+    assert sent["price"].nano == 250_000_000
+    assert sent["order_type"] == module.ORDER_TYPE_MAP["limit"]
+    assert sent["direction"] == module.ORDER_DIRECTION_MAP["buy"]
+    # Issue #192: the real contour keys idempotency on `order_id` in
+    # t-tech-investments 1.51.0; `idempotence_id` does not exist there and used
+    # to raise TypeError before the request left the process.
+    assert sent["order_id"] == "stable-request-id"
+    assert "idempotence_id" not in sent
     # ... and it talks to the production endpoint, never to the sandbox one.
     assert captured["kwargs"]["target"] == module.INVEST_GRPC_API
     assert captured["args"] == ("live-token",)
@@ -358,12 +454,11 @@ def stop_item(stop_order_id="stop-1", uid="uid-1", ticker="SBER", figi="FIGI1"):
 
 
 def test_post_stop_order_builds_the_protective_request():
-    class StopOrders:
-        def post_stop_order(self, request):
-            self.request = request
-            return SimpleNamespace(stop_order_id="stop-1", order_request_id="req-1")
-
-    stop_orders = StopOrders()
+    stop_orders, sent = sdk_bound_stub(
+        "stop_orders",
+        "post_stop_order",
+        SimpleNamespace(stop_order_id="stop-1", order_request_id="req-1"),
+    )
     client = make_client(client_factory=services_factory(stop_orders=stop_orders))
 
     result = client.post_stop_order(
@@ -376,20 +471,21 @@ def test_post_stop_order_builds_the_protective_request():
         order_id="protection-key",
     )
 
-    payload = stop_orders.request
     assert result.stop_order_id == "stop-1"
     assert result.order_request_id == "req-1"
-    assert payload.account_id == "real-account"
-    assert payload.instrument_id == "uid-1"
-    assert payload.quantity == 3
-    assert payload.stop_price.units == 99
-    assert payload.stop_price.nano == 500_000_000
-    assert payload.price.units == 99
-    assert payload.order_id == "protection-key"
-    assert payload.direction == module.STOP_ORDER_DIRECTION_MAP["sell"]
-    assert payload.stop_order_type == module.STOP_ORDER_TYPE_MAP["stop_loss"]
+    # Issue #192: StopOrdersService is keyword-only in SDK 1.51.0 - the stub binds
+    # against the real signature, so a `request=` payload would raise TypeError.
+    assert sent["account_id"] == "real-account"
+    assert sent["instrument_id"] == "uid-1"
+    assert sent["quantity"] == 3
+    assert sent["stop_price"].units == 99
+    assert sent["stop_price"].nano == 500_000_000
+    assert sent["price"].units == 99
+    assert sent["order_id"] == "protection-key"
+    assert sent["direction"] == module.STOP_ORDER_DIRECTION_MAP["sell"]
+    assert sent["stop_order_type"] == module.STOP_ORDER_TYPE_MAP["stop_loss"]
     assert (
-        payload.expiration_type == module.STOP_ORDER_EXPIRATION_MAP["good_till_cancel"]
+        sent["expiration_type"] == module.STOP_ORDER_EXPIRATION_MAP["good_till_cancel"]
     )
 
 
@@ -412,17 +508,16 @@ def test_post_stop_order_validates_its_arguments():
 
 
 def test_get_stop_orders_filters_client_side_and_ignores_dates():
-    class StopOrders:
-        def get_stop_orders(self, request):
-            self.request = request
-            return SimpleNamespace(
-                stop_orders=[
-                    stop_item("stop-1", uid="uid-1"),
-                    stop_item("stop-2", uid="uid-2", ticker="GAZP", figi="FIGI2"),
-                ]
-            )
-
-    stop_orders = StopOrders()
+    stop_orders, sent = sdk_bound_stub(
+        "stop_orders",
+        "get_stop_orders",
+        SimpleNamespace(
+            stop_orders=[
+                stop_item("stop-1", uid="uid-1"),
+                stop_item("stop-2", uid="uid-2", ticker="GAZP", figi="FIGI2"),
+            ]
+        ),
+    )
     client = make_client(client_factory=services_factory(stop_orders=stop_orders))
 
     stops = client.get_stop_orders(
@@ -436,10 +531,12 @@ def test_get_stop_orders_filters_client_side_and_ignores_dates():
     assert stops[0].status == "STOP_ORDER_STATUS_ACTIVE"
     assert stops[0].stop_price == Decimal("99")
     assert stops[0].price == Decimal("98")
-    # GetStopOrdersRequest carries account_id and status only - the date
-    # arguments of the sandbox signature have no real counterpart.
-    assert stop_orders.request.account_id == "real-account"
-    assert stop_orders.request.status == module.STOP_ORDER_STATUS_MAP["active"]
+    # Issue #192: keyword-only call, and the date arguments of the sandbox
+    # signature stay unused - the client filters client-side on both contours.
+    assert sent == {
+        "account_id": "real-account",
+        "status": module.STOP_ORDER_STATUS_MAP["active"],
+    }
 
 
 def test_get_stop_orders_rejects_an_unknown_status():
@@ -450,18 +547,16 @@ def test_get_stop_orders_rejects_an_unknown_status():
 
 
 def test_cancel_stop_order_and_cancel_order_use_their_services():
-    class StopOrders:
-        def cancel_stop_order(self, request):
-            self.request = request
-            return SimpleNamespace(time="2026-09-28T10:00:00")
-
-    class Orders:
-        def cancel_order(self, **kwargs):
-            self.kwargs = kwargs
-            return SimpleNamespace(time="2026-09-28T10:00:01")
-
-    stop_orders = StopOrders()
-    orders = Orders()
+    stop_orders, stop_sent = sdk_bound_stub(
+        "stop_orders",
+        "cancel_stop_order",
+        SimpleNamespace(time="2026-09-28T10:00:00"),
+    )
+    orders, order_sent = sdk_bound_stub(
+        "orders",
+        "cancel_order",
+        SimpleNamespace(time="2026-09-28T10:00:01"),
+    )
     client = make_client(
         client_factory=services_factory(stop_orders=stop_orders, orders=orders)
     )
@@ -470,10 +565,10 @@ def test_cancel_stop_order_and_cancel_order_use_their_services():
     cancelled_order = client.cancel_order(" order-9 ")
 
     assert cancelled_stop.stop_order_id == "stop-9"
-    assert stop_orders.request.account_id == "real-account"
-    assert stop_orders.request.stop_order_id == "stop-9"
+    # Issue #192: keyword-only in SDK 1.51.0; `request=` raised TypeError.
+    assert stop_sent == {"account_id": "real-account", "stop_order_id": "stop-9"}
     assert cancelled_order.order_id == "order-9"
-    assert orders.kwargs == {"account_id": "real-account", "order_id": "order-9"}
+    assert order_sent == {"account_id": "real-account", "order_id": "order-9"}
 
 
 def test_get_orders_parses_resting_orders():
@@ -602,7 +697,7 @@ def test_cancel_calls_reject_empty_ids():
 # --- retries, discovery and secrecy ------------------------------------------
 
 
-def test_transient_error_retries_with_the_same_idempotence_id(monkeypatch):
+def test_transient_error_retries_with_the_same_idempotency_key(monkeypatch):
     class TransientError(Exception):
         code = SimpleNamespace(name="UNAVAILABLE")
 
@@ -611,10 +706,12 @@ def test_transient_error_retries_with_the_same_idempotence_id(monkeypatch):
             self.keys = []
 
         def post_order(self, **kwargs):
-            self.keys.append(kwargs["idempotence_id"])
+            # Issue #192: t-tech-investments 1.51.0 names the client idempotency
+            # key ``order_id``; ``idempotence_id`` does not exist there.
+            self.keys.append(kwargs["order_id"])
             if len(self.keys) == 1:
                 raise TransientError()
-            return order_response(kwargs["idempotence_id"])
+            return order_response(kwargs["order_id"])
 
     sleeps = []
     attempts = []
