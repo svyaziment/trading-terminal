@@ -19,6 +19,7 @@ from app.analytics.live_schema import (
     REQUIRED_LIVE_POSITIONS_COLUMNS,
     REQUIRED_LIVE_POSITIONS_STATUSES,
 )
+from app.analytics.trading_config import LIVE_TRADING
 from app.broker.tinkoff_sandbox import SandboxAPIError
 
 
@@ -2510,4 +2511,657 @@ def test_handle_sell_signal_cancels_broker_stop():
     assert closed == 1
     assert broker.cancelled_stops == ["stop-1"]
     assert ("cancel_order", {"order_id": "take-1"}) in broker.calls
+
+
+
+# --- Issue #199: account-wide sweep of orphaned broker stop orders -------------
+
+
+def orphan_stop(stop_order_id, **overrides):
+    """An ACTIVE SELL stop of a universe instrument, as the broker reports it.
+
+    ``stop_item`` deliberately carries no ``direction``: the sweep must treat a
+    stop whose direction the broker did not report as unknown, and unknown means
+    "keep". Everything that *should* be sweepable is built through this helper.
+    """
+    data = {
+        "direction": "INVESTMENT_DIRECTION_SELL",
+        "ticker": "SBER",
+        "instrument_uid": "figi-sber",
+        "lots_requested": 10,
+    }
+    data.update(overrides)
+    return stop_item(stop_order_id, **data)
+
+
+class SweepFakeBroker(StopFakeBroker):
+    """Stop broker that reports every stop it holds, whatever status is asked.
+
+    ``StopFakeBroker`` filters to ACTIVE, which would hide the "not active"
+    branch of the sweep behind the fake instead of testing it.
+    """
+
+    def get_stop_orders(self, status="active", **kwargs):
+        self.calls.append(("get_stop_orders", {"status": status, **kwargs}))
+        return list(self.stop_orders)
+
+
+class RecordingNotifier:
+    """Notifier double that keeps every rendered alert text."""
+
+    enabled = True
+
+    def __init__(self):
+        self.messages = []
+
+    def send_message(self, text):
+        self.messages.append(text)
+        return True
+
+
+SWEEP_SETTINGS = {
+    "orphan_stop_sweep_interval_seconds": 60,
+    "orphan_stop_confirmations": 2,
+    "orphan_stop_grace_seconds": 0,
+    "orphan_stop_max_cancels": 3,
+    "orphan_stop_alert_interval_seconds": 3600,
+}
+
+
+def make_sweep_executor(broker=None, *, clock=None, **config):
+    """Executor wired for orphan-sweep tests: short interval, empty DB book."""
+    settings = dict(SWEEP_SETTINGS)
+    settings.update(config)
+    return make_executor(
+        db=FakeDB(),
+        broker=broker if broker is not None else SweepFakeBroker(),
+        clock=lambda: (clock if clock is not None else [0.0])[0],
+        **settings,
+    )
+
+
+def test_orphan_sweep_needs_two_confirmations_before_cancelling(caplog):
+    """Issue #199: one sighting is a candidate, two consecutive ones an orphan."""
+    clock = [0.0]
+    broker = SweepFakeBroker(stop_orders=[orphan_stop("stop-9")])
+    executor = make_sweep_executor(broker, clock=clock)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], []) == 0
+
+    assert broker.cancelled_stops == []
+    assert executor._orphan_candidates == {"stop-9": 1}
+    assert "orphan_stop_candidate stop_order_id=stop-9" in caplog.text
+
+    clock[0] = 61.0
+    caplog.clear()
+    with caplog.at_level("INFO", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], []) == 1
+
+    assert broker.cancelled_stops == ["stop-9"]
+    assert executor._orphan_candidates == {}
+    assert "orphan_stop_cancelled stop_order_id=stop-9 ticker=SBER" in caplog.text
+    metrics = executor.get_metrics()
+    assert metrics["orphan_stop_sweep_runs_total"] == 2
+    assert metrics["orphan_stops_cancelled_total"] == 1
+    assert metrics["orphan_stop_candidates"] == 0
+    assert metrics["orphan_sweep_fail_closed_total"] == 0
+
+
+def test_orphan_sweep_loses_a_candidate_that_disappears_between_passes():
+    """Issue #199: confirmations must be consecutive, never accumulated."""
+    clock = [0.0]
+    broker = SweepFakeBroker(stop_orders=[orphan_stop("stop-9")])
+    executor = make_sweep_executor(broker, clock=clock)
+
+    assert executor._sweep_orphan_stops([], []) == 0
+    assert executor._orphan_candidates == {"stop-9": 1}
+
+    # The stop is gone (or protected again) for one sweep...
+    broker.stop_orders = []
+    clock[0] = 61.0
+    assert executor._sweep_orphan_stops([], []) == 0
+    assert executor._orphan_candidates == {}
+
+    # ...and coming back starts the confirmation count over.
+    broker.stop_orders = [orphan_stop("stop-9")]
+    clock[0] = 122.0
+    assert executor._sweep_orphan_stops([], []) == 0
+    assert executor._orphan_candidates == {"stop-9": 1}
+    assert broker.cancelled_stops == []
+
+
+def test_orphan_sweep_waits_for_the_configured_interval():
+    """Issue #199: the sweep reads the broker at most once per interval."""
+    clock = [0.0]
+    broker = SweepFakeBroker(stop_orders=[orphan_stop("stop-9")])
+    executor = make_sweep_executor(broker, clock=clock)
+
+    assert executor._sweep_orphan_stops([], []) == 0
+    calls_after_first = len(broker.calls)
+
+    clock[0] = 59.0
+    assert executor._sweep_orphan_stops([], []) == 0
+
+    assert len(broker.calls) == calls_after_first
+    assert executor._orphan_candidates == {"stop-9": 1}
+    assert executor.orphan_sweep_runs_total == 1
+
+
+def test_orphan_sweep_can_be_switched_off():
+    """Issue #199: the operator can disable the net without touching the code."""
+    broker = SweepFakeBroker(stop_orders=[orphan_stop("stop-9")])
+    executor = make_sweep_executor(broker, orphan_stop_sweep_enabled=False)
+
+    assert executor._sweep_orphan_stops([], []) == 0
+    assert broker.calls == []
+    assert executor.get_metrics()["orphan_stop_sweep_enabled"] is False
+
+
+def test_orphan_sweep_settings_fall_back_to_the_shipped_defaults():
+    """Issue #199: a broken override degrades to the policy, never to zero."""
+    executor = make_sweep_executor()
+    # ``_validate_config`` rejects the garbage below at startup, so it is put
+    # there behind its back: the coercion still has to land on the shipped
+    # policy for a missing key, a text value, a NaN or an unexpected type.
+    for key in (
+        "orphan_stop_sweep_enabled",
+        "orphan_stop_sweep_interval_seconds",
+        "orphan_stop_max_cancels",
+    ):
+        executor.config.pop(key, None)
+    executor.config.update(
+        {
+            "orphan_stop_confirmations": "two",
+            "orphan_stop_grace_seconds": float("nan"),
+            "orphan_stop_alert_interval_seconds": "soon",
+        }
+    )
+
+    settings = executor._orphan_sweep_settings()
+
+    assert settings["interval"] == LIVE_TRADING["orphan_stop_sweep_interval_seconds"]
+    assert settings["confirmations"] == LIVE_TRADING["orphan_stop_confirmations"]
+    assert settings["grace"] == LIVE_TRADING["orphan_stop_grace_seconds"]
+    assert settings["max_cancels"] == LIVE_TRADING["orphan_stop_max_cancels"]
+    assert settings["alert_interval"] == LIVE_TRADING[
+        "orphan_stop_alert_interval_seconds"
+    ]
+    assert settings["enabled"] is True
+
+
+def test_orphan_sweep_settings_clamp_impossible_values():
+    """Issue #199: zero confirmations would cancel on first sight."""
+    executor = make_sweep_executor()
+    executor.config.update(
+        {
+            "orphan_stop_confirmations": 0,
+            "orphan_stop_grace_seconds": -5,
+            "orphan_stop_max_cancels": -1,
+            "orphan_stop_sweep_interval_seconds": -1,
+            "orphan_stop_alert_interval_seconds": -1,
+        }
+    )
+
+    settings = executor._orphan_sweep_settings()
+
+    assert settings["confirmations"] == 1
+    assert settings["grace"] == 0.0
+    assert settings["max_cancels"] == 0
+    assert settings["interval"] == 0.0
+    assert settings["alert_interval"] == 0.0
+
+
+@pytest.mark.parametrize(
+    "key, bad_value, fragment",
+    [
+        ("orphan_stop_sweep_enabled", "yes", "must be a boolean"),
+        ("orphan_stop_sweep_interval_seconds", -1, "cannot be negative"),
+        ("orphan_stop_grace_seconds", float("nan"), "cannot be negative"),
+        ("orphan_stop_alert_interval_seconds", -30, "cannot be negative"),
+        ("orphan_stop_confirmations", 0, "must be at least 1"),
+        ("orphan_stop_max_cancels", -1, "cannot be negative"),
+    ],
+)
+def test_orphan_sweep_config_rejects_bad_values(key, bad_value, fragment):
+    """Issue #199: a malformed knob fails at startup, not during an incident."""
+    with pytest.raises(ValueError) as excinfo:
+        make_sweep_executor(**{key: bad_value})
+
+    assert key in str(excinfo.value)
+    assert fragment in str(excinfo.value)
+
+
+
+@pytest.mark.parametrize(
+    "overrides, reason",
+    [
+        ({"status": "STOP_ORDER_STATUS_CANCELLED"}, "not_active"),
+        ({"status": "STOP_ORDER_STATUS_EXECUTED"}, "not_active"),
+        ({"direction": "INVESTMENT_DIRECTION_BUY"}, "not_a_sell_stop"),
+        ({"direction": None}, "not_a_sell_stop"),
+        ({"ticker": "LKOH", "instrument_uid": "figi-lkoh"}, "outside_universe"),
+        ({"ticker": None, "instrument_uid": None}, "outside_universe"),
+    ],
+)
+def test_orphan_sweep_leaves_a_stop_it_cannot_prove_is_an_orphan(
+    overrides, reason, caplog
+):
+    """Issue #199: only an ACTIVE SELL stop of a universe instrument is eligible."""
+    clock = [0.0]
+    broker = SweepFakeBroker(stop_orders=[orphan_stop("stop-9", **overrides)])
+    executor = make_sweep_executor(broker, clock=clock, orphan_stop_confirmations=1)
+
+    with caplog.at_level("DEBUG", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], []) == 0
+    clock[0] = 61.0
+    with caplog.at_level("DEBUG", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], []) == 0
+
+    assert broker.cancelled_stops == []
+    assert executor._orphan_candidates == {}
+    assert executor.orphan_stops_cancelled_total == 0
+    assert f"orphan_stop_kept stop_order_id=stop-9 reason={reason}" in caplog.text
+
+
+def test_orphan_sweep_skips_a_pass_without_a_configured_universe(caplog):
+    """Issue #199: with no universe every stop would look orphaned, so skip."""
+    clock = [0.0]
+    broker = SweepFakeBroker(stop_orders=[orphan_stop("stop-9")])
+    executor = make_sweep_executor(broker, clock=clock, orphan_stop_confirmations=1)
+    executor.tickers = []
+    executor.instruments = {}
+
+    with caplog.at_level("WARNING", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], []) == 0
+    clock[0] = 61.0
+    with caplog.at_level("WARNING", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], []) == 0
+
+    assert broker.cancelled_stops == []
+    assert executor._orphan_candidates == {}
+    assert "orphan_stop_sweep_skipped reason=empty_universe" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "row, reason",
+    [
+        ({"broker_stop_id": "stop-9"}, "owned_by_oco_or_amend"),
+        ({"broker_stop_id": None}, "position_row_exists"),
+    ],
+)
+def test_orphan_sweep_leaves_a_stop_a_live_position_row_points_at(row, reason, caplog):
+    """Issue #199: a DB row owning the id or the instrument means "keep"."""
+    clock = [0.0]
+    broker = SweepFakeBroker(stop_orders=[orphan_stop("stop-9")])
+    executor = make_sweep_executor(broker, clock=clock, orphan_stop_confirmations=1)
+    rows = [dict(id=41, ticker="SBER", instrument_id="figi-sber", status="open", **row)]
+
+    with caplog.at_level("DEBUG", logger=module.__name__):
+        assert executor._sweep_orphan_stops(rows, []) == 0
+    clock[0] = 61.0
+    with caplog.at_level("DEBUG", logger=module.__name__):
+        assert executor._sweep_orphan_stops(rows, []) == 0
+
+    assert broker.cancelled_stops == []
+    assert executor._orphan_candidates == {}
+    assert f"orphan_stop_kept stop_order_id=stop-9 reason={reason}" in caplog.text
+
+
+
+def test_orphan_sweep_leaves_stops_claimed_by_the_oco_or_amend_pass():
+    """Issue #199: ids another pass is already reconciling must not be touched."""
+    clock = [0.0]
+    broker = SweepFakeBroker(
+        stop_orders=[orphan_stop("stop-9"), orphan_stop("stop-8")]
+    )
+    executor = make_sweep_executor(broker, clock=clock, orphan_stop_confirmations=1)
+    executor._oco_checks.append(
+        {
+            "position_id": 41,
+            "ticker": "SBER",
+            "kind": "stop",
+            "order_id": "stop-9",
+            "due_at": 999.0,
+            "attempts": 0,
+        }
+    )
+    executor._pending_stop_cancels[41] = ("stop-8", "stop-7", 0.0)
+
+    assert executor._sweep_orphan_stops([], []) == 0
+    clock[0] = 61.0
+    assert executor._sweep_orphan_stops([], []) == 0
+
+    assert broker.cancelled_stops == []
+    assert executor._orphan_candidates == {}
+
+
+def test_orphan_sweep_keeps_a_stop_while_the_broker_holds_the_instrument(caplog):
+    """Issue #199: a live holding behind a stop is never swept automatically."""
+    clock = [0.0]
+    broker = SweepFakeBroker(
+        positions=[sber_position()], stop_orders=[orphan_stop("stop-9")]
+    )
+    executor = make_sweep_executor(broker, clock=clock, orphan_stop_confirmations=1)
+
+    # broker_positions=None: the sweep must read the portfolio itself.
+    with caplog.at_level("DEBUG", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], None) == 0
+
+    assert broker.cancelled_stops == []
+    assert ("get_positions", {}) in broker.calls
+    assert (
+        "orphan_stop_kept stop_order_id=stop-9 reason=broker_holding_exists"
+        in caplog.text
+    )
+
+    # Once the holding is gone the very same stop becomes sweepable.
+    broker.positions = []
+    clock[0] = 61.0
+    assert executor._sweep_orphan_stops([], None) == 1
+    assert broker.cancelled_stops == ["stop-9"]
+
+
+def test_orphan_sweep_respects_the_grace_window_of_a_freshly_armed_stop(caplog):
+    """Issue #199: a stop this process armed stays untouchable for the grace."""
+    clock = [0.0]
+    broker = SweepFakeBroker(stop_orders=[orphan_stop("stop-9")])
+    executor = make_sweep_executor(
+        broker,
+        clock=clock,
+        orphan_stop_grace_seconds=900,
+        orphan_stop_confirmations=1,
+    )
+    executor._recent_stop_ids["stop-9"] = 0.0
+
+    with caplog.at_level("DEBUG", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], []) == 0
+
+    assert broker.cancelled_stops == []
+    assert executor._orphan_candidates == {}
+    assert (
+        "orphan_stop_kept stop_order_id=stop-9 reason=inside_grace_window"
+        in caplog.text
+    )
+
+    clock[0] = 900.0
+    assert executor._sweep_orphan_stops([], []) == 1
+    assert broker.cancelled_stops == ["stop-9"]
+    # The expired arming timestamp is pruned instead of growing forever.
+    assert executor._recent_stop_ids == {}
+
+
+
+def _sweep_alerting(executor):
+    """Switch the alerting contour on for a sweep test and return the notifier."""
+    notifier = RecordingNotifier()
+    executor.notifier = notifier
+    executor.alerting = {
+        **executor.alerting,
+        "telegram_alerts_enabled": True,
+        # Isolate the sweep's own throttle from the global alert debounce.
+        "alert_debounce_seconds": 0,
+    }
+    return notifier
+
+
+def test_orphan_sweep_fails_closed_when_more_orphans_than_the_cap(caplog):
+    """Issue #199: a stop book full of orphans means the account model is wrong.
+
+    Emptying it automatically would be the most expensive possible guess, so the
+    sweep reports and cancels nothing at all.
+    """
+    clock = [0.0]
+    broker = SweepFakeBroker(
+        stop_orders=[orphan_stop(f"stop-{i}") for i in range(1, 6)]
+    )
+    executor = make_sweep_executor(broker, clock=clock, orphan_stop_max_cancels=3)
+    notifier = _sweep_alerting(executor)
+
+    # Pass 1 only records the candidates, pass 2 confirms all five at once.
+    executor._sweep_orphan_stops([], [])
+    clock[0] = 61.0
+    with caplog.at_level("CRITICAL", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], []) == 0
+
+    assert broker.cancelled_stops == []
+    assert executor.orphan_stops_cancelled_total == 0
+    assert executor.orphan_sweep_fail_closed_total == 1
+    assert "orphan_stop_sweep_fail_closed orphans=5 max_cancels=3" in caplog.text
+    # Every candidate is kept: nothing was resolved, so nothing is forgotten.
+    assert executor._orphan_candidates == {f"stop-{i}": 2 for i in range(1, 6)}
+    assert len(notifier.messages) == 1
+    assert "сирот больше лимита" in notifier.messages[0]
+
+    # The condition repeats on every pass, so the reminder is throttled...
+    clock[0] = 122.0
+    assert executor._sweep_orphan_stops([], []) == 0
+    assert executor.orphan_sweep_fail_closed_total == 2
+    assert len(notifier.messages) == 1
+
+    # ...and comes back once orphan_stop_alert_interval_seconds has passed.
+    clock[0] = 3662.0
+    assert executor._sweep_orphan_stops([], []) == 0
+    assert executor.orphan_sweep_fail_closed_total == 3
+    assert len(notifier.messages) == 2
+
+
+def test_orphan_sweep_with_zero_cap_reports_instead_of_cancelling(caplog):
+    """Issue #199: max_cancels=0 is the "watch only" mode of the safety net."""
+    clock = [0.0]
+    broker = SweepFakeBroker(stop_orders=[orphan_stop("stop-9")])
+    executor = make_sweep_executor(
+        broker, clock=clock, orphan_stop_max_cancels=0
+    )
+    notifier = _sweep_alerting(executor)
+
+    executor._sweep_orphan_stops([], [])
+    clock[0] = 61.0
+    with caplog.at_level("CRITICAL", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], []) == 0
+
+    assert broker.cancelled_stops == []
+    assert executor.orphan_stops_cancelled_total == 0
+    assert executor.orphan_sweep_fail_closed_total == 1
+    assert "orphans=1 max_cancels=0" in caplog.text
+    assert len(notifier.messages) == 1
+
+
+
+def test_orphan_sweep_keeps_the_candidate_when_the_broker_rejects_the_cancel(caplog):
+    """Issue #199: an unproven cancel is retried, never counted as done."""
+    clock = [0.0]
+    broker = SweepFakeBroker(
+        stop_orders=[orphan_stop("stop-9")],
+        cancel_stop_error=SandboxAPIError("stop order is not cancellable"),
+    )
+
+    def _reject_cancel_order(order_id):
+        # _safe_cancel_stop may fall back to cancel_order for pre-#175 ids; the
+        # fallback must fail too, otherwise the sweep would claim a cancel it
+        # never proved.
+        broker.calls.append(("cancel_order", {"order_id": order_id}))
+        raise SandboxAPIError("order is not cancellable")
+
+    broker.cancel_order = _reject_cancel_order
+    executor = make_sweep_executor(broker, clock=clock, orphan_stop_confirmations=1)
+
+    with caplog.at_level("WARNING", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], []) == 0
+
+    assert broker.cancelled_stops == []
+    assert executor.orphan_stops_cancelled_total == 0
+    assert executor.orphan_sweep_fail_closed_total == 0
+    # The stop is still there, so the candidate stays for the next pass.
+    assert executor._orphan_candidates == {"stop-9": 1}
+    assert "orphan_stop_cancel_failed stop_order_id=stop-9" in caplog.text
+
+    # As soon as the broker accepts the cancel the same candidate goes through.
+    broker.cancel_stop_error = None
+    clock[0] = 122.0
+    assert executor._sweep_orphan_stops([], []) == 1
+    assert broker.cancelled_stops == ["stop-9"]
+    assert executor._orphan_candidates == {}
+
+
+def test_orphan_sweep_survives_a_stop_order_outage(caplog):
+    """Issue #199: an unreadable stop book means "no evidence", not "no orphans"."""
+    clock = [0.0]
+    broker = SweepFakeBroker(stop_orders=[orphan_stop("stop-9")])
+    executor = make_sweep_executor(broker, clock=clock)
+
+    # Pass 1 records the candidate; the confirmation is still pending.
+    executor._sweep_orphan_stops([], [])
+    assert executor._orphan_candidates == {"stop-9": 1}
+
+    def _outage(status="active", **kwargs):
+        broker.calls.append(("get_stop_orders", {"status": status}))
+        raise SandboxAPIError("get_stop_orders is unavailable")
+
+    broker.get_stop_orders = _outage
+    clock[0] = 61.0
+    with caplog.at_level("WARNING", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], []) == 0
+
+    assert broker.cancelled_stops == []
+    # The pass never ran, so this is not a fail-closed verdict either.
+    assert executor.orphan_sweep_fail_closed_total == 0
+    assert (
+        "orphan_stop_sweep_skipped reason=get_stop_orders error_type=SandboxAPIError"
+        in caplog.text
+    )
+    # The candidates of the previous pass survive the blind spot.
+    assert executor._orphan_candidates == {"stop-9": 1}
+
+
+def test_orphan_sweep_skips_when_the_portfolio_cannot_be_read(caplog):
+    """Issue #199: "the broker holds nothing" must be proven, not assumed."""
+    clock = [0.0]
+    broker = SweepFakeBroker(stop_orders=[orphan_stop("stop-9")])
+    executor = make_sweep_executor(broker, clock=clock, orphan_stop_confirmations=1)
+
+    def _outage():
+        broker.calls.append(("get_positions", {}))
+        raise SandboxAPIError("portfolio is unavailable")
+
+    broker.get_positions = _outage
+    with caplog.at_level("WARNING", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], None) == 0
+
+    assert broker.cancelled_stops == []
+    assert executor._orphan_candidates == {}
+    assert (
+        "orphan_stop_sweep_skipped reason=get_positions error_type=SandboxAPIError"
+        in caplog.text
+    )
+
+
+def test_orphan_sweep_never_breaks_a_monitoring_cycle(caplog, monkeypatch):
+    """Issue #199: the safety net must not become the thing that breaks a cycle."""
+    clock = [0.0]
+    broker = SweepFakeBroker(stop_orders=[orphan_stop("stop-9")])
+    executor = make_sweep_executor(broker, clock=clock, orphan_stop_confirmations=1)
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("unexpected sweep failure")
+
+    monkeypatch.setattr(executor, "_fetch_active_stop_orders", _boom)
+    with caplog.at_level("ERROR", logger=module.__name__):
+        assert executor._sweep_orphan_stops([], []) == 0
+
+    assert broker.cancelled_stops == []
+    assert executor.orphan_sweep_fail_closed_total == 1
+    assert "orphan_stop_sweep_failed error_type=RuntimeError" in caplog.text
+
+
+
+def test_orphan_sweep_alerts_once_per_cancel_batch():
+    """Issue #199: removing broker stops on our own is always reported."""
+    clock = [0.0]
+    broker = SweepFakeBroker(
+        stop_orders=[orphan_stop("stop-9"), orphan_stop("stop-8")]
+    )
+    executor = make_sweep_executor(broker, clock=clock, orphan_stop_confirmations=1)
+    notifier = _sweep_alerting(executor)
+
+    assert executor._sweep_orphan_stops([], []) == 2
+
+    assert broker.cancelled_stops == ["stop-9", "stop-8"]
+    assert executor.orphan_stops_cancelled_total == 2
+    assert executor.orphan_sweep_fail_closed_total == 0
+    # One message for the whole batch, naming every removed stop.
+    assert len(notifier.messages) == 1
+    assert "Сняты бесхозные стоп-ордера" in notifier.messages[0]
+    assert "stop-9, stop-8" in notifier.messages[0]
+
+
+def test_orphan_sweep_reads_its_knobs_on_every_pass():
+    """Issue #199: a runtime change applies to the next pass, no restart needed."""
+    clock = [0.0]
+    broker = SweepFakeBroker(
+        stop_orders=[orphan_stop("stop-9"), orphan_stop("stop-8")]
+    )
+    executor = make_sweep_executor(broker, clock=clock)
+
+    executor._sweep_orphan_stops([], [])
+    clock[0] = 61.0
+    # The operator switches the net to "watch only" while the executor runs.
+    executor.config["orphan_stop_max_cancels"] = 0
+    assert executor._sweep_orphan_stops([], []) == 0
+    assert broker.cancelled_stops == []
+    assert executor.orphan_sweep_fail_closed_total == 1
+
+    # Releasing the limit lets the very same stops go on the next pass.
+    executor.config["orphan_stop_max_cancels"] = 3
+    clock[0] = 122.0
+    assert executor._sweep_orphan_stops([], []) == 2
+    assert broker.cancelled_stops == ["stop-9", "stop-8"]
+
+
+def test_orphan_sweep_runs_when_the_position_book_is_empty(caplog):
+    """Issue #199 (RC3): the empty-book early return must still run the sweep.
+
+    That is exactly the moment the safety net matters most: every stop left in
+    the account belongs to nobody.
+    """
+    clock = [0.0]
+    broker = SweepFakeBroker(stop_orders=[orphan_stop("stop-9")])
+    executor = make_sweep_executor(broker, clock=clock)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        assert executor.monitor_positions() == 0
+    assert executor.orphan_sweep_runs_total == 1
+    assert broker.cancelled_stops == []
+    assert "orphan_stop_candidate stop_order_id=stop-9" in caplog.text
+
+    clock[0] = 61.0
+    assert executor.monitor_positions() == 1
+    assert broker.cancelled_stops == ["stop-9"]
+    assert executor.orphan_sweep_runs_total == 2
+    assert executor.orphan_stops_cancelled_total == 1
+
+
+def test_shutdown_drops_superseded_stops_when_positions_stay_open(caplog):
+    """Issue #199 (RC2): shutdown is the last chance to drop an amend leftover."""
+    clock = [0.0]
+    broker = StopFakeBroker(stop_orders=[stop_item("stop-old")])
+    executor = make_executor(
+        broker=broker,
+        clock=lambda: clock[0],
+        close_positions_on_shutdown=False,
+        oco_check_delay_seconds=3600,
+    )
+    # The replacement stop is not visible at the broker yet and the OCO deadline
+    # has not expired either - only force=True may cancel here.
+    executor._pending_stop_cancels[41] = ("stop-old", "stop-new", 0.0)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        executor.shutdown()
+
+    assert broker.cancelled_stops == ["stop-old"]
+    assert executor._pending_stop_cancels == {}
+    assert (
+        "trailing_amend_cancelled position_id=41 old_stop_id=stop-old "
+        "new_stop_id=stop-new" in caplog.text
+    )
 

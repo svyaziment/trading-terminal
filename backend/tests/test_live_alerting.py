@@ -1771,6 +1771,12 @@ def metrics_snapshot(**overrides) -> dict:
         "oco_orphans_cancelled_total": 1,
         "oco_checks_pending": 0,
         "fills_reconciled_total": 3,
+        # account-wide orphan stop sweep (#199)
+        "orphan_stop_sweep_enabled": True,
+        "orphan_stop_sweep_runs_total": 7,
+        "orphan_stop_candidates": 1,
+        "orphan_stops_cancelled_total": 2,
+        "orphan_sweep_fail_closed_total": 0,
         # equity and the daily drawdown gate (#176)
         "equity_snapshots_total": 40,
         "equity_snapshot_errors_total": 0,
@@ -1933,6 +1939,13 @@ class TestMetricsEndpointContract:
         assert payload["protection"]["stops_armed_total"] == 6
         assert payload["protection"]["protection_failed_positions"] == ["SBER"]
         assert payload["protection"]["oco_orphans_cancelled_total"] == 1
+        # Issue #199: the account-wide orphan sweep is published next to the OCO
+        # counters - an operator must see "the sweep refused to act" on the panel.
+        assert payload["protection"]["orphan_stop_sweep_enabled"] is True
+        assert payload["protection"]["orphan_stop_sweep_runs_total"] == 7
+        assert payload["protection"]["orphan_stop_candidates"] == 1
+        assert payload["protection"]["orphan_stops_cancelled_total"] == 2
+        assert payload["protection"]["orphan_sweep_fail_closed_total"] == 0
         assert payload["risk"]["last_drawdown_pct"] == 1.25
         assert payload["risk"]["last_equity_session_key"] == "2026-08-31"
         assert payload["risk"]["position_size_rejections_total"] == 1

@@ -60,6 +60,7 @@ from app.analytics.strategy_engine import StrategyEvaluator
 from app.analytics.trailing_stop import resolve_trailing_stop
 from app.analytics.trading_config import (
     LIVE_RISK_BOUNDS,
+    LIVE_TRADING,
     get_live_alerting_config,
     get_live_risk_config,
     get_live_trading_config,
@@ -132,6 +133,30 @@ LIVE_EQUITY_INSERT_COLUMNS: tuple[str, ...] = (
 #: configurable through ``LIVE_ALERTING.metrics_key``.
 LIVE_METRICS_KEY = "live_executor_metrics"
 LIVE_METRICS_SCHEMA_VERSION = 1
+
+#: Issue #199: stop-order statuses that mean "still working at the broker". The
+#: sandbox client normalises the SDK enum to its name, so both the long and the
+#: short spelling are recognised; any other status is left alone by the orphan
+#: sweep because it is not an active order.
+ACTIVE_STOP_ORDER_STATUSES = frozenset({"STOP_ORDER_STATUS_ACTIVE", "ACTIVE"})
+
+#: Issue #199: a stop is only ever swept when the broker reports it as a SELL
+#: stop. The client normalises the SDK enum to its name, which is spelled
+#: ``INVESTMENT_DIRECTION_SELL`` on the REST contour and ``DIRECTION_SELL`` in
+#: the gRPC one, so the suffix is what is matched. An unknown or missing
+#: direction is *not* a sell stop and is therefore never cancelled.
+SELL_STOP_DIRECTION_SUFFIX = "SELL"
+
+
+def _orphan_default(key: str, fallback: float) -> float:
+    """Return the documented ``LIVE_TRADING`` default of an orphan-sweep knob.
+
+    ``self.config`` is merged from ``get_live_trading_config()``, so the key is
+    normally present; reading ``LIVE_TRADING`` here keeps a single source of
+    truth for the numbers while a hand-built config (the tests) still gets the
+    shipped policy instead of an accidental zero.
+    """
+    return _finite_float(LIVE_TRADING.get(key), fallback)
 
 
 def _coerce_bool(value: Any) -> bool:
@@ -457,6 +482,22 @@ class LiveExecutor:
         self._last_stop_verify_at = float("-inf")
         self._pending_stop_cancels: Dict[int, tuple] = {}
         self._broker_stop_unsupported_warned = False
+        # Issue #199: account-wide sweep of orphaned broker stop orders.
+        #   _last_orphan_sweep_at - monotonic time of the previous sweep;
+        #   _orphan_candidates    - stop id -> consecutive sweeps that saw it as
+        #                           an orphan (a candidate must be confirmed);
+        #   _recent_stop_ids      - stop id -> monotonic time this process armed
+        #                           it, so a fresh stop is never swept before the
+        #                           DB write that references it can land;
+        #   _last_orphan_alert_at - monotonic time of the last "fail closed"
+        #                           alert, throttled by its own knob.
+        self._last_orphan_sweep_at = float("-inf")
+        self._orphan_candidates: Dict[str, int] = {}
+        self._recent_stop_ids: Dict[str, float] = {}
+        self._last_orphan_alert_at = float("-inf")
+        self.orphan_sweep_runs_total = 0
+        self.orphan_sweep_fail_closed_total = 0
+        self.orphan_stops_cancelled_total = 0
         self.stops_armed_total = 0
         self.stop_amend_total = 0
         self.stop_amend_failed_total = 0
@@ -547,6 +588,29 @@ class LiveExecutor:
         attempts = self.config.get("oco_check_attempts")
         if attempts is not None and int(attempts) < 1:
             raise ValueError("oco_check_attempts must be at least 1")
+        # Issue #199: the orphan stop sweep cancels broker orders, so a malformed
+        # knob must fail at startup instead of silently disabling (or widening)
+        # the safety net at the moment an orphan appears.
+        sweep_enabled = self.config.get("orphan_stop_sweep_enabled", True)
+        if not isinstance(sweep_enabled, bool):
+            raise ValueError("orphan_stop_sweep_enabled must be a boolean")
+        for key in (
+            "orphan_stop_sweep_interval_seconds",
+            "orphan_stop_grace_seconds",
+            "orphan_stop_alert_interval_seconds",
+        ):
+            value = self.config.get(key)
+            if value is None:
+                continue
+            number = _finite_float(value, math.nan)
+            if math.isnan(number) or number < 0:
+                raise ValueError(f"{key} cannot be negative")
+        confirmations = self.config.get("orphan_stop_confirmations")
+        if confirmations is not None and int(confirmations) < 1:
+            raise ValueError("orphan_stop_confirmations must be at least 1")
+        max_cancels = self.config.get("orphan_stop_max_cancels")
+        if max_cancels is not None and int(max_cancels) < 0:
+            raise ValueError("orphan_stop_max_cancels cannot be negative")
         # Issue #176: the live equity risk limits must stay inside the ranges
         # trading_config validates for env overrides, so an in-memory config
         # override cannot smuggle in a value .env would have rejected.
@@ -2344,7 +2408,11 @@ class LiveExecutor:
         self._stop_ids_cache = None
         active = self._active_positions()
         if active.empty:
-            return self._process_oco_checks()
+            # Issue #199 (RC3): an empty book is exactly when a leftover stop is
+            # most dangerous - nothing is left to protect - so the pending amend
+            # cancels and the orphan sweep must still run. Returning the OCO pass
+            # alone (pre-#199) skipped both of them.
+            return self._finish_monitor_cycle([], None)
         broker_positions = self._broker_call("get_positions")
         changes = 0
         # Snapshots of the rows that are still open after reconciliation; they
@@ -2503,10 +2571,453 @@ class LiveExecutor:
                 )
         # Issue #175: protection reconciliation and OCO monitoring run after the
         # per-position pass, so they only see positions that are still open.
+        # Issue #199: the very same tail serves the empty-book early return above.
+        return self._finish_monitor_cycle(protected_rows, broker_positions, changes)
+
+    def _finish_monitor_cycle(
+        self,
+        rows: list[Dict[str, Any]],
+        broker_positions: Any,
+        changes: int = 0,
+    ) -> int:
+        """Run the cleanup passes that must survive an empty position book (#199).
+
+        Args:
+            rows: pending/open snapshots kept by the per-position pass; empty on
+                the early-return path.
+            broker_positions: portfolio read at the start of the cycle, or None
+                when the cycle never needed one - the orphan sweep then reads it
+                itself, because "the broker holds nothing" is evidence it must
+                not do without.
+            changes: counter accumulated by the per-position pass.
+        """
         changes += self._cancel_pending_stops()
-        changes += self._reconcile_protection(protected_rows, broker_positions)
+        changes += self._reconcile_protection(rows, broker_positions)
         changes += self._process_oco_checks()
+        changes += self._sweep_orphan_stops(rows, broker_positions)
         return changes
+
+    def _universe_keys(self) -> set:
+        """Identity keys (ticker + FIGI) of every instrument in scope (#199).
+
+        The orphan sweep only touches a broker stop whose instrument belongs to
+        this set, so an instrument that is no longer part of the configured
+        universe can never be swept: a stale or foreign stop is a human problem.
+        """
+        universe: set = set()
+        for ticker in self.tickers or []:
+            if ticker:
+                universe.add(str(ticker).strip().upper())
+        for ticker, meta in (self.instruments or {}).items():
+            if ticker:
+                universe.add(str(ticker).strip().upper())
+            figi = (meta or {}).get("instrument_id")
+            if figi:
+                universe.add(str(figi).strip().upper())
+        return universe
+
+    @staticmethod
+    def _owned_instrument_keys(rows: list[Dict[str, Any]] | None) -> set:
+        """Identity keys referenced by this cycle's ``live_positions`` rows (#199).
+
+        Ticker level on purpose: a ``pending`` row or an ``open`` row that lost
+        its ``broker_stop_id`` means the executor is about to arm a stop for that
+        instrument, so *any* broker stop on it must be left alone.
+        """
+        keys: set = set()
+        for row in rows or []:
+            for field in ("ticker", "instrument_id", "figi"):
+                value = row.get(field)
+                if value:
+                    keys.add(str(value).strip().upper())
+        return keys
+
+    @staticmethod
+    def _instrument_keys(item: Any) -> set:
+        """Identity keys (ticker / FIGI / uid) of a broker-side object (#199).
+
+        Tolerates both the dataclass shapes of the sandbox client and a plain
+        mapping, because a broker injected by the tests may return either; an
+        object without any of the three fields simply yields an empty set, which
+        the sweep reads as "unknown instrument" and leaves alone.
+        """
+        keys: set = set()
+        for field in ("ticker", "figi", "instrument_uid"):
+            value = getattr(item, field, None)
+            if value is None and isinstance(item, dict):
+                value = item.get(field)
+            if value:
+                keys.add(str(value).strip().upper())
+        return keys
+
+    # -- Issue #199: account-wide orphaned broker stop sweep -------------------
+    def _orphan_sweep_settings(self) -> Dict[str, Any]:
+        """Resolve the orphan-stop sweep knobs for one pass (#199).
+
+        Every number goes through ``_finite_float`` with the shipped default, so a
+        ``None`` / text / NaN override degrades to the documented policy instead of
+        an accidental ``0`` - which would mean "sweep every cycle and cancel on
+        first sight". A negative or non-boolean override is rejected earlier, by
+        ``_validate_config``, so it can never reach this point.
+        """
+        confirmations = int(
+            _finite_float(
+                self.config.get("orphan_stop_confirmations"),
+                _orphan_default("orphan_stop_confirmations", 2),
+            )
+        )
+        max_cancels = int(
+            _finite_float(
+                self.config.get("orphan_stop_max_cancels"),
+                _orphan_default("orphan_stop_max_cancels", 3),
+            )
+        )
+        return {
+            "enabled": bool(self.config.get("orphan_stop_sweep_enabled", True)),
+            "interval": max(
+                0.0,
+                _finite_float(
+                    self.config.get("orphan_stop_sweep_interval_seconds"),
+                    _orphan_default("orphan_stop_sweep_interval_seconds", 300.0),
+                ),
+            ),
+            "confirmations": max(1, confirmations),
+            "grace": max(
+                0.0,
+                _finite_float(
+                    self.config.get("orphan_stop_grace_seconds"),
+                    _orphan_default("orphan_stop_grace_seconds", 900.0),
+                ),
+            ),
+            "max_cancels": max(0, max_cancels),
+            "alert_interval": max(
+                0.0,
+                _finite_float(
+                    self.config.get("orphan_stop_alert_interval_seconds"),
+                    _orphan_default("orphan_stop_alert_interval_seconds", 3600.0),
+                ),
+            ),
+        }
+
+    def _fetch_active_stop_orders(self) -> Optional[list]:
+        """Return the broker's ACTIVE stop orders, or None when unreadable (#199).
+
+        ``None`` always means "no evidence", never "no stop orders": the pass is
+        skipped and the candidates of the previous sweep are kept, exactly like
+        :meth:`_active_stop_ids` treats an API failure.
+        """
+        if not callable(getattr(self.broker, "get_stop_orders", None)):
+            return None
+        try:
+            stops = self._broker_call(
+                "get_stop_orders", status="active", priority="protection"
+            )
+        except (SandboxAPIError, AttributeError) as exc:
+            logger.warning(
+                "orphan_stop_sweep_skipped reason=get_stop_orders error_type=%s",
+                type(exc).__name__,
+            )
+            return None
+        return list(stops or [])
+
+    @staticmethod
+    def _stop_field(stop: Any, name: str) -> Any:
+        """Read one field of a broker stop order, dataclass or mapping (#199)."""
+        value = getattr(stop, name, None)
+        if value is None and isinstance(stop, dict):
+            value = stop.get(name)
+        return value
+
+    def _owned_stop_ids(self, rows: list[Dict[str, Any]] | None) -> set:
+        """``broker_stop_id`` of every pending/open row of this cycle (#199)."""
+        ids: set = set()
+        for row in rows or []:
+            stop_id = self._text_or_none(row.get("broker_stop_id"))
+            if stop_id:
+                ids.add(stop_id)
+        return ids
+
+    def _claimed_stop_ids(self) -> set:
+        """Stop ids another pass of this process still owns (#199).
+
+        ``_oco_checks`` holds the legs of the closes this process performed - the
+        #175 OCO pass cancels them itself - and ``_pending_stop_cancels`` holds
+        both sides of an amend-trailing duplication. Cancelling either from the
+        sweep would race that pass, so both are untouchable here.
+        """
+        claimed: set = set()
+        for check in self._oco_checks:
+            order_id = self._text_or_none(check.get("order_id"))
+            if order_id:
+                claimed.add(order_id)
+        for entry in self._pending_stop_cancels.values():
+            for value in tuple(entry)[:2]:
+                order_id = self._text_or_none(value)
+                if order_id:
+                    claimed.add(order_id)
+        return claimed
+
+    def _prune_recent_stop_ids(self, now: float, grace: float) -> None:
+        """Forget armed-stop timestamps whose grace window has expired (#199).
+
+        Without this the dict grows by one entry per arming for the lifetime of
+        the process; the timestamps only ever matter while they are younger than
+        ``orphan_stop_grace_seconds``.
+        """
+        if not self._recent_stop_ids:
+            return
+        for stop_id in [
+            key
+            for key, armed_at in self._recent_stop_ids.items()
+            if now - armed_at >= grace
+        ]:
+            self._recent_stop_ids.pop(stop_id, None)
+
+    def _orphan_stop_skip_reason(
+        self, stop: Any, stop_id: str, scope: Dict[str, Any]
+    ) -> Optional[str]:
+        """Return why a broker stop must NOT be swept, or None when it may be (#199).
+
+        The chain is deliberately fail-closed: every field the broker did not
+        report, every instrument this process cannot recognise and every stop
+        another pass still owns produces a skip reason. Only an ACTIVE SELL stop
+        inside the configured universe, referenced by no ``live_positions`` row,
+        claimed by neither the OCO pass nor an amend, older than the grace window
+        and with *no* holding left at the broker survives the chain.
+        """
+        status = str(self._stop_field(stop, "status") or "").strip().upper()
+        if status not in ACTIVE_STOP_ORDER_STATUSES:
+            return "not_active"
+        direction = str(self._stop_field(stop, "direction") or "").strip().upper()
+        if not direction.endswith(SELL_STOP_DIRECTION_SUFFIX):
+            return "not_a_sell_stop"
+        keys = self._instrument_keys(stop)
+        if not keys or not keys & scope["universe"]:
+            return "outside_universe"
+        if stop_id in scope["claimed_ids"]:
+            return "owned_by_oco_or_amend"
+        if keys & scope["owned_keys"]:
+            return "position_row_exists"
+        if keys & scope["held_keys"]:
+            # The broker still holds the instrument: cancelling its stop would
+            # leave a real position unprotected. That is a human decision.
+            return "broker_holding_exists"
+        armed_at = self._recent_stop_ids.get(stop_id)
+        if armed_at is not None and scope["now"] - armed_at < scope["grace"]:
+            return "inside_grace_window"
+        return None
+
+    def _sweep_orphan_stops(
+        self, rows: list[Dict[str, Any]], broker_positions: Any
+    ) -> int:
+        """Cancel broker stop orders that protect nothing any more (#199).
+
+        The #175 OCO pass only knows the legs of the closes *this* process
+        performed. A stop orphaned by a crash between ``PostStopOrder`` and the DB
+        write, by a failed close or by a manual intervention stays at the broker
+        as a naked SELL order: it will fire on the next dip and sell shares the
+        account does not hold. This pass is the account-wide net for exactly that.
+
+        It runs at most once per ``orphan_stop_sweep_interval_seconds``, needs
+        ``orphan_stop_confirmations`` consecutive sweeps agreeing on the same
+        orphan, refuses to touch anything younger than
+        ``orphan_stop_grace_seconds``, and stops dead (fail closed, critical
+        alert) when more orphans than ``orphan_stop_max_cancels`` are confirmed -
+        a stop book full of orphans means the model of the account is wrong, and
+        emptying it automatically would be the most expensive possible guess.
+
+        Args:
+            rows: pending/open ``live_positions`` snapshots of this cycle.
+            broker_positions: portfolio read at the start of the cycle, or None
+                when the cycle never needed one - then it is read here, because
+                "the broker holds nothing" is evidence the sweep cannot do
+                without.
+
+        Returns:
+            Number of stop orders cancelled by this pass.
+        """
+        settings = self._orphan_sweep_settings()
+        if not settings["enabled"]:
+            return 0
+        now = self.clock()
+        if now - self._last_orphan_sweep_at < float(settings["interval"]):
+            return 0
+        self._last_orphan_sweep_at = now
+        self.orphan_sweep_runs_total += 1
+        self._prune_recent_stop_ids(now, float(settings["grace"]))
+        try:
+            return self._sweep_orphan_stops_once(rows, broker_positions, settings, now)
+        except Exception as exc:
+            # Defensive: the safety net must never become the thing that breaks a
+            # monitoring cycle. Nothing was cancelled, the candidates are kept.
+            self.orphan_sweep_fail_closed_total += 1
+            logger.error(
+                "orphan_stop_sweep_failed error_type=%s; nothing was cancelled",
+                type(exc).__name__,
+                exc_info=True,
+            )
+            return 0
+
+    def _sweep_orphan_stops_once(
+        self,
+        rows: list[Dict[str, Any]],
+        broker_positions: Any,
+        settings: Dict[str, Any],
+        now: float,
+    ) -> int:
+        """One confirmed orphan sweep: detect -> confirm -> cap -> cancel (#199)."""
+        stops = self._fetch_active_stop_orders()
+        if stops is None:
+            return 0
+        if broker_positions is None:
+            try:
+                broker_positions = self._broker_call("get_positions")
+            except (SandboxAPIError, AttributeError) as exc:
+                logger.warning(
+                    "orphan_stop_sweep_skipped reason=get_positions error_type=%s",
+                    type(exc).__name__,
+                )
+                return 0
+        universe = self._universe_keys()
+        if not universe:
+            # Without a configured universe no stop can be recognised as ours.
+            logger.warning("orphan_stop_sweep_skipped reason=empty_universe")
+            return 0
+        scope: Dict[str, Any] = {
+            "universe": universe,
+            "owned_keys": self._owned_instrument_keys(rows),
+            "held_keys": set(),
+            "claimed_ids": self._owned_stop_ids(rows) | self._claimed_stop_ids(),
+            "grace": float(settings["grace"]),
+            "now": now,
+        }
+        for item in broker_positions or []:
+            scope["held_keys"] |= self._instrument_keys(item)
+
+        candidates: list[Tuple[str, Any]] = []
+        for stop in stops:
+            stop_id = self._text_or_none(self._stop_field(stop, "stop_order_id"))
+            if not stop_id:
+                continue
+            reason = self._orphan_stop_skip_reason(stop, stop_id, scope)
+            if reason is not None:
+                logger.debug(
+                    "orphan_stop_kept stop_order_id=%s reason=%s", stop_id, reason
+                )
+                continue
+            candidates.append((stop_id, stop))
+
+        confirmations = int(settings["confirmations"])
+        max_cancels = int(settings["max_cancels"])
+        recounted: Dict[str, int] = {}
+        confirmed: list[Tuple[str, Any]] = []
+        for stop_id, stop in candidates:
+            count = int(self._orphan_candidates.get(stop_id, 0)) + 1
+            recounted[stop_id] = count
+            if count < confirmations:
+                logger.info(
+                    "orphan_stop_candidate stop_order_id=%s ticker=%s "
+                    "confirmations=%d/%d",
+                    stop_id,
+                    self._stop_field(stop, "ticker"),
+                    count,
+                    confirmations,
+                )
+                continue
+            confirmed.append((stop_id, stop))
+        # Replacing the whole dict drops every stop that is no longer an orphan
+        # (or is gone), so a flapping stop can never accumulate confirmations.
+        self._orphan_candidates = recounted
+        if not confirmed:
+            return 0
+        if len(confirmed) > max_cancels:
+            self.orphan_sweep_fail_closed_total += 1
+            logger.critical(
+                "orphan_stop_sweep_fail_closed orphans=%d max_cancels=%d; "
+                "nothing was cancelled",
+                len(confirmed),
+                max_cancels,
+            )
+            self._alert_orphan_fail_closed(confirmed, max_cancels, now, settings)
+            return 0
+
+        cancelled: list[str] = []
+        for stop_id, stop in confirmed:
+            ticker = str(self._stop_field(stop, "ticker") or "")
+            if self._safe_cancel_stop(stop_id):
+                self.orphan_stops_cancelled_total += 1
+                self._orphan_candidates.pop(stop_id, None)
+                cancelled.append(stop_id)
+                logger.warning(
+                    "orphan_stop_cancelled stop_order_id=%s ticker=%s lots=%s "
+                    "stop_price=%s",
+                    stop_id,
+                    ticker,
+                    self._stop_field(stop, "lots_requested"),
+                    self._stop_field(stop, "stop_price"),
+                )
+            else:
+                logger.warning(
+                    "orphan_stop_cancel_failed stop_order_id=%s ticker=%s; the "
+                    "candidate is kept and retried by the next sweep",
+                    stop_id,
+                    ticker,
+                )
+        if cancelled:
+            self._alert_orphan_cancelled(cancelled)
+        return len(cancelled)
+
+    def _alert_orphan_cancelled(self, cancelled: Sequence[str]) -> None:
+        """Tell the operator the sweep removed broker stops on its own (#199).
+
+        One message per event, undebounced: at most ``orphan_stop_max_cancels``
+        stops can be cancelled per sweep and two sweeps are at least
+        ``orphan_stop_sweep_interval_seconds`` apart, so this cannot flood - while
+        silently removing orders would be worse.
+        """
+        self._notify(
+            "orphan_stop_swept",
+            "Сняты бесхозные стоп-ордера",
+            [
+                ("Контур", self.contour_label),
+                ("Снято стопов", len(cancelled)),
+                ("stop_order_id", ", ".join(cancelled)),
+                ("Действие", "проверить позиции: защиты у них больше нет"),
+            ],
+            critical=True,
+            icon="🧹",
+        )
+
+    def _alert_orphan_fail_closed(
+        self,
+        confirmed: Sequence[Tuple[str, Any]],
+        max_cancels: int,
+        now: float,
+        settings: Dict[str, Any],
+    ) -> None:
+        """Warn, throttled, that the sweep refused to act (#199).
+
+        The condition repeats on every sweep while it lasts, so the message is
+        throttled by ``orphan_stop_alert_interval_seconds`` on top of the global
+        alert debounce: the operator needs one reminder an hour, not one per pass.
+        """
+        if now - self._last_orphan_alert_at < float(settings["alert_interval"]):
+            return
+        self._last_orphan_alert_at = now
+        ids = [stop_id for stop_id, _ in confirmed]
+        self._notify(
+            "orphan_stop_sweep_fail_closed",
+            "Свип бесхозных стопов остановлен: сирот больше лимита",
+            [
+                ("Контур", self.contour_label),
+                ("Найдено сирот", len(ids)),
+                ("Лимит за свип", max_cancels),
+                ("stop_order_id", ", ".join(ids[:10])),
+                ("Действие", "разобрать вручную; автоматика ничего не снимала"),
+            ],
+            critical=True,
+            dedupe=True,
+        )
 
     def _apply_trailing(
         self, row: Any, current_price: float
@@ -2877,6 +3388,14 @@ class LiveExecutor:
             """,
             (stop_id, position_id),
         )
+        # Issue #199 (RC5): the stop this process just posted is younger than any
+        # DB row that could reference it, so the orphan sweep must keep its hands
+        # off it during the grace window. The per-cycle GetStopOrders snapshot is
+        # told about the new id for the same reason: a pass reading the cache
+        # after this point must not conclude the position is unprotected.
+        self._recent_stop_ids[stop_id] = self.clock()
+        if self._stop_ids_cache is not None:
+            self._stop_ids_cache.add(stop_id)
         self._protection_failed.discard(position_id)
         self._protection_attempts.pop(position_id, None)
         self._protection_retry_at.pop(position_id, None)
@@ -3056,7 +3575,14 @@ class LiveExecutor:
         verify_due = stop_enabled and (
             self.clock() - self._last_stop_verify_at >= interval
         )
-        active_ids = self._active_stop_ids() if verify_due else self._stop_ids_cache
+        # Issue #199 (RC4): ``_active_stop_ids()`` re-reads the broker only when
+        # the cache is empty, so a verify deadline that passed *because* the cache
+        # is old used to be answered with that same old snapshot - and a stop armed
+        # in the meantime looked "missing", which cancelled it and re-armed a
+        # duplicate. When the deadline is due the read is forced.
+        active_ids = (
+            self._active_stop_ids(force=True) if verify_due else self._stop_ids_cache
+        )
         changes = 0
         for row in open_rows:
             position_id = int(row["id"])
@@ -3129,6 +3655,7 @@ class LiveExecutor:
             if self._arm_broker_stop_for_row(row):
                 changes += 1
         return changes
+
     def _amend_broker_stop(
         self, row: Any, new_stop: float, new_step: int
     ) -> Optional[str]:
@@ -3240,12 +3767,19 @@ class LiveExecutor:
                 old_stop_id,
             )
 
-    def _cancel_pending_stops(self) -> int:
+    def _cancel_pending_stops(self, *, force: bool = False) -> int:
         """Cancel superseded stops whose removal could not be verified (#175).
 
         The older stop is cancelled as soon as ``GetStopOrders`` confirms the new
         one — or, after ``oco_check_delay_seconds``, unconditionally, because two
         active stops on a single position would over-sell it.
+
+        Issue #199 (RC2): ``force=True`` skips both conditions and is what
+        ``shutdown()`` passes. An entry exists only after ``PostStopOrder``
+        returned the new id, so the replacement stop is already at the broker and
+        dropping the superseded one on the way out cannot leave the position
+        unprotected — while *not* dropping it leaves a naked sell stop that no
+        living process owns any more.
         """
         if not self._pending_stop_cancels:
             return 0
@@ -3256,7 +3790,7 @@ class LiveExecutor:
         for position_id in list(self._pending_stop_cancels):
             old_stop_id, new_stop_id, since = self._pending_stop_cancels[position_id]
             confirmed = bool(active_ids) and new_stop_id in active_ids
-            expired = now - since >= deadline
+            expired = force or now - since >= deadline
             if not confirmed and not expired:
                 continue
             logger.info(
@@ -3703,6 +4237,18 @@ class LiveExecutor:
             "oco_orphans_cancelled_total": self.oco_orphans_cancelled_total,
             "oco_checks_pending": len(self._oco_checks),
             "fills_reconciled_total": self.fills_reconciled_total,
+            # Issue #199: the account-wide orphan stop sweep. ``candidates`` > 0
+            # with no cancels yet is the "one more pass would cancel" state;
+            # ``fail_closed_total`` > 0 means the sweep refused to act because
+            # more orphans than the cap were confirmed, so the stop book has to
+            # be inspected by hand.
+            "orphan_stop_sweep_enabled": bool(
+                self.config.get("orphan_stop_sweep_enabled", True)
+            ),
+            "orphan_stop_sweep_runs_total": self.orphan_sweep_runs_total,
+            "orphan_stop_candidates": len(self._orphan_candidates),
+            "orphan_stops_cancelled_total": self.orphan_stops_cancelled_total,
+            "orphan_sweep_fail_closed_total": self.orphan_sweep_fail_closed_total,
             # Issue #176: live equity snapshots and the daily drawdown gate.
             "equity_snapshots_total": self.equity_snapshots_total,
             "equity_snapshot_errors_total": self.equity_snapshot_errors_total,
@@ -3746,7 +4292,17 @@ class LiveExecutor:
         }
 
     def shutdown(self) -> None:
-        """Cancel pending orders and optionally flatten sandbox holdings."""
+        """Release the shutdown lock: cancel pending orders, drop superseded stops.
+
+        Issue #199: ``_cancel_pending_stops(force=True)`` runs on every shutdown,
+        including the ``close_positions_on_shutdown=False`` path that deliberately
+        leaves the positions protected. A stop superseded by an amend-trailing
+        duplication is not protection - it is a second active SELL order on a
+        position that only needs one, and after this process exits nobody is left
+        to confirm-and-drop it. The currently protecting stop is not touched: it
+        is referenced by ``broker_stop_id`` and is never put into
+        ``_pending_stop_cancels``.
+        """
         self.shutdown_requested.set()
         active = self._active_positions()
         close_positions = bool(self.config["close_positions_on_shutdown"])
@@ -3791,6 +4347,12 @@ class LiveExecutor:
                     row.get("broker_stop_id"),
                     row.get("broker_take_id"),
                 )
+
+        # Issue #199: drop the stops an amend-trailing superseded but could not
+        # confirm, and the legs of the closes this process just performed. Forced:
+        # this is the last chance this process has, and leaving a duplicate SELL
+        # stop on a protected position would over-sell it on the next dip.
+        self._cancel_pending_stops(force=True)
 
         # Issue #174: Release advisory lock on the SAME dedicated connection
         if getattr(self, "_advisory_lock_acquired", False) and self._lock_conn is not None:
