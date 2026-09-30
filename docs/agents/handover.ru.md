@@ -1,6 +1,6 @@
 # Руководство по передаче контекста агента: Trading Terminal
 
-Последнее обновление: 2026-09-29 (task-191 — триаж фантомной просадки и новые поля измерения эквити в §44); ранее 2026-09-28 (task-178 — реальный контур T-Bank `TinkoffLiveClient`, фабрика выбора контура по `ALLOW_REAL_TRADING`, глобальный kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, деплой-миграции через one-shot сервис `migrate`; новый §46); ранее 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
+Последнее обновление: 2026-09-29 (task-192 — read-only верификация реального контура T-Bank: contract-check без учётных данных, guarded live smoke и его --self-test, новый §46.10); ранее 2026-09-29 (task-191 — триаж фантомной просадки и новые поля измерения эквити в §44); ранее 2026-09-28 (task-178 — реальный контур T-Bank `TinkoffLiveClient`, фабрика выбора контура по `ALLOW_REAL_TRADING`, глобальный kill switch `live_kill_switch` + `POST /api/live-trading/kill-switch`, деплой-миграции через one-shot сервис `migrate`; новый §46); ранее 2026-09-27 (task-177); ранее 2026-09-27 (task-176); ранее 2026-09-19 (task-174); ранее 2026-09-16 (task-151); ранее 2026-09-16 (task-150); 2026-09-15 (task-149); ранее 2026-09-14 (task-147); ранее 2026-09-09 (задача #146 добавила schema-driven редактор `config.trailing_stop` в Lab — переключатель плюс таблица ступеней, всё рендерится из нового `GET /api/strategies/trailing-schema`; ни одного числа трейлинга в TSX. Новый §39: API-интеграция трейлинг-стопа — гейт `require_valid_trailing_stop()` на POST, метаданные `trailing_stop` в GET, trailing-поля в Paper и Live API, миграция live_positions. Ранее: задача #145 вывела ступенчатый трейлинг-стоп в боевой путь закрытия позиции: одна лестница в `backend/app/analytics/trailing_stop.py`, общая для `StrategyEvaluator`, плагина `levels_reversal`, `portfolio_simulator` и walk-forward; `EXIT_TRAILING` эмитится; политика по-прежнему выключена по умолчанию. Новый §37; §36 переписан с «только контракт, потребителя нет» на «применяется с #145, гейт на записи теперь есть (#149)». Ранее: в §35 зафиксировано решение Product Owner — `ultra_late_tight` становится боевым дефолтом сетки для #144 при `enabled=false`; контракт `config.trailing_stop` задачи #144 — только валидация, §36). Сопутствующий файл: `project-context.ru.md` (английский оригинал: `project-context.md`).
 Этот файл — операционное руководство для агентов. Сначала прочитайте `project-context.ru.md` / `project-context.md`, чтобы понять архитектуру.
 
 ## 1. Назначение
@@ -1569,4 +1569,64 @@ python -m pytest tests/test_tinkoff_live.py -q        # реальный кли�
 python -m pytest tests/test_live_kill_switch.py -q    # миграция, гейт, fail-safe, API (41)
 python -m pytest tests/test_deploy_migrations.py -q   # цепочка alembic, Dockerfile, compose, DSN (15)
 ```
+
+
+### 46.10 Read-only верификация реального контура (задача #192)
+
+Две диагностики лежат вместе с рабочими артефактами в
+`reports/190-production-trading-infrastructure/192-g1-production-client-verify/`
+(в образ не входят и в торговый путь не попадают):
+
+- **`192-contract-check.py`** — контракт безопасности брокерского слоя,
+  проверяется без учётных данных и без единого сетевого вызова. Проверки:
+  глобальный гейт закрыт, `create_execution_client()` по умолчанию возвращает
+  песочничный клиент, принудительная сборка реального клиента падает fail-closed,
+  паритет методов и именованных аргументов live/sandbox, классификация методов
+  «мутирующие / только чтение», типы ошибок live наследуют песочничные.
+  Вердикт `CONTRACT_OK`, код возврата `0`.
+- **`192-live-smoke.py`** — read-only smoke реального контура. Глобальный
+  `ALLOW_REAL_TRADING` не переключается: клиент собирается диагностическим
+  аргументом конструктора `allow_real_trading=True`, после чего каждый
+  мутирующий метод (`execute_order`, `cancel_order`, `post_stop_order`,
+  `cancel_stop_order`) затеняется на экземпляре поднимающей исключение заглушкой.
+  Установка заглушек проверяется по маркерному атрибуту, **а не** вызовом метода:
+  call-probe на реальном контуре сам был бы мутирующим запросом. Вызываются
+  только read-only API: `users.get_accounts`, `check_balance`, `get_positions`,
+  `get_orders`, `get_stop_orders(status="active")`,
+  `get_operations(state="executed", 7 дней)`.
+  `--self-test` прогоняет ту же логику на внутрипроцессном fake-клиенте
+  (без учётных данных и сети) и дополнительно делает call-probe заглушек там.
+  Коды возврата: `0` — зелёный smoke / self-test, `1` — провал, `3` — заблокировано,
+  потому что `TINVEST_LIVE_TOKEN` отсутствует.
+
+Порядок запуска (из папки задачи; артефакты создаются внутри контейнера и
+копируются обратно через `docker compose cp`, что сохраняет UTF-8):
+
+```bash
+cd reports/190-production-trading-infrastructure/192-g1-production-client-verify
+docker compose cp 192-contract-check.py backend:/tmp/192-contract-check.py
+docker compose cp 192-live-smoke.py backend:/tmp/192-live-smoke.py
+
+docker compose exec -T backend sh -c \
+  'python /tmp/192-contract-check.py > /tmp/contract-check.txt 2>&1; echo exit=$?'
+docker compose exec -T backend python /tmp/192-live-smoke.py --self-test
+docker compose exec -T -e TINVEST_LIVE_TOKEN -e TINVEST_LIVE_ACC backend \
+  python /tmp/192-live-smoke.py --json /tmp/smoke-real.json
+```
+
+Правила маскирования артефактов: токены показываются только как наличие и длина
+(`set(len=88)` / `(empty)` / `<not-set>`), без префикса; идентификаторы счетов
+сокращаются до последних четырёх символов (`***7890`).
+
+Статус на 2026-09-29: `contract-check.txt` = 9/9 зелёных,
+`smoke-self-test.txt` = `SELF_TEST_OK` (9 read-only шагов, `orders_placed=0`),
+аутентифицированный прогон — `BLOCKED_NO_CREDENTIALS` (код `3`), потому что
+`TINVEST_LIVE_TOKEN` в этом окружении отсутствует. Preflight-проверка
+(`192-preflight-check.py` с `PREFLIGHT_EXPECT_CONTOUR=real`) подтвердила
+ожидаемое fail-closed поведение:
+`contour_now=sandbox`, `sandbox_gate=true`, `real_gate=false`,
+`real_expectation_passes=false`, вердикт `FAIL_CLOSED_OK` (exit `0`) — путь
+продуктовой миграции из шага 3 §46.3 не стартует, пока гейт закрыт и live-токена
+нет. На биржу не отправлено ничего: реальный контур поднимался только для чтения
+балансов, позиций и истории.
 

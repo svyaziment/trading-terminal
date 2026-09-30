@@ -282,6 +282,7 @@ detached run, cache `cache/<book>/<TICKER>.json`, `--workers`, PID-file guard.
 - Executing an Issue in one step without decomposition and a plan in `issue-context.md`.
 - Missing `reports/<NNN>-<branch-name>/` folder or missing `issue-context.md` in it.
 - Missing `report.md` in task artifacts.
+- Diagnostics against the **real** contour without raising guards on every mutating method, without masked artifacts, or by flipping `ALLOW_REAL_TRADING` instead of using the diagnostic constructor argument (`handover.md` §46.10, Issue #192).
 - Running a >10-minute run attached, without a PID file, resumable cache and workers — or accepting such a run without the standard liveness monitor block.
 
 Any task not following this SOP will be returned for rework without code review.
