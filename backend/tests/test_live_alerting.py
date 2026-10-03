@@ -1779,6 +1779,19 @@ def metrics_snapshot(**overrides) -> dict:
         "orphan_stop_candidates": 1,
         "orphan_stops_cancelled_total": 2,
         "orphan_sweep_fail_closed_total": 0,
+        # canary live trading (#194) - a disabled canary publishes ``None`` for
+        # its ticker and cap, so "not a canary" stays distinct from "a canary
+        # that never traded".
+        "canary_enabled": False,
+        "canary_ticker": None,
+        "canary_max_lots": None,
+        "canary_capped_total": 0,
+        "canary_rejections_total": 0,
+        "canary_confirmations_total": 0,
+        "canary_confirm_retries_total": 0,
+        "canary_aborts_total": 0,
+        "canary_allow_outside_entry_window": None,
+        "canary_window_bypass_total": 0,
         # equity and the daily drawdown gate (#176)
         "equity_snapshots_total": 40,
         "equity_snapshot_errors_total": 0,
@@ -2603,6 +2616,7 @@ class TestMetricsRoute:
             "global_kill_switch",
             "protection",
             "risk",
+            "canary",
             "alerting",
             "positions",
             "extra",
@@ -2617,6 +2631,40 @@ class TestMetricsRoute:
         assert body["global_kill_switch"]["found"] is True
         assert body["positions"]["open_total"] == 0
         assert body["extra"] == {}
+
+    def test_the_canary_section_publishes_the_calendar_bypass(self, monkeypatch):
+        """Issue #194 (PO decision 2026-10-03): a weekend canary must be provable
+        from the monitoring endpoint - both the permission and the usage count."""
+        api = freeze_metrics_now(monkeypatch)
+        snapshot = metrics_snapshot(
+            canary_enabled=True,
+            canary_ticker="SBER",
+            canary_max_lots=1,
+            canary_allow_outside_entry_window=True,
+            canary_window_bypass_total=2,
+        )
+        monkeypatch.setattr(api, "_get_db", lambda: metrics_db(snapshot))
+
+        body = metrics_client().get("/api/live-trading/metrics").json()
+
+        assert body["canary"]["enabled"] is True
+        assert body["canary"]["ticker"] == "SBER"
+        assert body["canary"]["max_lots"] == 1
+        assert body["canary"]["allow_outside_entry_window"] is True
+        assert body["canary"]["window_bypass_total"] == 2
+
+    def test_the_canary_section_reads_a_missing_bypass_as_off(self, monkeypatch):
+        """An older snapshot without the key must not look like a weekend run."""
+        api = freeze_metrics_now(monkeypatch)
+        snapshot = metrics_snapshot()
+        snapshot.pop("canary_allow_outside_entry_window")
+        snapshot.pop("canary_window_bypass_total")
+        monkeypatch.setattr(api, "_get_db", lambda: metrics_db(snapshot))
+
+        body = metrics_client().get("/api/live-trading/metrics").json()
+
+        assert body["canary"]["allow_outside_entry_window"] is False
+        assert body["canary"]["window_bypass_total"] == 0
 
     def test_a_missing_snapshot_is_a_200_with_a_reason(self, monkeypatch):
         """Monitoring stays up while the thing it monitors is down."""

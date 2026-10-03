@@ -19,7 +19,15 @@ from app.analytics.live_schema import (
     REQUIRED_LIVE_POSITIONS_COLUMNS,
     REQUIRED_LIVE_POSITIONS_STATUSES,
 )
-from app.analytics.trading_config import LIVE_TRADING
+from app.analytics.trading_config import (
+    CANARY,
+    CANARY_ENV,
+    LIVE_TRADING,
+    get_canary_bounds,
+    get_canary_config,
+    normalize_canary_ticker,
+    validate_canary_values,
+)
 from app.broker.tinkoff_sandbox import SandboxAPIError
 
 
@@ -211,12 +219,28 @@ class FakeBroker:
         return SimpleNamespace(order_id=order_id)
 
 
-def make_executor(*, db=None, broker=None, now_fn=None, clock=None, sleep_fn=None, **config):
+def make_executor(
+    *,
+    db=None,
+    broker=None,
+    now_fn=None,
+    clock=None,
+    sleep_fn=None,
+    canary=None,
+    confirm_fn=None,
+    **config,
+):
     kwargs = {}
     if clock is not None:
         kwargs["clock"] = clock
     if sleep_fn is not None:
         kwargs["sleep_fn"] = sleep_fn
+    # Issue #194: the canary policy and its operator prompts are injected, so a
+    # test never touches stdin and never inherits the deployment's CANARY_* env.
+    if canary is not None:
+        kwargs["canary"] = canary
+    if confirm_fn is not None:
+        kwargs["confirm_fn"] = confirm_fn
     executor = LiveExecutor(
         db=db or FakeDB(),
         broker=broker or FakeBroker(),
@@ -3253,4 +3277,1062 @@ def test_shutdown_drops_superseded_stops_when_positions_stay_open(caplog):
         "trailing_amend_cancelled position_id=41 old_stop_id=stop-old "
         "new_stop_id=stop-new" in caplog.text
     )
+
+
+# --- Issue #194 (Epic #190, block G3): the canary contour ---------------------
+#
+# A canary run is an ordinary live run wearing three extra belts: a one-ticker
+# universe, a one-lot ceiling applied AFTER the sizer, and two operator pauses -
+# one before the order reaches the broker and one after the fill is protected.
+# The tests below walk the contour the way an operator does, and several of them
+# also state what an ordinary (non-canary) run does instead, so a future
+# refactor cannot silently drag the whole live contour into the canary rules.
+
+
+CANARY_SIGNAL = {"action": "enter", "entry_price": 100, "stop": 95, "take": 110}
+
+
+@pytest.fixture(autouse=True)
+def _clean_canary_env(monkeypatch):
+    """Keep the deployment's CANARY_* env out of this whole module.
+
+    ``LiveExecutor`` reads :func:`get_canary_config` when a test does not inject
+    a policy, so a stray ``CANARY_ENABLED=true`` in the developer's shell would
+    turn every ordinary executor test into a canary test. The canary tests pass
+    their policy explicitly and do not need the environment at all.
+    """
+    for name in (
+        "CANARY_ENABLED",
+        "CANARY_TICKER",
+        "CANARY_MAX_LOTS",
+        "CANARY_MAX_OPEN_POSITIONS",
+        "CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+def canary_executor(*, answers=("n",), canary=None, **kwargs):
+    """LiveExecutor inside the canary contour answering its pauses from a script.
+
+    ``answers`` is the operator's script, consumed one word per pause; the LAST
+    word repeats, so ``answers=["retry"]`` models an operator who keeps asking
+    for a fresh book and ``answers=["y", "n"]`` one who approves the entry and
+    then refuses the position. Every prompt is recorded on
+    ``executor.canary_prompts``, so a test can assert what the operator was
+    shown and not only that the loop stopped to ask.
+    """
+    prompts = []
+    script = list(answers)
+
+    def confirm_fn(prompt):
+        prompts.append(prompt)
+        if not script:
+            return "n"
+        return script[min(len(prompts), len(script)) - 1]
+
+    executor = make_executor(
+        canary=dict({"enabled": True}, **(canary or {})),
+        confirm_fn=confirm_fn,
+        **kwargs,
+    )
+    executor.canary_prompts = prompts
+    return executor
+
+
+class FlakyStopBroker(StopFakeBroker):
+    """Fails its first ``fail_first`` stop posts, then arms normally.
+
+    The outage the second pause's ``retry`` answer exists for: the fill landed,
+    the broker STOP_LOSS did not, and the operator wants it re-posted instead of
+    watching an unprotected position.
+    """
+
+    def __init__(self, *args, fail_first=1, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fail_first = fail_first
+        self.stop_attempts = 0
+
+    def post_stop_order(self, **kwargs):
+        self.stop_attempts += 1
+        if self.stop_attempts <= self.fail_first:
+            self.calls.append(("post_stop_order", kwargs))
+            raise SandboxAPIError("stop outage")
+        return super().post_stop_order(**kwargs)
+
+
+def test_the_canary_is_off_by_default():
+    """No CANARY_ENABLED - no cap, no pauses, no narrowed universe."""
+    executor = make_executor()
+
+    assert executor.canary_enabled is False
+    # the policy defaults are present but inert while the switch is off
+    assert executor.canary["ticker"] == "SBER"
+    assert executor.canary["max_lots"] == 1
+    # the ordinary contour asks nobody for anything
+    assert executor.confirm_fn is module._stdin_confirm
+
+    metrics = executor.get_metrics()
+    assert metrics["canary_enabled"] is False
+    # None, not 0/False: "not a canary" must stay distinct from "a canary that
+    # never traded" in the metrics snapshot the dashboard reads.
+    assert metrics["canary_ticker"] is None
+    assert metrics["canary_max_lots"] is None
+
+
+def test_an_ordinary_run_keeps_the_sizer_answer():
+    """Without the canary the sizer's 10 lots reach the broker untouched."""
+    broker = FakeBroker()
+    executor = make_executor(broker=broker)
+
+    result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result == {
+        "executed": True,
+        "reason": "open",
+        "position_id": 41,
+        "size_lots": 10,
+    }
+    entry = next(c for c in broker.calls if c[0] == "execute_order")
+    assert entry[1]["quantity"] == 10
+    assert executor.canary_confirmations_total == 0
+    assert executor.canary_capped_total == 0
+
+
+def test_an_ordinary_run_publishes_no_canary_lines():
+    """The Issue #177 alert body stays byte-identical outside the canary."""
+    assert make_executor()._canary_lines(sizing_reason="risk") == []
+
+
+def test_an_ordinary_run_keeps_its_whole_universe():
+    executor = make_executor()
+
+    assert executor._apply_canary_universe(
+        ["GAZP", "SBER"], ["GAZP", "SBER", "LKOH"]
+    ) == ["GAZP", "SBER"]
+
+
+def test_the_canary_caps_the_sizer_to_one_lot(caplog):
+    """The sizer wanted 10 lots; the canary ceiling sends 1 to the broker."""
+    broker = StopFakeBroker()
+    executor = canary_executor(answers=["y", "y"], broker=broker)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result == {
+        "executed": True,
+        "reason": "open",
+        "position_id": 41,
+        "size_lots": 1,
+    }
+    entry = next(c for c in broker.calls if c[0] == "execute_order")
+    assert entry[1]["quantity"] == 1
+    assert executor.canary_capped_total == 1
+    assert (
+        "Live canary cap: ticker=SBER size_lots=10 -> 1 reason=canary_cap"
+        in caplog.text
+    )
+
+
+def test_the_canary_cap_only_ever_shrinks(caplog):
+    """A sizer answer of 1 lot is already inside the ceiling - no cap claimed."""
+    broker = FakeBroker(balance=Decimal("5000"))
+    executor = canary_executor(answers=["y", "y"], broker=broker)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result["size_lots"] == 1
+    assert executor.canary_capped_total == 0
+    assert "Live canary cap" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "canary,risk_limit,expected",
+    [
+        (None, 5, 1),                       # the canary default is ONE position
+        (None, 1, 1),
+        ({"max_open_positions": 3}, 5, 3),  # an explicit canary limit is kept...
+        ({"max_open_positions": 3}, 2, 2),  # ...but never widens the risk limit
+    ],
+)
+def test_the_canary_takes_the_tighter_max_open_positions(canary, risk_limit, expected):
+    """``min(canary, risk)``: an env MAX_OPEN_POSITIONS=5 must not widen the
+    canary, and a canary must not widen the ordinary contour either."""
+    executor = canary_executor(canary=canary or {}, max_open_positions=risk_limit)
+
+    assert executor.config["max_open_positions"] == expected
+
+
+def test_the_canary_universe_is_narrowed_to_its_single_ticker(caplog):
+    executor = canary_executor()
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        narrowed = executor._apply_canary_universe(
+            ["GAZP", "SBER", "LKOH"], ["GAZP", "SBER", "LKOH"]
+        )
+
+    assert narrowed == ["SBER"]
+    assert "Canary universe narrowed: GAZP,SBER,LKOH -> SBER" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "tickers,live_universe",
+    [
+        (["GAZP", "LKOH"], ["GAZP", "SBER"]),  # the canary ticker is not traded
+        (["SBER", "GAZP"], ["GAZP"]),          # the canary ticker is not live
+        ([], ["SBER"]),                        # nothing is traded at all
+    ],
+)
+def test_the_canary_universe_fails_closed(tickers, live_universe, caplog):
+    """A canary whose ticker cannot trade this session trades nothing at all."""
+    executor = canary_executor()
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        assert executor._apply_canary_universe(tickers, live_universe) == []
+
+    assert "Canary universe is EMPTY: ticker=SBER" in caplog.text
+
+
+def test_the_canary_refuses_another_ticker_even_on_a_direct_call(caplog):
+    """Belt and braces: a stray GAZP signal never reaches the broker."""
+    broker = FakeBroker()
+    executor = canary_executor(answers=["y", "y"], broker=broker)
+    executor.instruments["GAZP"] = {
+        "instrument_id": "figi-gazp",
+        "lot_size": 10,
+        "min_price_increment": 0.01,
+    }
+
+    with caplog.at_level("WARNING", logger=module.__name__):
+        result = executor.process_signal("GAZP", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result == {"executed": False, "reason": "canary_universe"}
+    assert broker.calls == []
+    assert executor.canary_rejections_total == 1
+    assert "reason=canary_universe canary_ticker=SBER" in caplog.text
+
+
+@pytest.mark.parametrize("answer", ["y", "Y", "YES", " yes ", "да", "д"])
+def test_the_yes_family_is_the_only_approval(answer):
+    executor = canary_executor(answers=[answer])
+
+    assert executor._canary_ask("?") == module.CANARY_CONFIRM_YES
+    assert executor.canary_confirmations_total == 1
+    assert executor.canary_rejections_total == 0
+
+
+@pytest.mark.parametrize("answer", ["retry", "R", "повтор", "Повтори"])
+def test_the_retry_family_is_counted(answer):
+    executor = canary_executor(answers=[answer])
+
+    assert executor._canary_ask("?") == module.CANARY_CONFIRM_RETRY
+    assert executor.canary_confirm_retries_total == 1
+
+
+@pytest.mark.parametrize(
+    "answer", ["n", "", "   ", "maybe", "Y ES", "yesterday", "нет"]
+)
+def test_any_other_answer_is_a_refusal(answer):
+    """A typo, an empty line or a half-typed 'yes' must never move money."""
+    executor = canary_executor(answers=[answer])
+
+    assert executor._canary_ask("?") == module.CANARY_CONFIRM_NO
+    assert executor.canary_confirm_retries_total == 0
+
+
+def test_a_broken_prompt_is_a_refusal_not_an_approval(caplog):
+    """A confirm_fn that raises (no tty in a container) still means 'no'."""
+
+    def boom(_prompt):
+        raise RuntimeError("stdin is gone")
+
+    executor = make_executor(canary={"enabled": True}, confirm_fn=boom)
+
+    with caplog.at_level("ERROR", logger=module.__name__):
+        assert executor._canary_ask("?") == module.CANARY_CONFIRM_NO
+
+    assert "Canary confirmation raised (RuntimeError" in caplog.text
+
+
+def test_a_closed_stdin_answers_empty_and_empty_means_no(monkeypatch):
+    """A detached start reads EOF: the canary stops instead of trading."""
+
+    def raise_eof(_prompt):
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", raise_eof)
+
+    assert module._stdin_confirm("[CANARY sandbox] Подтвердите: ") == ""
+    executor = make_executor(canary={"enabled": True})
+    assert executor._canary_ask("?") == module.CANARY_CONFIRM_NO
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (100.0, "100.0000"),
+        (Decimal("94.95"), "94.9500"),
+        (None, "?"),
+        (float("nan"), "?"),
+        (float("inf"), "?"),
+        ("abc", "?"),
+    ],
+)
+def test_the_prompt_renders_an_unknown_price_as_a_question_mark(value, expected):
+    """The prompt is the last thing read before real money moves."""
+    assert module._canary_price_text(value) == expected
+
+
+@pytest.mark.parametrize("answer", ["n", "", "maybe", "нет"])
+def test_the_first_pause_treats_anything_but_yes_as_a_refusal(answer):
+    """Confirmation 1 sits BEFORE the broker: a refusal costs only the signal."""
+    broker = StopFakeBroker()
+    executor = canary_executor(answers=[answer], broker=broker)
+
+    result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result == {"executed": False, "reason": "canary_not_confirmed"}
+    # the balance read of the sizing step is the ONLY broker contact: no entry
+    # order, no stop, no take - nothing a human has to unwind afterwards.
+    assert [c[0] for c in broker.calls] == ["check_balance"]
+    assert len(executor.canary_prompts) == 1
+    assert executor.canary_confirmations_total == 1
+    assert executor.canary_rejections_total == 1
+    # a refused entry is not an abort - the stream keeps running.
+    assert executor.canary_aborts_total == 0
+    assert executor.shutdown_requested.is_set() is False
+
+
+def test_the_canary_enters_one_lot_after_two_yes_answers():
+    """The whole happy path of the contour, in the order an operator sees it."""
+    broker = StopFakeBroker()
+    executor = canary_executor(answers=["y", "y"], broker=broker)
+
+    result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result == {
+        "executed": True,
+        "reason": "open",
+        "position_id": 41,
+        "size_lots": 1,
+    }
+    assert [c[0] for c in broker.calls] == [
+        "check_balance",
+        "execute_order",
+        "post_stop_order",
+        "execute_order",
+    ]
+    assert broker.calls[1][1]["quantity"] == 1
+    # the broker stop covers exactly the capped lot, not the sizer's 10
+    assert broker.calls[2][1]["quantity"] == 1
+    assert len(executor.canary_prompts) == 2
+    assert "Готов к покупке 1 лот(ов) SBER" in executor.canary_prompts[0]
+    assert "Сделка open" in executor.canary_prompts[1]
+    assert executor.canary_confirmations_total == 2
+    assert executor.canary_aborts_total == 0
+    assert executor.shutdown_requested.is_set() is False
+
+
+def test_the_first_pause_retry_rereads_the_orderbook(monkeypatch):
+    """``retry`` is not a delay - it fetches a fresh book and shows it."""
+    reads = []
+
+    def fake_orderbook(self, ticker):
+        reads.append(ticker)
+        return (0.25, 3.0)
+
+    monkeypatch.setattr(module.LiveExecutor, "_latest_orderbook", fake_orderbook)
+    executor = canary_executor(answers=["retry", "y"])
+
+    confirmed = executor._canary_confirm_entry(
+        ticker="SBER", lots=1, entry_price=100.0, stop_price=95.0, take_price=110.0
+    )
+
+    assert confirmed is True
+    assert reads == ["SBER"]
+    assert executor.canary_confirmations_total == 2
+    assert executor.canary_confirm_retries_total == 1
+    assert executor.canary_rejections_total == 0
+    # the first prompt had no book yet, the second shows the fresh imbalance
+    assert "дисбаланс стакана=-." in executor.canary_prompts[0]
+    assert "дисбаланс стакана=+0.250." in executor.canary_prompts[1]
+
+
+def test_the_first_pause_gives_up_after_the_retry_limit(caplog):
+    """A loop of ``retry`` ends in a refusal, never in an order."""
+    executor = canary_executor(answers=["retry"])
+
+    with caplog.at_level("ERROR", logger=module.__name__):
+        confirmed = executor._canary_confirm_entry(ticker="SBER", lots=1)
+
+    assert confirmed is False
+    # 3 retries are allowed, so the operator is asked MAX+1 times
+    assert len(executor.canary_prompts) == module.CANARY_CONFIRM_MAX_RETRIES + 1
+    assert (
+        executor.canary_confirm_retries_total
+        == module.CANARY_CONFIRM_MAX_RETRIES + 1
+    )
+    assert executor.canary_rejections_total == 1
+    assert "Canary entry SBER dropped: 3 retries" in caplog.text
+
+
+class NoTakeBroker(StopFakeBroker):
+    """Arms stops normally but never lets the take-profit leg through."""
+
+    def execute_order(self, **kwargs):
+        if kwargs.get("order_type") == "limit":
+            self.calls.append(("execute_order", kwargs))
+            raise SandboxAPIError("take outage")
+        return super().execute_order(**kwargs)
+
+
+def test_the_second_pause_retry_arms_the_protection_the_fill_missed(caplog):
+    """``retry`` on pause 2 re-posts the missing leg and asks again."""
+    broker = FlakyStopBroker()
+    executor = canary_executor(answers=["y", "retry", "y"], broker=broker)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result == {
+        "executed": True,
+        "reason": "open",
+        "position_id": 41,
+        "size_lots": 1,
+    }
+    assert broker.stop_attempts == 2
+    assert broker.posted_stops == ["stop-1"]
+    assert len(executor.canary_prompts) == 3
+    assert "стоп=95.0000 (НЕ у брокера)" in executor.canary_prompts[1]
+    assert "стоп=95.0000 (у брокера)" in executor.canary_prompts[2]
+    assert executor.canary_confirm_retries_total == 1
+    assert executor.canary_aborts_total == 0
+    assert (
+        "Canary retry: stop re-arm position_id=41 ticker=SBER -> armed"
+        in caplog.text
+    )
+
+
+def test_a_missing_take_still_reaches_the_second_pause():
+    """The ordinary contour returns ``protection_pending`` silently; the canary
+    shows the gap to the operator and only then reports it."""
+    broker = NoTakeBroker()
+    executor = canary_executor(answers=["y", "y"], broker=broker)
+
+    result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result == {
+        "executed": True,
+        "reason": "protection_pending",
+        "position_id": 41,
+        "size_lots": 1,
+    }
+    assert len(executor.canary_prompts) == 2
+    assert "тейк=110.0000 (НЕ у брокера)" in executor.canary_prompts[1]
+    assert executor.canary_aborts_total == 0
+    assert executor.shutdown_requested.is_set() is False
+
+
+def test_a_retry_reposts_only_the_missing_leg():
+    broker = StopFakeBroker()
+    executor = canary_executor(broker=broker)
+    protection = {"stop_armed": False, "take_placed": True}
+
+    executor._canary_rearm_protection(
+        ticker="SBER",
+        position_id=41,
+        instrument_id="figi-sber",
+        lots=1,
+        stop_price=95.0,
+        take_price=110.0,
+        protection=protection,
+    )
+
+    # updated IN PLACE, so the caller still reports the true protection state
+    assert protection == {"stop_armed": True, "take_placed": True}
+    assert [c[0] for c in broker.calls] == ["post_stop_order"]
+    assert broker.posted_stops == ["stop-1"]
+
+
+def test_a_retry_never_duplicates_an_armed_stop():
+    """A second active SELL stop on one position would over-sell it (#199)."""
+    broker = StopFakeBroker()
+    executor = canary_executor(broker=broker)
+    protection = {"stop_armed": True, "take_placed": False}
+
+    executor._canary_rearm_protection(
+        ticker="SBER",
+        position_id=41,
+        instrument_id="figi-sber",
+        lots=1,
+        stop_price=95.0,
+        take_price=110.0,
+        protection=protection,
+    )
+
+    assert protection == {"stop_armed": True, "take_placed": True}
+    assert [c[0] for c in broker.calls] == ["execute_order"]
+    assert broker.calls[0][1]["order_type"] == "limit"
+    assert broker.posted_stops == []
+
+
+def test_a_refused_second_pause_stops_the_stream_without_flattening(caplog):
+    """The one irreversible action the operator did NOT ask for stays undone.
+
+    The money is already in the market, so refusing pause 2 stops the canary
+    stream and hands the position to the manual runbook - it never market-sells
+    the position and never cancels the broker protection behind it, even on a
+    deployment that flattens on shutdown.
+    """
+    broker = StopFakeBroker()
+    db = FakeDB()
+    executor = canary_executor(
+        answers=["y", "n"],
+        broker=broker,
+        db=db,
+        close_positions_on_shutdown=True,
+    )
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    # executed stays True - the order really happened - but the reason says so
+    assert result == {
+        "executed": True,
+        "reason": "canary_aborted",
+        "position_id": 41,
+        "size_lots": 1,
+    }
+    assert executor.canary_aborts_total == 1
+    assert executor.shutdown_requested.is_set() is True
+    assert "CANARY ABORT: position_id=41 ticker=SBER lots=1" in caplog.text
+
+    # the position is now visible to shutdown(), as it would be in production
+    db.active = active_position(
+        size_lots=1, broker_stop_id="stop-1", broker_take_id="order-2"
+    )
+    with caplog.at_level("WARNING", logger=module.__name__):
+        executor.shutdown()
+
+    market_sells = [
+        c
+        for c in broker.calls
+        if c[0] == "execute_order"
+        and c[1]["direction"] == "sell"
+        and c[1]["order_type"] == "market"
+    ]
+    assert market_sells == []
+    assert broker.cancelled_stops == []
+    assert not any(
+        "SET broker_stop_id=NULL" in query for query, _ in db.execute_calls
+    )
+    assert (
+        "Canary abort: close_positions_on_shutdown forced OFF" in caplog.text
+    )
+
+
+def test_the_canary_counters_land_in_the_metrics_snapshot():
+    """Everything an operator has to prove afterwards is published as canary_*."""
+    broker = StopFakeBroker()
+    executor = canary_executor(answers=["y", "y"], broker=broker)
+
+    executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+    metrics = executor.get_metrics()
+
+    assert metrics["canary_enabled"] is True
+    assert metrics["canary_ticker"] == "SBER"
+    assert metrics["canary_max_lots"] == 1
+    assert metrics["canary_capped_total"] == 1
+    assert metrics["canary_confirmations_total"] == 2
+    assert metrics["canary_confirm_retries_total"] == 0
+    assert metrics["canary_rejections_total"] == 0
+    assert metrics["canary_aborts_total"] == 0
+
+
+def test_the_canary_alert_lines_name_the_cap_and_the_contour():
+    executor = canary_executor()
+
+    lines = dict(
+        executor._canary_lines(
+            sizing_reason="canary_cap", stop_armed=True, take_placed=False
+        )
+    )
+
+    assert lines["Canary"] == "включён"
+    assert lines["Canary-тикер"] == "SBER"
+    assert lines["Canary-лимит"] == "1 лот."
+    assert lines["Подтверждения"] == "2 паузы: перед ордером и после защиты"
+    assert lines["Сайзер"] == "canary_cap"
+    assert lines["Стоп у брокера"] == "выставлен"
+    assert lines["Тейк у брокера"] == "НЕ выставлен"
+
+
+# --- the canary policy in trading_config ---------------------------------------
+
+
+def test_canary_defaults_match_the_shipped_policy():
+    """OFF by default, and the smallest possible run: one name, one lot, one
+    position. Widening it is a reviewed config change, not a code change."""
+    config = get_canary_config()
+
+    assert config == CANARY
+    assert config["enabled"] is False
+    assert config["ticker"] == "SBER"
+    assert config["max_lots"] == 1
+    assert config["max_open_positions"] == 1
+    assert get_canary_bounds() == {
+        "max_lots": (1, 100),
+        "max_open_positions": (1, 100),
+    }
+
+
+def test_canary_config_returns_an_isolated_copy():
+    first = get_canary_config()
+    first["ticker"] = "GAZP"
+    first["max_lots"] = 99
+
+    assert get_canary_config() == CANARY
+    assert CANARY["ticker"] == "SBER"
+    assert CANARY["max_lots"] == 1
+
+
+def test_canary_env_overrides_apply(monkeypatch):
+    monkeypatch.setenv("CANARY_ENABLED", "true")
+    monkeypatch.setenv("CANARY_TICKER", " gazp ")
+    monkeypatch.setenv("CANARY_MAX_LOTS", "2")
+    monkeypatch.setenv("CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW", "true")
+
+    config = get_canary_config()
+
+    assert config["enabled"] is True
+    assert config["ticker"] == "GAZP"
+    assert config["max_lots"] == 2
+    # no env knob on purpose: a canary of more than one position is not a canary
+    assert config["max_open_positions"] == 1
+    # PO decision of 2026-10-03: the weekend/off-exchange canary is opt-in
+    assert config["allow_outside_entry_window"] is True
+    assert set(CANARY_ENV) == {
+        "CANARY_ENABLED",
+        "CANARY_TICKER",
+        "CANARY_MAX_LOTS",
+        "CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW",
+    }
+
+
+def test_blank_canary_env_overrides_fall_back_to_defaults(monkeypatch):
+    monkeypatch.setenv("CANARY_ENABLED", "   ")
+    monkeypatch.setenv("CANARY_TICKER", "")
+    monkeypatch.setenv("CANARY_MAX_LOTS", "")
+
+    assert get_canary_config() == CANARY
+
+
+@pytest.mark.parametrize("word", ["ture", "maybe", "0x1", "yesplease"])
+def test_canary_enabled_rejects_an_ambiguous_word(monkeypatch, word):
+    """The switch that decides whether real money trades uses the strict reader
+    of ALLOW_REAL_TRADING (#178): a typo must fail instead of quietly meaning
+    "off"."""
+    monkeypatch.setenv("CANARY_ENABLED", word)
+
+    with pytest.raises(ValueError, match="CANARY_ENABLED"):
+        get_canary_config()
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "101", "many", "1.5"])
+def test_out_of_range_canary_max_lots_fails_fast(monkeypatch, value):
+    """``CANARY_MAX_LOTS=10000`` must stop the process, never widen the cap."""
+    monkeypatch.setenv("CANARY_MAX_LOTS", value)
+
+    with pytest.raises(ValueError, match="CANARY_MAX_LOTS"):
+        get_canary_config()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "SBER SBERP",        # two names where exactly one may trade
+        "SBER;DROP TABLE",   # a shell/SQL fragment
+        "GAZP-1234",         # punctuation is not part of a MOEX name
+        "СБЕР",               # Cyrillic: instrument tickers are ASCII
+        "ABCDEFGHIJKLMNOPQ",  # longer than trading.instruments.ticker
+    ],
+)
+def test_a_malformed_canary_ticker_fails_instead_of_guessing(value):
+    """A present-but-malformed ticker raises rather than falling back: the
+    operator must not believe the run is capped to SBER while it trades
+    something else."""
+    with pytest.raises(ValueError, match="canary ticker"):
+        normalize_canary_ticker(value)
+
+
+def test_normalize_canary_ticker_uppercases_and_strips():
+    assert normalize_canary_ticker("sber") == "SBER"
+    assert normalize_canary_ticker("  Gazp  ") == "GAZP"
+    assert normalize_canary_ticker("LKOH1") == "LKOH1"
+
+    with pytest.raises(ValueError, match="non-empty"):
+        normalize_canary_ticker("   ")
+    with pytest.raises(ValueError, match="non-empty"):
+        normalize_canary_ticker(None)
+
+
+def test_validate_canary_values_accepts_partial_and_none_overrides():
+    validate_canary_values({})
+    validate_canary_values({"enabled": True, "ticker": "SBER", "max_lots": 1})
+    validate_canary_values(
+        {"ticker": None, "max_lots": None, "max_open_positions": None}
+    )
+
+
+@pytest.mark.parametrize(
+    "values,key",
+    [
+        ({"enabled": "yes"}, "enabled"),
+        ({"max_lots": 0}, "max_lots"),
+        ({"max_lots": 101}, "max_lots"),
+        ({"max_lots": 1.5}, "max_lots"),
+        ({"max_lots": "many"}, "max_lots"),
+        ({"max_open_positions": 0}, "max_open_positions"),
+        ({"ticker": "SBER SBERP"}, "ticker"),
+        ({"ticker": ""}, "ticker"),
+    ],
+)
+def test_validate_canary_values_rejects_a_smuggled_cap(values, key):
+    """The executor's ``canary=`` dict obeys exactly the env ranges, so no caller
+    can bypass ``CANARY_MAX_LOTS``."""
+    with pytest.raises(ValueError, match=key):
+        validate_canary_values(values)
+
+
+def test_the_executor_rejects_an_out_of_range_canary_dict():
+    """Validation happens in ``__init__``: a bad cap never reaches the sizer."""
+    for canary in (
+        {"enabled": True, "max_lots": 0},
+        {"enabled": True, "max_lots": 101},
+        {"enabled": True, "ticker": "SBER SBERP"},
+        {"enabled": True, "max_open_positions": 0},
+        {"enabled": "yes"},
+    ):
+        with pytest.raises(ValueError):
+            make_executor(canary=canary)
+
+
+def test_the_canary_env_reaches_the_executor(monkeypatch):
+    """The go-live runbook configures the canary through env only."""
+    monkeypatch.setenv("CANARY_ENABLED", "true")
+    monkeypatch.setenv("CANARY_TICKER", "gazp")
+    monkeypatch.setenv("CANARY_MAX_LOTS", "3")
+
+    executor = make_executor()
+
+    assert executor.canary == {
+        "enabled": True,
+        "ticker": "GAZP",
+        "max_lots": 3,
+        "max_open_positions": 1,
+        "allow_outside_entry_window": False,
+    }
+
+
+def test_a_caller_canary_dict_wins_over_the_env(monkeypatch):
+    """Same precedence as ``config=``: defaults, then env, then the caller."""
+    monkeypatch.setenv("CANARY_ENABLED", "true")
+    monkeypatch.setenv("CANARY_MAX_LOTS", "5")
+
+    executor = make_executor(canary={"enabled": False, "max_lots": 1})
+
+    assert executor.canary["enabled"] is False
+    assert executor.canary["max_lots"] == 1
+    assert executor.canary_enabled is False
+    assert executor.get_metrics()["canary_enabled"] is False
+    assert executor.get_metrics()["canary_ticker"] is None
+
+
+
+# --- the canary calendar-gate bypass (PO decision of 2026-10-03, scope D) -------
+#
+# A weekend / off-exchange canary needs the #137 calendar gate lifted, and that
+# is a scope change the PO approved on 2026-10-03. The tests below pin the three
+# properties that make it safe: OFF by default, canary-only (the ordinary contour
+# keeps the calendar byte-for-byte), and loud (log line, alert line, counter).
+
+# Saturday, daytime: #137 keeps entries closed all weekend, which is exactly the
+# session a weekend canary has to be allowed to trade in.
+WEEKEND_NOW = datetime(2026, 10, 3, 15, 30, 0)
+
+
+def _loop_ready(executor):
+    """Executor whose ``run()`` touches neither signals nor the broker."""
+    executor.install_signal_handlers = lambda: None
+    executor.initialize = lambda: None
+    executor.refresh_contexts = lambda: None
+    executor.monitor_positions = lambda: None
+    executor.shutdown = lambda: None
+    executor._active_positions = lambda: pd.DataFrame()
+    executor.config["check_interval_seconds"] = 0
+    executor.config["context_refresh_seconds"] = 10**6
+    executor.sleep_fn = lambda _seconds: executor.shutdown_requested.set()
+    return executor
+
+
+def test_the_calendar_bypass_is_off_by_default():
+    """Shipped policy: a canary honours the #137 window unless PO opts in."""
+    assert CANARY["allow_outside_entry_window"] is False
+    assert get_canary_config()["allow_outside_entry_window"] is False
+    assert make_executor().canary_allow_outside_entry_window is False
+    assert canary_executor().canary_allow_outside_entry_window is False
+
+
+@pytest.mark.parametrize("word", ["ture", "maybe", "0x1", "yesplease"])
+def test_the_calendar_bypass_rejects_an_ambiguous_word(monkeypatch, word):
+    """The knob that removes a safety gate uses the strict reader of #178: a
+    typo stops the process instead of quietly deciding either way."""
+    monkeypatch.setenv("CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW", word)
+
+    with pytest.raises(ValueError, match="CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW"):
+        get_canary_config()
+
+
+def test_a_blank_calendar_bypass_keeps_the_gate(monkeypatch):
+    """Blank = unset, the same contract as the other CANARY_* knobs."""
+    monkeypatch.setenv("CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW", "   ")
+
+    assert get_canary_config()["allow_outside_entry_window"] is False
+
+
+@pytest.mark.parametrize("value", ["yes", 1, 0])
+def test_validate_canary_values_rejects_a_non_boolean_bypass(value):
+    """A caller dict obeys the same rules as env - no smuggled truthy value."""
+    with pytest.raises(ValueError, match="allow_outside_entry_window"):
+        validate_canary_values({"allow_outside_entry_window": value})
+
+
+def test_the_bypass_is_announced_when_the_canary_starts(caplog):
+    """The operator reads the very first log line of the run."""
+    with caplog.at_level("INFO", logger=module.__name__):
+        canary_executor(canary={"allow_outside_entry_window": True})
+
+    assert (
+        "CANARY: entries are allowed OUTSIDE the MOEX entry window" in caplog.text
+    )
+
+    caplog.clear()
+    with caplog.at_level("INFO", logger=module.__name__):
+        canary_executor()
+
+    assert "CANARY MODE ON" in caplog.text
+    assert "OUTSIDE the MOEX entry window" not in caplog.text
+
+
+def test_a_canary_without_the_bypass_still_honours_the_session_calendar(caplog):
+    """Default path untouched: a Saturday signal is skipped as #137 shipped it."""
+    broker = StopFakeBroker()
+    executor = canary_executor(
+        answers=["y", "y"], broker=broker, now_fn=lambda: WEEKEND_NOW
+    )
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result == {"executed": False, "reason": "outside_entry_window"}
+    assert broker.calls == []
+    assert executor.canary_confirmations_total == 0
+    assert executor.canary_window_bypass_total == 0
+
+
+def test_the_bypass_lets_one_canary_lot_through_on_a_saturday(caplog):
+    """The weekend canary still trades ONE lot and still stops at both pauses -
+    only the calendar gate is off, nothing else in the chain."""
+    broker = StopFakeBroker()
+    executor = canary_executor(
+        answers=["y", "y"],
+        broker=broker,
+        canary={"allow_outside_entry_window": True},
+        now_fn=lambda: WEEKEND_NOW,
+    )
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result == {
+        "executed": True,
+        "reason": "open",
+        "position_id": 41,
+        "size_lots": 1,
+    }
+    entry = next(c for c in broker.calls if c[0] == "execute_order")
+    assert entry[1]["quantity"] == 1
+    assert executor.canary_window_bypass_total == 1
+    assert executor.canary_confirmations_total == 2
+    assert "CANARY: entry window bypassed" in caplog.text
+    assert "CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=true" in caplog.text
+
+
+def test_the_bypass_refuses_an_operator_who_says_no():
+    """Lifting the calendar gate never lifts the human gate."""
+    broker = StopFakeBroker()
+    executor = canary_executor(
+        answers=["n"],
+        broker=broker,
+        canary={"allow_outside_entry_window": True},
+        now_fn=lambda: WEEKEND_NOW,
+    )
+
+    result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result["executed"] is False
+    assert result["reason"] == "canary_not_confirmed"
+    # Pause 1 sits after sizing, so the read-only balance probe has already run;
+    # what must never happen without a "yes" is an order.
+    assert not [call for call in broker.calls if call[0] == "execute_order"]
+    assert executor.canary_window_bypass_total == 1
+    assert executor.canary_rejections_total == 1
+
+
+def test_the_bypass_logs_once_but_counts_only_signals(caplog):
+    """The loop asks the same question every cycle; the counter must not inflate."""
+    executor = canary_executor(
+        canary={"allow_outside_entry_window": True}, now_fn=lambda: WEEKEND_NOW
+    )
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        assert executor._entry_window_open(WEEKEND_NOW, source="loop") is True
+        assert executor._entry_window_open(WEEKEND_NOW, source="loop") is True
+        assert executor._entry_window_open(WEEKEND_NOW, source="signal") is True
+
+    assert executor.canary_window_bypass_total == 1
+    assert caplog.text.count("CANARY: entry window bypassed") == 1
+
+
+def test_the_bypass_never_widens_the_ordinary_contour(monkeypatch):
+    """The env knob alone changes nothing: only a canary reads it, so the shipped
+    sandbox/real loop keeps the #137 calendar."""
+    monkeypatch.setenv("CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW", "true")
+    broker = FakeBroker()
+    executor = make_executor(broker=broker, now_fn=lambda: WEEKEND_NOW)
+
+    result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert executor.canary_enabled is False
+    assert result == {"executed": False, "reason": "outside_entry_window"}
+    assert broker.calls == []
+    assert executor.canary_window_bypass_total == 0
+
+
+def test_the_bypass_is_inert_while_the_canary_switch_is_off():
+    """``allow_outside_entry_window=True`` without CANARY_ENABLED is dead config."""
+    executor = make_executor(
+        canary={"enabled": False, "allow_outside_entry_window": True},
+        now_fn=lambda: WEEKEND_NOW,
+    )
+
+    assert executor.canary_enabled is False
+    assert executor._entry_window_open(WEEKEND_NOW, source="signal") is False
+    assert executor.canary_window_bypass_total == 0
+
+
+def test_inside_the_window_the_bypass_changes_nothing():
+    """Monday 11:00 MSK needs no bypass, and using none keeps the counter at 0."""
+    executor = canary_executor(canary={"allow_outside_entry_window": True})
+
+    assert executor._entry_window_open(IN_SESSION_NOW, source="signal") is True
+    assert executor.canary_window_bypass_total == 0
+    assert executor._canary_window_bypass_logged is False
+
+
+def test_the_loop_processes_bars_outside_the_window_for_a_bypassed_canary(caplog):
+    """The main loop asks ``_entry_window_open``, so a weekend canary sees bars at
+    all - without this the entry gate would never even be reached."""
+    executor = _loop_ready(
+        canary_executor(
+            canary={"allow_outside_entry_window": True},
+            now_fn=lambda: WEEKEND_NOW,
+        )
+    )
+    bars = []
+    executor.process_latest_bars = lambda: bars.append(WEEKEND_NOW)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        executor.run(duration_minutes=1)
+
+    assert bars
+    assert "CANARY: entry window bypassed" in caplog.text
+
+
+def test_the_loop_keeps_the_calendar_for_a_canary_without_the_bypass():
+    """Monitoring always runs (a position keeps its protection); entries do not."""
+    executor = _loop_ready(canary_executor(now_fn=lambda: WEEKEND_NOW))
+    bars, monitored = [], []
+    executor.process_latest_bars = lambda: bars.append(1)
+    executor.monitor_positions = lambda: monitored.append(1)
+
+    executor.run(duration_minutes=1)
+
+    assert bars == []
+    assert monitored
+
+
+def test_wait_for_session_open_returns_at_once_for_a_bypassed_canary(caplog):
+    """Otherwise ``until_session_end`` would sleep a weekend canary until Monday."""
+    executor = canary_executor(
+        canary={"allow_outside_entry_window": True},
+        now_fn=lambda: WEEKEND_NOW,
+        sleep_fn=lambda _seconds: pytest.fail("a weekend canary must not wait"),
+    )
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        executor.wait_for_session_open()
+
+    assert "CANARY: not waiting for the MOEX session open" in caplog.text
+
+
+def test_wait_for_session_open_still_waits_without_the_bypass(caplog):
+    """The #137 wait is untouched for every run that did not opt in."""
+    executor = canary_executor(now_fn=lambda: WEEKEND_NOW)
+
+    def stop(_seconds):
+        executor.shutdown_requested.set()
+
+    executor.sleep_fn = stop
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        executor.wait_for_session_open()
+
+    assert "CANARY: not waiting" not in caplog.text
+    assert "Waiting for MOEX session open at 2026-10-05 10:00 MSK" in caplog.text
+
+
+def test_the_bypass_is_published_in_the_metrics_snapshot():
+    bypassed = canary_executor(
+        canary={"allow_outside_entry_window": True}
+    ).get_metrics()
+    assert bypassed["canary_allow_outside_entry_window"] is True
+    assert bypassed["canary_window_bypass_total"] == 0
+
+    plain = canary_executor().get_metrics()
+    assert plain["canary_allow_outside_entry_window"] is False
+    assert plain["canary_window_bypass_total"] == 0
+
+    ordinary = make_executor().get_metrics()
+    # None, not False: "not a canary" stays distinct in the JSONB snapshot
+    assert ordinary["canary_allow_outside_entry_window"] is None
+    assert ordinary["canary_window_bypass_total"] == 0
+
+
+def test_the_bypass_is_named_in_the_canary_alert_lines():
+    lines = dict(
+        canary_executor(
+            canary={"allow_outside_entry_window": True}
+        )._canary_lines()
+    )
+    assert lines["Вход вне окна сессии"] == (
+        "разрешён (CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=true)"
+    )
+
+    quiet = dict(canary_executor()._canary_lines())
+    # None is dropped by _notify, so the shipped alert body stays byte-identical
+    assert quiet["Вход вне окна сессии"] is None
+
+
 

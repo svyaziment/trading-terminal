@@ -595,6 +595,17 @@ _METRICS_SNAPSHOT_FIELDS = frozenset(
         "orphan_stop_candidates",
         "orphan_stops_cancelled_total",
         "orphan_sweep_fail_closed_total",
+        # canary live trading (#194)
+        "canary_enabled",
+        "canary_ticker",
+        "canary_max_lots",
+        "canary_capped_total",
+        "canary_rejections_total",
+        "canary_confirmations_total",
+        "canary_confirm_retries_total",
+        "canary_aborts_total",
+        "canary_allow_outside_entry_window",
+        "canary_window_bypass_total",
         # equity and the daily drawdown gate (#176)
         "risk_breach_active",
         "risk_breach_session_key",
@@ -775,6 +786,47 @@ def _metrics_risk_section(snapshot: dict) -> dict:
     }
 
 
+def _metrics_canary_section(snapshot: dict) -> dict:
+    """Issue #194: what the canary mode was allowed to do, and what it refused.
+
+    ``enabled`` comes first because the counters below are meaningless without
+    it: a canary loop trades one ticker, one lot, behind two operator
+    confirmations, so a panel that showed "3 entries" without the flag would
+    look like an ordinary loop that simply trades very little.
+
+    ``capped_total`` is the field that separates "the canary cut the size" from
+    "the risk budget was already that small" - the cap is applied to the sizer's
+    answer, never to the risk limits. ``rejections_total`` (an operator answered
+    anything but yes), ``confirm_retries_total`` (the operator asked to re-read
+    the book or re-arm the protection) and ``aborts_total`` (the canary stopped
+    the stream, deliberately leaving the open position on its broker stops) are
+    the three ways a human answer ended the run.
+
+    ``allow_outside_entry_window`` / ``window_bypass_total`` (PO decision of
+    2026-10-03) answer a different question: whether this canary was allowed to
+    enter outside the #137 session calendar - a weekend / off-exchange run - and
+    how many signals actually used that bypass.
+    """
+    return {
+        "enabled": _metrics_bool(snapshot.get("canary_enabled")),
+        "ticker": _metrics_text(snapshot.get("canary_ticker")),
+        "max_lots": _metrics_int(snapshot.get("canary_max_lots")) or None,
+        "capped_total": _metrics_int(snapshot.get("canary_capped_total")),
+        "rejections_total": _metrics_int(snapshot.get("canary_rejections_total")),
+        "confirmations_total": _metrics_int(snapshot.get("canary_confirmations_total")),
+        "confirm_retries_total": _metrics_int(
+            snapshot.get("canary_confirm_retries_total")
+        ),
+        "aborts_total": _metrics_int(snapshot.get("canary_aborts_total")),
+        "allow_outside_entry_window": _metrics_bool(
+            snapshot.get("canary_allow_outside_entry_window")
+        ),
+        "window_bypass_total": _metrics_int(
+            snapshot.get("canary_window_bypass_total")
+        ),
+    }
+
+
 def _metrics_alerting_section(snapshot: dict, alerting: dict) -> dict:
     """Telegram delivery counters and the throttle windows behind them (#177)."""
     return {
@@ -868,6 +920,10 @@ def _metrics_endpoint_payload(*, now: Optional[datetime] = None) -> dict:
         "global_kill_switch": global_kill_switch,
         "protection": _metrics_protection_section(snap),
         "risk": _metrics_risk_section(snap),
+        # Issue #194: published as its own section, not folded into ``risk`` -
+        # the canary is a mode of the whole contour, and an operator must be able
+        # to see "this loop may only ever buy 1 lot of SBER" at a glance.
+        "canary": _metrics_canary_section(snap),
         "alerting": _metrics_alerting_section(snap, alerting),
         "positions": _metrics_positions(db),
         # Fields a future executor version adds are published instead of dropped.

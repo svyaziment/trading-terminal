@@ -529,6 +529,192 @@ def get_live_trading_config() -> Dict[str, Any]:
     return config
 
 
+# --- Canary run of the real contour (Issue #194, Epic #190 block G3) ----------
+#
+# The first trade on real money is a canary: ONE ticker, ONE lot, ONE open
+# position, two blocking operator confirmations. The policy lives here and
+# nowhere else - a project red line is "no ticker hardcoded outside
+# trading_config.py" - so widening it is a reviewed config change, and widening
+# *past* it needs the CEO go/no-go of the canary report first.
+#
+# ``enabled=False`` by default: nothing below changes the behaviour of the
+# shipped sandbox contour, which trades the whole ``LIVE_UNIVERSE`` with the
+# ordinary sizer.
+CANARY: Dict[str, Any] = {
+    # Master switch of the canary contour.
+    'enabled': False,
+    # The single ticker a canary run may trade. SBER by the epic spec: the most
+    # liquid name of LIVE_UNIVERSE (lot size 10 shares), ~2 700 RUB per lot at
+    # the 2026-10 price - the smallest possible proof of the whole chain.
+    'ticker': 'SBER',
+    # Hard cap on the sizer result, in lots. Never raised silently: raising it
+    # is the "scale the capital" decision the CEO must approve.
+    'max_lots': 1,
+    # Hard cap on concurrently open positions. The executor forces
+    # min(LIVE_TRADING.max_open_positions, this), so a canary can never widen
+    # the ordinary cap and stays a one-position contour.
+    'max_open_positions': 1,
+    # Issue #194, PO decision of 2026-10-03 (scope variant D): the canary may be
+    # run inside the MOEX weekend / off-exchange session, where the #137 calendar
+    # gate ``is_entry_window()`` is False by design and every entry would be
+    # skipped as ``outside_entry_window``. OFF by default and read ONLY by the
+    # canary contour - the ordinary loop keeps the #137 calendar untouched. It
+    # removes the calendar gate and nothing else: the stale-orderbook, imbalance,
+    # risk-gate, sizing, kill-switch checks and both operator pauses still run,
+    # and thin weekend liquidity stays the operator's call.
+    'allow_outside_entry_window': False,
+}
+
+# Acceptable ranges, the same convention as LIVE_RISK_BOUNDS /
+# LIVE_ALERTING_BOUNDS: integers, inclusive on both ends. ``max_lots`` keeps a
+# head room of 100 lots so a *reviewed* widening after the CEO go/no-go is a
+# config change and not a code change, while the upper bound still stops an
+# obvious fat-finger (CANARY_MAX_LOTS=10000).
+CANARY_MAX_LOTS_RANGE: Tuple[int, int] = (1, 100)
+CANARY_MAX_OPEN_POSITIONS_RANGE: Tuple[int, int] = (1, 100)
+
+CANARY_BOUNDS: Dict[str, Tuple[float, float]] = {
+    'max_lots': CANARY_MAX_LOTS_RANGE,
+    'max_open_positions': CANARY_MAX_OPEN_POSITIONS_RANGE,
+}
+
+# env variable -> CANARY key. Only the knobs the go-live runbook needs;
+# ``max_open_positions`` stays config-only on purpose - a canary holding more
+# than one position is not a canary, and the executor clamps it anyway.
+CANARY_ENV: Dict[str, str] = {
+    'CANARY_ENABLED': 'enabled',
+    'CANARY_TICKER': 'ticker',
+    'CANARY_MAX_LOTS': 'max_lots',
+    # Issue #194 (PO decision 2026-10-03): the calendar-gate bypass of a canary
+    # run. Strict boolean like CANARY_ENABLED - a typo must stop the process
+    # instead of quietly trading outside the session window.
+    'CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW': 'allow_outside_entry_window',
+}
+
+#: Longest ticker ``CANARY_TICKER`` may name: MOEX equity names are 3..6
+#: characters and ``trading.instruments.ticker`` is VARCHAR(16).
+CANARY_TICKER_MAX_LEN = 16
+
+
+def normalize_canary_ticker(value: Any) -> str:
+    """Upper-case and shape-check a canary ticker (Issue #194).
+
+    A canary trades exactly one name, so a blank or malformed value must stop
+    the process instead of quietly falling back to the default: the operator
+    would otherwise believe the run is capped to SBER while it trades something
+    else.
+
+    Raises:
+        ValueError: when the value is empty, longer than
+            :data:`CANARY_TICKER_MAX_LEN` or contains anything but ASCII
+            letters and digits.
+    """
+    text = str(value if value is not None else "").strip().upper()
+    if not text:
+        raise ValueError("canary ticker must be a non-empty string")
+    if len(text) > CANARY_TICKER_MAX_LEN:
+        raise ValueError(
+            f"canary ticker must be at most {CANARY_TICKER_MAX_LEN} characters, "
+            f"got {len(text)}"
+        )
+    if not all(ch.isascii() and ch.isalnum() for ch in text):
+        raise ValueError(
+            f"canary ticker must contain ASCII letters and digits only, got {value!r}"
+        )
+    return text
+
+
+def validate_canary_values(values: Dict[str, Any]) -> None:
+    """Validate an in-memory canary override (Issue #194).
+
+    :class:`~app.analytics.live_executor.LiveExecutor` accepts a ``canary=``
+    dict so the tests and the sandbox drill can exercise the policy per process.
+    This guard makes such a dict obey exactly the ranges :data:`CANARY_BOUNDS`
+    enforces on the env overrides plus the ticker shape, so no caller can
+    smuggle in a cap ``CANARY_MAX_LOTS`` would have rejected. Missing keys and
+    ``None`` fall back to the :data:`CANARY` defaults.
+
+    Raises:
+        ValueError: on a wrong type, a malformed ticker or an out-of-range
+            value. The message always names the offending key.
+    """
+    for key, default in CANARY.items():
+        if key not in values or values[key] is None:
+            continue
+        value = values[key]
+        if isinstance(default, bool):
+            # ``enabled`` decides whether real money is traded one lot at a time,
+            # so the strict boolean reader of ALLOW_REAL_TRADING applies (#178):
+            # a typo like ``ture`` must fail instead of quietly meaning "off".
+            if not isinstance(value, bool):
+                raise ValueError(f"{key} must be a boolean, got {value!r}")
+            continue
+        if key == 'ticker':
+            normalize_canary_ticker(value)
+            continue
+        if isinstance(value, bool):
+            raise ValueError(f"{key} must be an integer, got {value!r}")
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{key} must be an integer, got {value!r}") from None
+        if not math.isfinite(number) or number != int(number):
+            raise ValueError(f"{key} must be an integer, got {value!r}")
+        low, high = CANARY_BOUNDS[key]
+        if not low <= number <= high:
+            raise ValueError(f"{key} must be within [{low:g}, {high:g}], got {number:g}")
+
+
+def _env_canary_ticker(env_name: str, default: str) -> str:
+    """Read a canary ticker from env and normalise it (Issue #194).
+
+    A *blank* knob counts as unset and keeps ``default``, exactly like the
+    numeric readers (see
+    ``test_blank_canary_env_overrides_fall_back_to_defaults``). A present but
+    malformed one never falls back: ``CANARY_TICKER=SBER SBERP`` raises, because
+    guessing which single name the canary trades is exactly the mistake a
+    one-lot real-money run may not make. The default is never invisible either -
+    the executor logs the name it trades (``CANARY MODE ON: ticker=...``).
+    """
+    raw = _env_raw(env_name)
+    if raw is None:
+        return normalize_canary_ticker(default)
+    return normalize_canary_ticker(raw)
+
+
+def get_canary_config() -> Dict[str, Any]:
+    """Return an isolated copy of the canary policy (Issue #194).
+
+    Defaults come from :data:`CANARY`; ``CANARY_ENABLED``, ``CANARY_TICKER``,
+    ``CANARY_MAX_LOTS`` and ``CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW`` override them
+    per environment. Raises ``ValueError`` on an unparsable, malformed or
+    out-of-range override - exactly like :func:`get_live_risk_config` - so a typo
+    can never start a canary with a wider cap than the operator asked for (or
+    hide the cap altogether), and can never turn the #137 calendar-gate bypass on
+    by accident.
+    """
+    config = dict(CANARY)
+    config['enabled'] = _env_strict_bool('CANARY_ENABLED', bool(CANARY['enabled']))
+    config['ticker'] = _env_canary_ticker('CANARY_TICKER', str(CANARY['ticker']))
+    config['max_lots'] = _env_bounded_int(
+        'CANARY_MAX_LOTS', 'max_lots', int(CANARY['max_lots']), CANARY_BOUNDS
+    )
+    # PO decision of 2026-10-03 (Issue #194, scope variant D): a canary may run
+    # in the weekend / off-exchange session. Strict boolean, so
+    # ``CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=ture`` stops the process instead of
+    # silently keeping the calendar gate (or silently dropping it).
+    config['allow_outside_entry_window'] = _env_strict_bool(
+        'CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW',
+        bool(CANARY['allow_outside_entry_window']),
+    )
+    return config
+
+
+def get_canary_bounds() -> Dict[str, Tuple[float, float]]:
+    """Expose the validated canary ranges (diagnostics and API schema)."""
+    return dict(CANARY_BOUNDS)
+
+
 # Secrets and the sandbox account id are intentionally loaded by config_manager from
 # TINVEST_SANDBOX / TINVEST_SANDBOX_ACC. TINVEST_TOKEN / TINVEST_ACC remain
 # market-data-only. The REAL contour (Issue #178) reads TINVEST_LIVE_TOKEN /

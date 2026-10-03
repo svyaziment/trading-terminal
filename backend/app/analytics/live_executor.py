@@ -59,14 +59,18 @@ from app.analytics.position_sizer import calculate_position_size
 from app.analytics.strategy_engine import StrategyEvaluator
 from app.analytics.trailing_stop import resolve_trailing_stop
 from app.analytics.trading_config import (
+    CANARY,
     LIVE_RISK_BOUNDS,
     LIVE_TRADING,
+    get_canary_config,
     get_live_alerting_config,
     get_live_risk_config,
     get_live_trading_config,
     get_live_trading_universe,
     get_moex_session_config,
     get_orderbook_imbalance_config,
+    normalize_canary_ticker,
+    validate_canary_values,
     validate_live_alerting_values,
 )
 from app.broker.client_factory import (
@@ -231,6 +235,69 @@ def _filter_live_tickers(strategy_tickers: list[str], live_universe: list[str]) 
     return list(live_universe)
 
 
+# --- Issue #194 (Epic #190 block G3): the canary contour of a real trade ------
+#
+# The canary is the first real-money run: ONE ticker, ONE lot, ONE open position
+# and TWO blocking operator confirmations around the only order it places. The
+# policy itself (ticker, caps) lives in ``trading_config.CANARY`` - a project red
+# line forbids a hardcoded ticker anywhere else - while the reason codes and the
+# confirmation vocabulary live here, next to the code that emits them.
+
+#: ``_skip_signal`` reason: the canary contour may not trade this name at all.
+CANARY_SKIP_REASON_UNIVERSE = "canary_universe"
+
+#: ``_skip_signal`` reason: the operator did not confirm the canary order.
+CANARY_SKIP_REASON_CONFIRM = "canary_not_confirmed"
+
+#: Returned instead of ``open`` when the operator aborted after the fill.
+CANARY_ABORT_REASON = "canary_aborted"
+
+#: Sizing reason published instead of ``risk`` / ``concentration`` / ``min_lot``
+#: when the canary cap - not the risk limits - decided the size.
+CANARY_SIZING_REASON = "canary_cap"
+
+#: Confirmation vocabulary. Anything outside it - an empty answer (EOF), a typo,
+#: a closed stdin - means "no": the canary stops instead of trading on a guess.
+CANARY_CONFIRM_YES = "y"
+CANARY_CONFIRM_NO = "n"
+CANARY_CONFIRM_RETRY = "retry"
+_CANARY_YES_WORDS = frozenset({"y", "yes", "д", "да"})
+_CANARY_RETRY_WORDS = frozenset({"retry", "r", "повтор", "повтори"})
+
+#: How many ``retry`` answers the second pause accepts before it gives up: an
+#: operator who cannot get the protection armed three times in a row needs
+#: runbook C (``handover.md`` §46.11), not another prompt.
+CANARY_CONFIRM_MAX_RETRIES = 3
+
+
+def _stdin_confirm(prompt: str) -> str:
+    """Blocking operator confirmation read from stdin (Issue #194).
+
+    The default ``confirm_fn`` of :class:`LiveExecutor`. Returns an empty string
+    on EOF - a detached start, a pipe, or ``docker compose exec`` without ``-T``
+    - because an unread confirmation is a refusal, never an approval. The canary
+    runbook therefore requires a foreground terminal with a live stdin.
+    """
+    try:
+        return input(prompt)
+    except EOFError:
+        return ""
+
+
+def _canary_price_text(value: Any) -> str:
+    """Render one price for a canary confirmation prompt (Issue #194).
+
+    ``None`` and a non-finite number render as ``?`` instead of raising: the
+    prompt is the last thing an operator reads before real money moves, so it
+    must never be the place where the canary dies - and it must still show that
+    the level is unknown rather than printing ``0.0000``.
+    """
+    number = _finite_float(value, float("nan"))
+    if not math.isfinite(number):
+        return "?"
+    return f"{number:.4f}"
+
+
 def tick_align(
     price: float, increment: float, direction: str = "down"
 ) -> float:
@@ -375,6 +442,8 @@ class LiveExecutor:
         config: Optional[Dict[str, Any]] = None,
         notifier: Optional[TelegramNotifier] = None,
         alerting: Optional[Dict[str, Any]] = None,
+        canary: Optional[Dict[str, Any]] = None,
+        confirm_fn: Optional[Callable[[str], str]] = None,
         evaluator_factory: Callable[[dict], StrategyEvaluator] = StrategyEvaluator,
         clock: Callable[[], float] = time.monotonic,
         sleep_fn: Callable[[float], None] = time.sleep,
@@ -388,6 +457,76 @@ class LiveExecutor:
             **get_live_trading_config(),
             **(config or {}),
         }
+        # Issue #194 (Epic #190 block G3): the canary policy of this process.
+        # Precedence mirrors the ``config`` merge above - CANARY defaults, then
+        # the deployment's CANARY_* env, then a caller dict (the tests and the
+        # sandbox drill) - and it is resolved *before* _validate_config() because
+        # a canary narrows max_open_positions.
+        canary_source = get_canary_config()
+        if canary is not None:
+            canary_source.update(
+                {key: value for key, value in canary.items() if value is not None}
+            )
+        validate_canary_values(canary_source)
+        self.canary: Dict[str, Any] = {
+            "enabled": bool(canary_source.get("enabled")),
+            "ticker": normalize_canary_ticker(
+                canary_source.get("ticker") or CANARY["ticker"]
+            ),
+            "max_lots": max(1, int(canary_source["max_lots"])),
+            "max_open_positions": max(1, int(canary_source["max_open_positions"])),
+            # Issue #194, PO decision of 2026-10-03 (scope variant D): may this
+            # canary enter outside the #137 calendar window, i.e. inside the MOEX
+            # weekend / off-exchange session? Read by ``_entry_window_open`` only.
+            "allow_outside_entry_window": bool(
+                canary_source.get("allow_outside_entry_window")
+            ),
+        }
+        # Decision D4: the two blocking confirmations are injected, so the tests
+        # and the drill answer them without ever touching stdin. The default
+        # reads the operator's terminal and treats EOF as "no".
+        self.confirm_fn: Callable[[str], str] = confirm_fn or _stdin_confirm
+        # Canary counters, published through get_metrics() as ``canary_*``.
+        self.canary_capped_total = 0
+        self.canary_rejections_total = 0
+        self.canary_confirmations_total = 0
+        self.canary_confirm_retries_total = 0
+        self.canary_aborts_total = 0
+        # Issue #194: how many signals were let through *because* the #137
+        # calendar gate was bypassed for this canary. Published as
+        # ``canary_window_bypass_total`` so a weekend run is provable afterwards.
+        self.canary_window_bypass_total = 0
+        #: One loud warning per process, not one per loop iteration.
+        self._canary_window_bypass_logged = False
+        # Issue #194: set by a refused second pause. ``shutdown()`` reads it, so a
+        # canary abort leaves the filled position and its broker protection
+        # untouched even on a deployment running ``close_positions_on_shutdown``.
+        self._canary_abort_no_flatten = False
+        if self.canary_enabled:
+            # A canary holds ONE position at a time. ``min`` and never the canary
+            # value alone: an env MAX_OPEN_POSITIONS=5 must not widen the canary,
+            # and a canary must not widen the ordinary contour either.
+            self.config["max_open_positions"] = min(
+                int(self.config["max_open_positions"]),
+                self.canary["max_open_positions"],
+            )
+            logger.warning(
+                "CANARY MODE ON: ticker=%s max_lots=%s max_open_positions=%s "
+                "confirmations=2 - one name, one lot, one position, and the "
+                "executor stops on every order the operator did not confirm",
+                self.canary["ticker"],
+                self.canary["max_lots"],
+                self.config["max_open_positions"],
+            )
+            if self.canary["allow_outside_entry_window"]:
+                # Loud and once: an operator reading the log must never have to
+                # guess whether this run honours the #137 session calendar.
+                logger.warning(
+                    "CANARY: entries are allowed OUTSIDE the MOEX entry window "
+                    "(CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=true) - PO decision of "
+                    "2026-10-03, canary contour only; the calendar gate is off "
+                    "for this run while every other gate still applies"
+                )
         self._validate_config()
         # Issue #177: operator alerting. The notifier is injected by the process
         # entry points (``run_live_executor`` / start_processes.sh); ``None``
@@ -972,7 +1111,12 @@ class LiveExecutor:
             raise RuntimeError("No active locked strategy is available")
         self.strategy_config = dict(strategy_config)
         self.strategy_name = strategy_name
-        self.tickers = _filter_live_tickers(tickers, get_live_trading_universe(self.db))
+        live_universe = get_live_trading_universe(self.db)
+        self.tickers = _filter_live_tickers(tickers, live_universe)
+        # Issue #194: a canary narrows the universe to its single ticker. Done
+        # here, where the universe is built, so the evaluators, the entry loop
+        # and the #199 orphan sweep (which reads the same list) all see one name.
+        self.tickers = self._apply_canary_universe(self.tickers, live_universe)
         self._load_instruments()
 
         for ticker in self.tickers:
@@ -1948,8 +2092,22 @@ class LiveExecutor:
                 warning=True,
                 source=self._live_kill_switch_source,
             )
+        # Issue #194: belt and braces behind the narrowed universe built by
+        # initialize() - a direct process_signal() call (the drill, a manual
+        # replay) can never make the canary contour enter another name.
+        if self.canary_enabled and ticker != self.canary_ticker:
+            self.canary_rejections_total += 1
+            return self._skip_signal(
+                ticker,
+                CANARY_SKIP_REASON_UNIVERSE,
+                warning=True,
+                canary_ticker=self.canary_ticker,
+            )
         now = self.now_fn()
-        if not is_entry_window(now):
+        # Issue #194: the #137 calendar gate, with the canary-only opt-in bypass
+        # of the PO decision of 2026-10-03. An ordinary run reads exactly the
+        # same ``is_entry_window()`` it always did.
+        if not self._entry_window_open(now, source="signal"):
             session = get_moex_session_config()
             return self._skip_signal(
                 ticker,
@@ -2069,13 +2227,34 @@ class LiveExecutor:
                 stop_distance_pct=round(stop_distance_pct, 6),
             )
 
+        # Issue #194 (decision D3): the canary cap is applied to the sizer
+        # result, never to the risk limits - the same LIVE_RISK gates ran above,
+        # the canary only takes the smaller of the two sizes and says so through
+        # its own reason code, so the canary report can tell "the risk budget
+        # allowed 12 lots and the canary cut it to 1" from "risk allowed 1".
+        entry_lots = int(sizing["size_lots"])
+        sizing_reason = str(sizing["reason"])
+        if self.canary_enabled and entry_lots > self.canary_max_lots:
+            self.canary_capped_total += 1
+            logger.info(
+                "Live canary cap: ticker=%s size_lots=%s -> %s reason=%s "
+                "sizer_reason=%s",
+                ticker,
+                entry_lots,
+                self.canary_max_lots,
+                CANARY_SIZING_REASON,
+                sizing_reason,
+            )
+            entry_lots = self.canary_max_lots
+            sizing_reason = CANARY_SIZING_REASON
+
         # Issue #176: absolute notional cap, on top of the relative
         # max_position_pct budget the sizer already applied. Measured on the
         # executable order (lots * lot_size * price) rather than on the sizer's
         # pre-rounding budget, so the min_lot branch that forces size_lots to 1
         # cannot slip a too-large position through.
         notional_rub = (
-            float(sizing["size_lots"]) * int(instrument["lot_size"]) * entry_price
+            float(entry_lots) * int(instrument["lot_size"]) * entry_price
         )
         max_position_size = _finite_float(self.config.get("max_position_size"), 0.0)
         if max_position_size > 0 and notional_rub > max_position_size:
@@ -2085,8 +2264,30 @@ class LiveExecutor:
                 RISK_SKIP_REASON_POSITION_SIZE,
                 notional_rub=round(notional_rub, 2),
                 max_position_size=round(max_position_size, 2),
-                size_lots=sizing["size_lots"],
+                size_lots=entry_lots,
                 lot_size=instrument["lot_size"],
+                entry_price=entry_price,
+            )
+
+        # Issue #194 (decision D4): the FIRST of the two blocking canary pauses.
+        # Nothing reaches the broker until the operator confirms THIS order, and
+        # the prompt names the size, the ticker, the indicative levels and the
+        # contour about to be traded - on the real contour the same sentence
+        # means real money. Anything but an explicit yes stops the signal: the
+        # canary never trades on a guess, a typo or a closed stdin.
+        if self.canary_enabled and not self._canary_confirm_entry(
+            ticker=ticker,
+            lots=entry_lots,
+            entry_price=entry_price,
+            stop_price=stop_price,
+            take_price=take_price,
+        ):
+            return self._skip_signal(
+                ticker,
+                CANARY_SKIP_REASON_CONFIRM,
+                warning=True,
+                phase="entry",
+                size_lots=entry_lots,
                 entry_price=entry_price,
             )
 
@@ -2094,7 +2295,7 @@ class LiveExecutor:
             entry_order = self._broker_call(
                 "execute_order",
                 instrument_id=instrument["instrument_id"],
-                quantity=sizing["size_lots"],
+                quantity=entry_lots,
                 direction="buy",
                 order_type="market",
                 priority="entry",
@@ -2106,10 +2307,10 @@ class LiveExecutor:
                 warning=True,
                 operation="execute_entry_order",
                 error_type=type(exc).__name__,
-                size_lots=sizing["size_lots"],
+                size_lots=entry_lots,
             )
         executed_lots = int(getattr(entry_order, "lots_executed", 0))
-        stored_lots = executed_lots or sizing["size_lots"]
+        stored_lots = executed_lots or entry_lots
         executed_price = getattr(entry_order, "executed_order_price", None)
         stored_entry_price = (
             float(executed_price) if executed_price is not None else entry_price
@@ -2166,6 +2367,7 @@ class LiveExecutor:
         )
 
         stop_armed = False
+        take_placed = False
         if status == "open":
             # Issue #175: protection first — the broker STOP_LOSS is armed before
             # the take-profit limit, so the position is never left naked.
@@ -2185,6 +2387,7 @@ class LiveExecutor:
                     stored_lots,
                     take_price,
                 )
+                take_placed = True
             except Exception as exc:
                 logger.warning(
                     "Live protection pending: ticker=%s reason=broker_error "
@@ -2208,11 +2411,16 @@ class LiveExecutor:
                     ],
                     critical=True,
                 )
-                return {
-                    "executed": True,
-                    "reason": "protection_pending",
-                    "position_id": position_id,
-                }
+                # Issue #194: a canary run still reaches the second pause, so the
+                # operator confirms - or retries - a position whose take never
+                # made it to the exchange, instead of the process returning
+                # behind their back. The ordinary path keeps its early return.
+                if not self.canary_enabled:
+                    return {
+                        "executed": True,
+                        "reason": "protection_pending",
+                        "position_id": position_id,
+                    }
 
         logger.info(
             "Live BUY submitted: ticker=%s status=%s size_lots=%s position_id=%s",
@@ -2222,6 +2430,9 @@ class LiveExecutor:
             position_id,
         )
         # Issue #177: an entry is a rare one-shot event - no debounce (decision D2).
+        # Issue #194: a canary entry carries its own flag lines, so an operator
+        # reading the chat can never mistake a one-lot canary for an ordinary
+        # position; an ordinary run keeps the exact body #177 shipped.
         self._notify(
             "live_entry",
             f"Открыта live-позиция ({self.contour_label})",
@@ -2234,12 +2445,36 @@ class LiveExecutor:
                 ("Тейк", f"{float(take_price):.4f}"),
                 ("Трейлинг", "включён" if trailing_enabled else "выключен"),
                 ("Позиция", position_id),
+                *self._canary_lines(sizing_reason=sizing_reason),
             ],
             icon="📈",
         )
+        # Issue #194 (decision D4): the SECOND blocking canary pause - after the
+        # fill and after the protection was armed. ``retry`` re-arms whatever is
+        # missing, anything else but ``y`` stops the stream WITHOUT flatten, and
+        # the operator keeps the position plus the manual runbook.
+        protection = {"stop_armed": stop_armed, "take_placed": take_placed}
+        abort = self._canary_post_entry_gate(
+            ticker=ticker,
+            position_id=position_id,
+            instrument_id=instrument["instrument_id"],
+            lots=stored_lots,
+            status=status,
+            entry_price=float(stored_entry_price),
+            stop_price=stop_price,
+            take_price=take_price,
+            protection=protection,
+        )
+        if abort is not None:
+            return abort
+        reason = status
+        if status == "open" and not protection["take_placed"]:
+            # The operator accepted a position whose take never reached the
+            # exchange - report the protection gap instead of a clean "open".
+            reason = "protection_pending"
         return {
             "executed": True,
-            "reason": status,
+            "reason": reason,
             "position_id": position_id,
             "size_lots": stored_lots,
         }
@@ -2319,6 +2554,444 @@ class LiveExecutor:
             (order_id, position_id),
         )
         return order_id
+
+    # ------------------------------------------------------------------
+    # Issue #194: the canary contour — one ticker, one lot, two confirmations
+    # ------------------------------------------------------------------
+
+    @property
+    def canary_enabled(self) -> bool:
+        """Whether this process runs inside the canary contour (Issue #194)."""
+        return bool(self.canary["enabled"])
+
+    @property
+    def canary_ticker(self) -> str:
+        """The only ticker the canary contour may trade (Issue #194)."""
+        return str(self.canary["ticker"])
+
+    @property
+    def canary_max_lots(self) -> int:
+        """Hard cap on the entry size, in lots (Issue #194)."""
+        return int(self.canary["max_lots"])
+
+    @property
+    def canary_allow_outside_entry_window(self) -> bool:
+        """Whether this canary may enter outside the #137 session calendar."""
+        return bool(self.canary.get("allow_outside_entry_window"))
+
+    def _entry_window_open(self, now: datetime, *, source: str = "signal") -> bool:
+        """Whether an entry may happen at ``now`` (Issue #194 bypass aware).
+
+        :func:`~app.analytics.moex_session.is_entry_window` (#137) is the shipped
+        calendar gate: a weekday inside ``[entry_start_hour, entry_end_hour)``
+        MSK. The canary may be run inside the MOEX weekend / off-exchange
+        session, where that gate is False by design, so the PO decision of
+        2026-10-03 adds an *opt-in* bypass. It is deliberately narrow:
+
+        * it exists only while the canary contour is on (``CANARY_ENABLED``), so
+          an ordinary sandbox or real run keeps the #137 calendar untouched;
+        * it removes the calendar gate and nothing else - the kill switch, the
+          canary universe gate, the risk gate, the stale-orderbook and imbalance
+          filters, sizing, the one-lot cap and both operator pauses still run;
+        * every signal let through is counted (``canary_window_bypass_total``)
+          and the first use logs one WARNING naming the knob.
+
+        ``source`` is ``"signal"`` for a decision about to be executed and
+        ``"loop"`` for the main-loop question "process bars now?" - only the
+        former moves the counter, so a two-hour run cannot report one bypass per
+        iteration.
+        """
+        if is_entry_window(now):
+            return True
+        if not (self.canary_enabled and self.canary_allow_outside_entry_window):
+            return False
+        if not self._canary_window_bypass_logged:
+            self._canary_window_bypass_logged = True
+            session = get_moex_session_config()
+            logger.warning(
+                "CANARY: entry window bypassed at %s MSK "
+                "(CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=true) - the #137 calendar "
+                "gate [%s:00, %s:00) MSK on weekdays does not apply to this "
+                "one-ticker canary; book freshness, risk gates and both operator "
+                "pauses still do",
+                now.strftime("%Y-%m-%d %H:%M"),
+                session["entry_start_hour"],
+                session["entry_end_hour"],
+            )
+        if source == "signal":
+            self.canary_window_bypass_total += 1
+        return True
+
+    def _apply_canary_universe(
+        self, tickers: Sequence[str], live_universe: Optional[Sequence[str]]
+    ) -> list[str]:
+        """Narrow the live universe down to the single canary ticker (#194).
+
+        Fail-closed: the canary may trade ONLY a name ``trading_universe``
+        already marked ``live_trading_enabled``. A typo in ``CANARY_TICKER``
+        therefore leaves the executor with an empty universe - no orders at all -
+        instead of silently trading a name nobody vetted.
+        """
+        if not self.canary_enabled:
+            return list(tickers)
+        allowed = (
+            {str(item) for item in live_universe} if live_universe is not None else None
+        )
+        narrowed = [
+            ticker
+            for ticker in tickers
+            if ticker == self.canary_ticker
+            and (allowed is None or ticker in allowed)
+        ]
+        if narrowed:
+            logger.warning(
+                "Canary universe narrowed: %s -> %s (max_lots=%s)",
+                ",".join(tickers) or "-",
+                narrowed[0],
+                self.canary_max_lots,
+            )
+        else:
+            logger.error(
+                "Canary universe is EMPTY: ticker=%s is not live-enabled "
+                "(requested: %s) - the executor will place no orders",
+                self.canary_ticker,
+                ",".join(tickers) or "-",
+            )
+        return narrowed
+
+    def _canary_lines(
+        self,
+        *,
+        sizing_reason: Optional[str] = None,
+        stop_armed: Optional[bool] = None,
+        take_placed: Optional[bool] = None,
+    ) -> list[Tuple[str, Any]]:
+        """Canary flag lines appended to the ``live_start`` / ``live_entry`` alerts.
+
+        Empty when the canary is off, so an ordinary run keeps the exact alert
+        body Issue #177 shipped; ``None`` values are dropped by ``_notify``.
+        """
+        if not self.canary_enabled:
+            return []
+        return [
+            ("Canary", "включён"),
+            ("Canary-тикер", self.canary_ticker),
+            ("Canary-лимит", f"{self.canary_max_lots} лот."),
+            ("Подтверждения", "2 паузы: перед ордером и после защиты"),
+            # Issue #194 (PO decision 2026-10-03): the start/entry alert must say
+            # when this canary is allowed to trade outside the #137 session
+            # calendar. ``None`` (dropped by _notify) keeps the shipped alert body
+            # byte-identical while the bypass is off.
+            (
+                "Вход вне окна сессии",
+                "разрешён (CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=true)"
+                if self.canary_allow_outside_entry_window
+                else None,
+            ),
+            ("Сайзер", sizing_reason),
+            (
+                "Стоп у брокера",
+                None
+                if stop_armed is None
+                else ("выставлен" if stop_armed else "НЕ выставлен"),
+            ),
+            (
+                "Тейк у брокера",
+                None
+                if take_placed is None
+                else ("выставлен" if take_placed else "НЕ выставлен"),
+            ),
+        ]
+
+    def _canary_ask(self, prompt: str) -> str:
+        """Ask the operator and normalise the answer (Issue #194).
+
+        ``y`` / ``yes`` / ``д`` / ``да`` -> :data:`CANARY_CONFIRM_YES`, the
+        ``retry`` family -> :data:`CANARY_CONFIRM_RETRY`, and anything else -
+        including EOF, an empty answer and a typo - ->
+        :data:`CANARY_CONFIRM_NO`. Every pause is counted, so the run can prove
+        afterwards that the operator was really asked.
+        """
+        self.canary_confirmations_total += 1
+        try:
+            answer = str(self.confirm_fn(prompt) or "")
+        except Exception as exc:  # noqa: BLE001 - a broken prompt is a refusal
+            logger.error(
+                "Canary confirmation raised (%s: %s) - treated as 'no'",
+                type(exc).__name__,
+                exc,
+            )
+            return CANARY_CONFIRM_NO
+        token = answer.strip().lower()
+        if token in _CANARY_YES_WORDS:
+            logger.warning("Canary confirmation: operator answered %r -> y", token)
+            return CANARY_CONFIRM_YES
+        if token in _CANARY_RETRY_WORDS:
+            self.canary_confirm_retries_total += 1
+            logger.warning("Canary confirmation: operator answered %r -> retry", token)
+            return CANARY_CONFIRM_RETRY
+        logger.warning(
+            "Canary confirmation: operator answered %r -> n (canary stops)",
+            token or "<empty / EOF>",
+        )
+        return CANARY_CONFIRM_NO
+
+    def _canary_confirm_entry(
+        self,
+        *,
+        ticker: str,
+        lots: int,
+        entry_price: Optional[float] = None,
+        stop_price: Optional[float] = None,
+        take_price: Optional[float] = None,
+    ) -> bool:
+        """Confirmation 1 of 2: the operator green-lights THIS order (#194).
+
+        The pause sits before anything reaches the broker, so a refusal costs
+        nothing but the signal - no order, no position, only
+        ``canary_rejections_total``. ``retry`` re-reads the order-book aggregate
+        and asks again; after :data:`CANARY_CONFIRM_MAX_RETRIES` retries the entry
+        is dropped. Fail-safe, never fail-open.
+
+        Returns:
+            True only on an explicit ``y``.
+        """
+        if not self.canary_enabled:
+            return True
+        retries = 0
+        imbalance_text = "-"
+        while True:
+            answer = self._canary_ask(
+                f"[CANARY {self.contour_label}] Готов к покупке {lots} лот(ов) "
+                f"{ticker} по ~{_canary_price_text(entry_price)} руб., "
+                f"стоп={_canary_price_text(stop_price)}, "
+                f"тейк={_canary_price_text(take_price)}, "
+                f"дисбаланс стакана={imbalance_text}. "
+                f"Подтвердите (y/n, retry - перечитать стакан): "
+            )
+            if answer == CANARY_CONFIRM_YES:
+                return True
+            if answer != CANARY_CONFIRM_RETRY:
+                break
+            retries += 1
+            if retries > CANARY_CONFIRM_MAX_RETRIES:
+                logger.error(
+                    "Canary entry %s dropped: %s retries without an explicit 'y'",
+                    ticker,
+                    CANARY_CONFIRM_MAX_RETRIES,
+                )
+                break
+            fresh, _age = self._latest_orderbook(ticker)
+            imbalance_text = "-" if fresh is None else f"{float(fresh):+.3f}"
+        self.canary_rejections_total += 1
+        self._notify(
+            f"canary_rejected:{ticker}",
+            "Canary-вход отклонён оператором",
+            [
+                ("Тикер", ticker),
+                ("Лотов запрошено", lots),
+                ("Причина", "нет явного y (n / EOF / лимит retry)"),
+                ("Контур", self.contour_label),
+            ],
+            critical=True,
+            icon="🛑",
+        )
+        return False
+
+    def _canary_post_entry_gate(
+        self,
+        *,
+        ticker: str,
+        position_id: int,
+        instrument_id: str,
+        lots: int,
+        status: Optional[str],
+        entry_price: Optional[float],
+        stop_price: Optional[float],
+        take_price: Optional[float],
+        protection: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Confirmation 2 of 2: the fill plus the protection behind it (#194).
+
+        ``protection`` is the dict the entry path keeps for this position; a
+        ``retry`` that manages to arm the missing leg updates it IN PLACE, so the
+        caller still reports the true ``stop_armed`` / ``take_placed`` state.
+
+        Returns:
+            ``None`` to keep monitoring the position. Otherwise the abort result
+            built by :meth:`_canary_abort` - an emergency exit of the stream that
+            never flattens the position behind the operator's back.
+        """
+        if not self.canary_enabled:
+            return None
+        retries = 0
+        while True:
+            stop_armed = bool(protection.get("stop_armed"))
+            take_placed = bool(protection.get("take_placed"))
+            answer = self._canary_ask(
+                f"[CANARY {self.contour_label}] Сделка {status or '?'}: "
+                f"{lots} лот(ов) {ticker} по ~{_canary_price_text(entry_price)} руб., "
+                f"стоп={_canary_price_text(stop_price)} "
+                f"({'у брокера' if stop_armed else 'НЕ у брокера'}), "
+                f"тейк={_canary_price_text(take_price)} "
+                f"({'у брокера' if take_placed else 'НЕ у брокера'}). "
+                f"Продолжить мониторинг? (y/n, retry - повторить защиту): "
+            )
+            if answer == CANARY_CONFIRM_YES:
+                return None
+            if answer != CANARY_CONFIRM_RETRY:
+                break
+            retries += 1
+            if retries > CANARY_CONFIRM_MAX_RETRIES:
+                logger.error(
+                    "Canary position_id=%s ticker=%s: %s retries left the "
+                    "protection incomplete - stopping the stream without flatten",
+                    position_id,
+                    ticker,
+                    CANARY_CONFIRM_MAX_RETRIES,
+                )
+                break
+            self._canary_rearm_protection(
+                ticker=ticker,
+                position_id=position_id,
+                instrument_id=instrument_id,
+                lots=lots,
+                stop_price=stop_price,
+                take_price=take_price,
+                protection=protection,
+            )
+        return self._canary_abort(
+            ticker=ticker,
+            position_id=position_id,
+            lots=lots,
+            status=status,
+            entry_price=entry_price,
+            stop_price=stop_price,
+            take_price=take_price,
+            protection=protection,
+        )
+
+    def _canary_rearm_protection(
+        self,
+        *,
+        ticker: str,
+        position_id: int,
+        instrument_id: str,
+        lots: int,
+        stop_price: Optional[float],
+        take_price: Optional[float],
+        protection: Dict[str, Any],
+    ) -> None:
+        """One ``retry`` of the second pause: re-post the MISSING leg (#194).
+
+        Only what is absent is re-posted. An already armed broker stop is never
+        duplicated here - a second active SELL stop on one position would
+        over-sell it on the next dip, which is exactly what Issue #199 spends its
+        shutdown sweep cleaning up. ``protection`` is updated in place.
+        """
+        if not bool(protection.get("stop_armed")) and stop_price:
+            stop_id = self._arm_broker_stop(
+                position_id=position_id,
+                ticker=ticker,
+                instrument_id=instrument_id,
+                quantity=lots,
+                stop_price=float(stop_price),
+            )
+            protection["stop_armed"] = bool(stop_id)
+            logger.warning(
+                "Canary retry: stop re-arm position_id=%s ticker=%s -> %s",
+                position_id,
+                ticker,
+                "armed" if stop_id else "STILL MISSING",
+            )
+        if not bool(protection.get("take_placed")) and take_price:
+            try:
+                self._place_take_order(
+                    position_id, instrument_id, lots, float(take_price)
+                )
+                protection["take_placed"] = True
+                logger.warning(
+                    "Canary retry: take re-posted position_id=%s ticker=%s",
+                    position_id,
+                    ticker,
+                )
+            except Exception as exc:  # noqa: BLE001 - the next prompt reports it
+                logger.warning(
+                    "Canary retry: take re-post failed position_id=%s ticker=%s "
+                    "error_type=%s",
+                    position_id,
+                    ticker,
+                    type(exc).__name__,
+                )
+
+    def _canary_abort(
+        self,
+        *,
+        ticker: str,
+        position_id: int,
+        lots: int,
+        status: Optional[str],
+        entry_price: Optional[float],
+        stop_price: Optional[float],
+        take_price: Optional[float],
+        protection: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Stop the canary stream after a refused second pause (Issue #194).
+
+        Deliberately NOT a flatten: the money is already in the market, so the
+        broker stop/take stay exactly where they are, ``shutdown()`` is told to
+        leave them alone through ``_canary_abort_no_flatten``, and the operator
+        gets the manual runbook by alert. The result keeps ``executed=True`` -
+        the order really did happen - with ``reason=CANARY_ABORT_REASON`` so the
+        run report reads "aborted by the operator" instead of "opened".
+        """
+        self.canary_aborts_total += 1
+        self._canary_abort_no_flatten = True
+        stop_armed = bool(protection.get("stop_armed"))
+        take_placed = bool(protection.get("take_placed"))
+        logger.critical(
+            "CANARY ABORT: position_id=%s ticker=%s lots=%s status=%s "
+            "stop_armed=%s take_placed=%s - the stream stops WITHOUT flatten; the "
+            "position keeps its protection and needs the manual runbook",
+            position_id,
+            ticker,
+            lots,
+            status,
+            stop_armed,
+            take_placed,
+        )
+        self._notify(
+            f"canary_abort:{ticker}",
+            "Canary остановлен оператором — позиция НЕ закрыта",
+            [
+                ("Тикер", ticker),
+                ("Позиция", position_id),
+                ("Размер", f"{lots} лот."),
+                ("Статус сделки", status),
+                ("Цена входа", _canary_price_text(entry_price)),
+                ("Стоп", _canary_price_text(stop_price)),
+                ("Тейк", _canary_price_text(take_price)),
+                (
+                    "Стоп у брокера",
+                    "выставлен" if stop_armed else "НЕ выставлен",
+                ),
+                (
+                    "Тейк у брокера",
+                    "выставлен" if take_placed else "НЕ выставлен",
+                ),
+                ("Действие", "поток остановлен, flatten НЕ выполнялся"),
+                ("Runbook", "handover.md §46.11 — ручное закрытие"),
+            ],
+            critical=True,
+            icon="🛑",
+        )
+        self.request_shutdown()
+        return {
+            "executed": True,
+            "reason": CANARY_ABORT_REASON,
+            "position_id": position_id,
+            "size_lots": lots,
+        }
 
     def process_latest_bars(self) -> int:
         """Feed each new closed 1-minute bar to the shared evaluator."""
@@ -4298,6 +4971,28 @@ class LiveExecutor:
             "live_kill_switch": bool(self.config.get("live_kill_switch", True)),
             "live_kill_switch_source": self._live_kill_switch_source,
             "kill_switch_rejections_total": self.kill_switch_rejections_total,
+            # Issue #194: the canary contour is a fact an operator reads back -
+            # which single ticker may trade, how many lots it is capped at and
+            # how often that cap actually cut the sizer's answer. ``None`` (not
+            # a bare False) keeps "not a canary" distinct in the JSONB snapshot.
+            "canary_enabled": self.canary_enabled,
+            "canary_ticker": self.canary_ticker if self.canary_enabled else None,
+            "canary_max_lots": self.canary_max_lots if self.canary_enabled else None,
+            "canary_capped_total": self.canary_capped_total,
+            "canary_rejections_total": self.canary_rejections_total,
+            "canary_confirmations_total": self.canary_confirmations_total,
+            "canary_confirm_retries_total": self.canary_confirm_retries_total,
+            "canary_aborts_total": self.canary_aborts_total,
+            # Issue #194 (PO decision 2026-10-03): whether this run was allowed
+            # to enter outside the #137 calendar, and how many signals used that
+            # bypass. ``None`` while the canary is off, so "not a canary" stays
+            # distinct from "a canary that honoured the session window".
+            "canary_allow_outside_entry_window": (
+                self.canary_allow_outside_entry_window
+                if self.canary_enabled
+                else None
+            ),
+            "canary_window_bypass_total": self.canary_window_bypass_total,
         }
 
     def shutdown(self) -> None:
@@ -4315,6 +5010,16 @@ class LiveExecutor:
         self.shutdown_requested.set()
         active = self._active_positions()
         close_positions = bool(self.config["close_positions_on_shutdown"])
+        if getattr(self, "_canary_abort_no_flatten", False):
+            # Issue #194: a canary abort is an emergency exit of the STREAM, not a
+            # liquidation. The position is real money already in the account with
+            # broker protection armed; flattening it because a prompt was refused
+            # would be the one irreversible action the operator did not ask for.
+            close_positions = False
+            logger.warning(
+                "Canary abort: close_positions_on_shutdown forced OFF - the open "
+                "position keeps its broker protection and waits for the runbook"
+            )
         for _, row in active.iterrows():
             if str(row["status"]) == "pending":
                 # Always cancel pending entry/take/stop orders on shutdown:
@@ -4386,6 +5091,16 @@ class LiveExecutor:
 
     def wait_for_session_open(self) -> None:
         """Sleep until the MOEX entry window, logging progress, honoring SIGTERM."""
+        # Issue #194 (PO decision 2026-10-03): a canary allowed outside the #137
+        # calendar must not sleep until the next weekday open - that would turn a
+        # weekend canary into a no-op and hide the reason behind a "waiting" log.
+        if self.canary_enabled and self.canary_allow_outside_entry_window:
+            logger.warning(
+                "CANARY: not waiting for the MOEX session open "
+                "(CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=true) - entries are allowed "
+                "outside the #137 calendar window in this run"
+            )
+            return
         session = get_moex_session_config()
         poll = float(session["wait_poll_seconds"])
         log_every = float(session["wait_log_seconds"])
@@ -4438,6 +5153,11 @@ class LiveExecutor:
                         "Алерты",
                         "Telegram" if self.notifier is not None else "только лог",
                     ),
+                    # Issue #194: a canary start says so in the same alert - the
+                    # operator must see the one-ticker / one-lot contour before
+                    # the first signal. Config-only lines, so the alert still
+                    # cannot raise ahead of initialize().
+                    *self._canary_lines(),
                 ],
                 icon="🚀",
             )
@@ -4527,7 +5247,25 @@ class LiveExecutor:
                             self._max_consecutive_errors,
                             exc,
                         )
-                    if is_entry_window(now_msk):
+                        if self._consecutive_errors >= self._max_consecutive_errors:
+                            logger.critical(
+                                "Too many consecutive errors (%d); stopping LiveExecutor",
+                                self._consecutive_errors,
+                            )
+                            self._notify(
+                                "consecutive_errors",
+                                "Live-контур остановлен: серия ошибок",
+                                [
+                                    ("Фаза", "monitor_positions"),
+                                    ("Ошибок подряд", self._consecutive_errors),
+                                    ("Порог", self._max_consecutive_errors),
+                                    ("Ошибок всего", self.errors_total),
+                                    ("Последняя ошибка", self.last_error_at),
+                                ],
+                                critical=True,
+                            )
+                            break
+                    if self._entry_window_open(now_msk, source="loop"):
                         try:
                             self.process_latest_bars()
                         except Exception as exc:
