@@ -1777,6 +1777,17 @@ def metrics_snapshot(**overrides) -> dict:
         "orphan_stop_candidates": 1,
         "orphan_stops_cancelled_total": 2,
         "orphan_sweep_fail_closed_total": 0,
+        # canary live trading (#194) - a disabled canary publishes ``None`` for
+        # its ticker and cap, so "not a canary" stays distinct from "a canary
+        # that never traded".
+        "canary_enabled": False,
+        "canary_ticker": None,
+        "canary_max_lots": None,
+        "canary_capped_total": 0,
+        "canary_rejections_total": 0,
+        "canary_confirmations_total": 0,
+        "canary_confirm_retries_total": 0,
+        "canary_aborts_total": 0,
         # equity and the daily drawdown gate (#176)
         "equity_snapshots_total": 40,
         "equity_snapshot_errors_total": 0,
@@ -2587,6 +2598,7 @@ class TestMetricsRoute:
             "global_kill_switch",
             "protection",
             "risk",
+            "canary",
             "alerting",
             "positions",
             "extra",

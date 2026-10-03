@@ -46,6 +46,14 @@ x-backend-env: &backend-env
   LIVE_SLIPPAGE_ALERT_BP: ${LIVE_SLIPPAGE_ALERT_BP:-}
   LIVE_MAX_CONSECUTIVE_ERRORS: ${LIVE_MAX_CONSECUTIVE_ERRORS:-}
   LIVE_METRICS_FLUSH_SECONDS: ${LIVE_METRICS_FLUSH_SECONDS:-}
+  # Canary contour (#194): empty means "use the trading_config CANARY default",
+  # so the shipped contour is unchanged. A malformed value fails fast at startup
+  # instead of falling back - a canary never starts on a guess. The two blocking
+  # confirmations are read from stdin, so a canary run is a foreground run
+  # (handover §46.14); these knobs only pin the policy for that run.
+  CANARY_ENABLED: ${CANARY_ENABLED:-}
+  CANARY_TICKER: ${CANARY_TICKER:-}
+  CANARY_MAX_LOTS: ${CANARY_MAX_LOTS:-}
   PGCLIENTENCODING: "UTF8"
   PGOPTIONS: "-c client_encoding=UTF8 -c lc_messages=C"
 
