@@ -1749,6 +1749,8 @@ def metrics_snapshot(**overrides) -> dict:
         "errors_consecutive": 0,
         "max_consecutive_errors": 5,
         "last_error_at": None,
+        # why the loop ended (#200); None while the contour is still up
+        "stopped_reason": None,
         # heartbeat - persisted as str(datetime), not ISO (json default=str)
         "heartbeat_ts": str(METRICS_NOW - timedelta(seconds=60)),
         "heartbeat_interval_seconds": 3600.0,
@@ -1966,6 +1968,20 @@ class TestMetricsEndpointContract:
         assert payload["alerting"]["metrics_flushes_total"] == 12
         assert payload["alerting"]["flush_interval_seconds"] == 300.0
         assert payload["alerting"]["debounce_seconds"] == 300.0
+
+    def test_the_halt_reason_is_published_in_the_loop_section(self, monkeypatch):
+        """Issue #200: "stale" must not be the only thing the panel can say.
+
+        A contour that halted on a streak of errors has no heartbeat by
+        definition, so the state machine reports ``stale``. The reason field is
+        what tells the operator the process stopped itself instead of dying.
+        """
+        snapshot = metrics_snapshot(stopped_reason="max_consecutive_errors")
+
+        payload = read_metrics(metrics_db(snapshot), monkeypatch)
+
+        assert payload["loop"]["stopped_reason"] == "max_consecutive_errors"
+        assert payload["extra"] == {}
 
     def test_no_persisted_field_is_left_unpublished(self, monkeypatch):
         """Every snapshot key lands in a section - nothing hides in ``extra``."""
