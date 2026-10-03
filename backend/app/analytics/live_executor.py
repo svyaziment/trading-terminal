@@ -475,6 +475,12 @@ class LiveExecutor:
             ),
             "max_lots": max(1, int(canary_source["max_lots"])),
             "max_open_positions": max(1, int(canary_source["max_open_positions"])),
+            # Issue #194, PO decision of 2026-10-03 (scope variant D): may this
+            # canary enter outside the #137 calendar window, i.e. inside the MOEX
+            # weekend / off-exchange session? Read by ``_entry_window_open`` only.
+            "allow_outside_entry_window": bool(
+                canary_source.get("allow_outside_entry_window")
+            ),
         }
         # Decision D4: the two blocking confirmations are injected, so the tests
         # and the drill answer them without ever touching stdin. The default
@@ -486,6 +492,12 @@ class LiveExecutor:
         self.canary_confirmations_total = 0
         self.canary_confirm_retries_total = 0
         self.canary_aborts_total = 0
+        # Issue #194: how many signals were let through *because* the #137
+        # calendar gate was bypassed for this canary. Published as
+        # ``canary_window_bypass_total`` so a weekend run is provable afterwards.
+        self.canary_window_bypass_total = 0
+        #: One loud warning per process, not one per loop iteration.
+        self._canary_window_bypass_logged = False
         # Issue #194: set by a refused second pause. ``shutdown()`` reads it, so a
         # canary abort leaves the filled position and its broker protection
         # untouched even on a deployment running ``close_positions_on_shutdown``.
@@ -506,6 +518,15 @@ class LiveExecutor:
                 self.canary["max_lots"],
                 self.config["max_open_positions"],
             )
+            if self.canary["allow_outside_entry_window"]:
+                # Loud and once: an operator reading the log must never have to
+                # guess whether this run honours the #137 session calendar.
+                logger.warning(
+                    "CANARY: entries are allowed OUTSIDE the MOEX entry window "
+                    "(CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=true) - PO decision of "
+                    "2026-10-03, canary contour only; the calendar gate is off "
+                    "for this run while every other gate still applies"
+                )
         self._validate_config()
         # Issue #177: operator alerting. The notifier is injected by the process
         # entry points (``run_live_executor`` / start_processes.sh); ``None``
@@ -2076,7 +2097,10 @@ class LiveExecutor:
                 canary_ticker=self.canary_ticker,
             )
         now = self.now_fn()
-        if not is_entry_window(now):
+        # Issue #194: the #137 calendar gate, with the canary-only opt-in bypass
+        # of the PO decision of 2026-10-03. An ordinary run reads exactly the
+        # same ``is_entry_window()`` it always did.
+        if not self._entry_window_open(now, source="signal"):
             session = get_moex_session_config()
             return self._skip_signal(
                 ticker,
@@ -2543,6 +2567,54 @@ class LiveExecutor:
         """Hard cap on the entry size, in lots (Issue #194)."""
         return int(self.canary["max_lots"])
 
+    @property
+    def canary_allow_outside_entry_window(self) -> bool:
+        """Whether this canary may enter outside the #137 session calendar."""
+        return bool(self.canary.get("allow_outside_entry_window"))
+
+    def _entry_window_open(self, now: datetime, *, source: str = "signal") -> bool:
+        """Whether an entry may happen at ``now`` (Issue #194 bypass aware).
+
+        :func:`~app.analytics.moex_session.is_entry_window` (#137) is the shipped
+        calendar gate: a weekday inside ``[entry_start_hour, entry_end_hour)``
+        MSK. The canary may be run inside the MOEX weekend / off-exchange
+        session, where that gate is False by design, so the PO decision of
+        2026-10-03 adds an *opt-in* bypass. It is deliberately narrow:
+
+        * it exists only while the canary contour is on (``CANARY_ENABLED``), so
+          an ordinary sandbox or real run keeps the #137 calendar untouched;
+        * it removes the calendar gate and nothing else - the kill switch, the
+          canary universe gate, the risk gate, the stale-orderbook and imbalance
+          filters, sizing, the one-lot cap and both operator pauses still run;
+        * every signal let through is counted (``canary_window_bypass_total``)
+          and the first use logs one WARNING naming the knob.
+
+        ``source`` is ``"signal"`` for a decision about to be executed and
+        ``"loop"`` for the main-loop question "process bars now?" - only the
+        former moves the counter, so a two-hour run cannot report one bypass per
+        iteration.
+        """
+        if is_entry_window(now):
+            return True
+        if not (self.canary_enabled and self.canary_allow_outside_entry_window):
+            return False
+        if not self._canary_window_bypass_logged:
+            self._canary_window_bypass_logged = True
+            session = get_moex_session_config()
+            logger.warning(
+                "CANARY: entry window bypassed at %s MSK "
+                "(CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=true) - the #137 calendar "
+                "gate [%s:00, %s:00) MSK on weekdays does not apply to this "
+                "one-ticker canary; book freshness, risk gates and both operator "
+                "pauses still do",
+                now.strftime("%Y-%m-%d %H:%M"),
+                session["entry_start_hour"],
+                session["entry_end_hour"],
+            )
+        if source == "signal":
+            self.canary_window_bypass_total += 1
+        return True
+
     def _apply_canary_universe(
         self, tickers: Sequence[str], live_universe: Optional[Sequence[str]]
     ) -> list[str]:
@@ -2599,6 +2671,16 @@ class LiveExecutor:
             ("Canary-тикер", self.canary_ticker),
             ("Canary-лимит", f"{self.canary_max_lots} лот."),
             ("Подтверждения", "2 паузы: перед ордером и после защиты"),
+            # Issue #194 (PO decision 2026-10-03): the start/entry alert must say
+            # when this canary is allowed to trade outside the #137 session
+            # calendar. ``None`` (dropped by _notify) keeps the shipped alert body
+            # byte-identical while the bypass is off.
+            (
+                "Вход вне окна сессии",
+                "разрешён (CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=true)"
+                if self.canary_allow_outside_entry_window
+                else None,
+            ),
             ("Сайзер", sizing_reason),
             (
                 "Стоп у брокера",
@@ -4892,6 +4974,16 @@ class LiveExecutor:
             "canary_confirmations_total": self.canary_confirmations_total,
             "canary_confirm_retries_total": self.canary_confirm_retries_total,
             "canary_aborts_total": self.canary_aborts_total,
+            # Issue #194 (PO decision 2026-10-03): whether this run was allowed
+            # to enter outside the #137 calendar, and how many signals used that
+            # bypass. ``None`` while the canary is off, so "not a canary" stays
+            # distinct from "a canary that honoured the session window".
+            "canary_allow_outside_entry_window": (
+                self.canary_allow_outside_entry_window
+                if self.canary_enabled
+                else None
+            ),
+            "canary_window_bypass_total": self.canary_window_bypass_total,
         }
 
     def shutdown(self) -> None:
@@ -4990,6 +5082,16 @@ class LiveExecutor:
 
     def wait_for_session_open(self) -> None:
         """Sleep until the MOEX entry window, logging progress, honoring SIGTERM."""
+        # Issue #194 (PO decision 2026-10-03): a canary allowed outside the #137
+        # calendar must not sleep until the next weekday open - that would turn a
+        # weekend canary into a no-op and hide the reason behind a "waiting" log.
+        if self.canary_enabled and self.canary_allow_outside_entry_window:
+            logger.warning(
+                "CANARY: not waiting for the MOEX session open "
+                "(CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=true) - entries are allowed "
+                "outside the #137 calendar window in this run"
+            )
+            return
         session = get_moex_session_config()
         poll = float(session["wait_poll_seconds"])
         log_every = float(session["wait_log_seconds"])
@@ -5138,7 +5240,7 @@ class LiveExecutor:
                                 critical=True,
                             )
                             break
-                    if is_entry_window(now_msk):
+                    if self._entry_window_open(now_msk, source="loop"):
                         try:
                             self.process_latest_bars()
                             self._consecutive_errors = 0

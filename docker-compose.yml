@@ -54,6 +54,11 @@ x-backend-env: &backend-env
   CANARY_ENABLED: ${CANARY_ENABLED:-}
   CANARY_TICKER: ${CANARY_TICKER:-}
   CANARY_MAX_LOTS: ${CANARY_MAX_LOTS:-}
+  # PO decision of 2026-10-03: lets a canary enter outside the #137 calendar
+  # (weekend / off-exchange session). Canary-only, OFF by default, and every other
+  # gate - kill switch, universe, risk, book freshness, the one-lot cap and both
+  # operator pauses - still applies (handover §46.14).
+  CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW: ${CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW:-}
   PGCLIENTENCODING: "UTF8"
   PGOPTIONS: "-c client_encoding=UTF8 -c lc_messages=C"
 

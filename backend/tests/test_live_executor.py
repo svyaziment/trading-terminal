@@ -3217,6 +3217,7 @@ def _clean_canary_env(monkeypatch):
         "CANARY_TICKER",
         "CANARY_MAX_LOTS",
         "CANARY_MAX_OPEN_POSITIONS",
+        "CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW",
     ):
         monkeypatch.delenv(name, raising=False)
 
@@ -3811,6 +3812,7 @@ def test_canary_env_overrides_apply(monkeypatch):
     monkeypatch.setenv("CANARY_ENABLED", "true")
     monkeypatch.setenv("CANARY_TICKER", " gazp ")
     monkeypatch.setenv("CANARY_MAX_LOTS", "2")
+    monkeypatch.setenv("CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW", "true")
 
     config = get_canary_config()
 
@@ -3819,7 +3821,14 @@ def test_canary_env_overrides_apply(monkeypatch):
     assert config["max_lots"] == 2
     # no env knob on purpose: a canary of more than one position is not a canary
     assert config["max_open_positions"] == 1
-    assert set(CANARY_ENV) == {"CANARY_ENABLED", "CANARY_TICKER", "CANARY_MAX_LOTS"}
+    # PO decision of 2026-10-03: the weekend/off-exchange canary is opt-in
+    assert config["allow_outside_entry_window"] is True
+    assert set(CANARY_ENV) == {
+        "CANARY_ENABLED",
+        "CANARY_TICKER",
+        "CANARY_MAX_LOTS",
+        "CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW",
+    }
 
 
 def test_blank_canary_env_overrides_fall_back_to_defaults(monkeypatch):
@@ -3933,6 +3942,7 @@ def test_the_canary_env_reaches_the_executor(monkeypatch):
         "ticker": "GAZP",
         "max_lots": 3,
         "max_open_positions": 1,
+        "allow_outside_entry_window": False,
     }
 
 
@@ -3948,4 +3958,292 @@ def test_a_caller_canary_dict_wins_over_the_env(monkeypatch):
     assert executor.canary_enabled is False
     assert executor.get_metrics()["canary_enabled"] is False
     assert executor.get_metrics()["canary_ticker"] is None
+
+
+
+# --- the canary calendar-gate bypass (PO decision of 2026-10-03, scope D) -------
+#
+# A weekend / off-exchange canary needs the #137 calendar gate lifted, and that
+# is a scope change the PO approved on 2026-10-03. The tests below pin the three
+# properties that make it safe: OFF by default, canary-only (the ordinary contour
+# keeps the calendar byte-for-byte), and loud (log line, alert line, counter).
+
+# Saturday, daytime: #137 keeps entries closed all weekend, which is exactly the
+# session a weekend canary has to be allowed to trade in.
+WEEKEND_NOW = datetime(2026, 10, 3, 15, 30, 0)
+
+
+def _loop_ready(executor):
+    """Executor whose ``run()`` touches neither signals nor the broker."""
+    executor.install_signal_handlers = lambda: None
+    executor.initialize = lambda: None
+    executor.refresh_contexts = lambda: None
+    executor.monitor_positions = lambda: None
+    executor.shutdown = lambda: None
+    executor._active_positions = lambda: pd.DataFrame()
+    executor.config["check_interval_seconds"] = 0
+    executor.config["context_refresh_seconds"] = 10**6
+    executor.sleep_fn = lambda _seconds: executor.shutdown_requested.set()
+    return executor
+
+
+def test_the_calendar_bypass_is_off_by_default():
+    """Shipped policy: a canary honours the #137 window unless PO opts in."""
+    assert CANARY["allow_outside_entry_window"] is False
+    assert get_canary_config()["allow_outside_entry_window"] is False
+    assert make_executor().canary_allow_outside_entry_window is False
+    assert canary_executor().canary_allow_outside_entry_window is False
+
+
+@pytest.mark.parametrize("word", ["ture", "maybe", "0x1", "yesplease"])
+def test_the_calendar_bypass_rejects_an_ambiguous_word(monkeypatch, word):
+    """The knob that removes a safety gate uses the strict reader of #178: a
+    typo stops the process instead of quietly deciding either way."""
+    monkeypatch.setenv("CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW", word)
+
+    with pytest.raises(ValueError, match="CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW"):
+        get_canary_config()
+
+
+def test_a_blank_calendar_bypass_keeps_the_gate(monkeypatch):
+    """Blank = unset, the same contract as the other CANARY_* knobs."""
+    monkeypatch.setenv("CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW", "   ")
+
+    assert get_canary_config()["allow_outside_entry_window"] is False
+
+
+@pytest.mark.parametrize("value", ["yes", 1, 0])
+def test_validate_canary_values_rejects_a_non_boolean_bypass(value):
+    """A caller dict obeys the same rules as env - no smuggled truthy value."""
+    with pytest.raises(ValueError, match="allow_outside_entry_window"):
+        validate_canary_values({"allow_outside_entry_window": value})
+
+
+def test_the_bypass_is_announced_when_the_canary_starts(caplog):
+    """The operator reads the very first log line of the run."""
+    with caplog.at_level("INFO", logger=module.__name__):
+        canary_executor(canary={"allow_outside_entry_window": True})
+
+    assert (
+        "CANARY: entries are allowed OUTSIDE the MOEX entry window" in caplog.text
+    )
+
+    caplog.clear()
+    with caplog.at_level("INFO", logger=module.__name__):
+        canary_executor()
+
+    assert "CANARY MODE ON" in caplog.text
+    assert "OUTSIDE the MOEX entry window" not in caplog.text
+
+
+def test_a_canary_without_the_bypass_still_honours_the_session_calendar(caplog):
+    """Default path untouched: a Saturday signal is skipped as #137 shipped it."""
+    broker = StopFakeBroker()
+    executor = canary_executor(
+        answers=["y", "y"], broker=broker, now_fn=lambda: WEEKEND_NOW
+    )
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result == {"executed": False, "reason": "outside_entry_window"}
+    assert broker.calls == []
+    assert executor.canary_confirmations_total == 0
+    assert executor.canary_window_bypass_total == 0
+
+
+def test_the_bypass_lets_one_canary_lot_through_on_a_saturday(caplog):
+    """The weekend canary still trades ONE lot and still stops at both pauses -
+    only the calendar gate is off, nothing else in the chain."""
+    broker = StopFakeBroker()
+    executor = canary_executor(
+        answers=["y", "y"],
+        broker=broker,
+        canary={"allow_outside_entry_window": True},
+        now_fn=lambda: WEEKEND_NOW,
+    )
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result == {
+        "executed": True,
+        "reason": "open",
+        "position_id": 41,
+        "size_lots": 1,
+    }
+    entry = next(c for c in broker.calls if c[0] == "execute_order")
+    assert entry[1]["quantity"] == 1
+    assert executor.canary_window_bypass_total == 1
+    assert executor.canary_confirmations_total == 2
+    assert "CANARY: entry window bypassed" in caplog.text
+    assert "CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=true" in caplog.text
+
+
+def test_the_bypass_refuses_an_operator_who_says_no():
+    """Lifting the calendar gate never lifts the human gate."""
+    broker = StopFakeBroker()
+    executor = canary_executor(
+        answers=["n"],
+        broker=broker,
+        canary={"allow_outside_entry_window": True},
+        now_fn=lambda: WEEKEND_NOW,
+    )
+
+    result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert result["executed"] is False
+    assert result["reason"] == "canary_not_confirmed"
+    # Pause 1 sits after sizing, so the read-only balance probe has already run;
+    # what must never happen without a "yes" is an order.
+    assert not [call for call in broker.calls if call[0] == "execute_order"]
+    assert executor.canary_window_bypass_total == 1
+    assert executor.canary_rejections_total == 1
+
+
+def test_the_bypass_logs_once_but_counts_only_signals(caplog):
+    """The loop asks the same question every cycle; the counter must not inflate."""
+    executor = canary_executor(
+        canary={"allow_outside_entry_window": True}, now_fn=lambda: WEEKEND_NOW
+    )
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        assert executor._entry_window_open(WEEKEND_NOW, source="loop") is True
+        assert executor._entry_window_open(WEEKEND_NOW, source="loop") is True
+        assert executor._entry_window_open(WEEKEND_NOW, source="signal") is True
+
+    assert executor.canary_window_bypass_total == 1
+    assert caplog.text.count("CANARY: entry window bypassed") == 1
+
+
+def test_the_bypass_never_widens_the_ordinary_contour(monkeypatch):
+    """The env knob alone changes nothing: only a canary reads it, so the shipped
+    sandbox/real loop keeps the #137 calendar."""
+    monkeypatch.setenv("CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW", "true")
+    broker = FakeBroker()
+    executor = make_executor(broker=broker, now_fn=lambda: WEEKEND_NOW)
+
+    result = executor.process_signal("SBER", CANARY_SIGNAL, imbalance=1.5)
+
+    assert executor.canary_enabled is False
+    assert result == {"executed": False, "reason": "outside_entry_window"}
+    assert broker.calls == []
+    assert executor.canary_window_bypass_total == 0
+
+
+def test_the_bypass_is_inert_while_the_canary_switch_is_off():
+    """``allow_outside_entry_window=True`` without CANARY_ENABLED is dead config."""
+    executor = make_executor(
+        canary={"enabled": False, "allow_outside_entry_window": True},
+        now_fn=lambda: WEEKEND_NOW,
+    )
+
+    assert executor.canary_enabled is False
+    assert executor._entry_window_open(WEEKEND_NOW, source="signal") is False
+    assert executor.canary_window_bypass_total == 0
+
+
+def test_inside_the_window_the_bypass_changes_nothing():
+    """Monday 11:00 MSK needs no bypass, and using none keeps the counter at 0."""
+    executor = canary_executor(canary={"allow_outside_entry_window": True})
+
+    assert executor._entry_window_open(IN_SESSION_NOW, source="signal") is True
+    assert executor.canary_window_bypass_total == 0
+    assert executor._canary_window_bypass_logged is False
+
+
+def test_the_loop_processes_bars_outside_the_window_for_a_bypassed_canary(caplog):
+    """The main loop asks ``_entry_window_open``, so a weekend canary sees bars at
+    all - without this the entry gate would never even be reached."""
+    executor = _loop_ready(
+        canary_executor(
+            canary={"allow_outside_entry_window": True},
+            now_fn=lambda: WEEKEND_NOW,
+        )
+    )
+    bars = []
+    executor.process_latest_bars = lambda: bars.append(WEEKEND_NOW)
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        executor.run(duration_minutes=1)
+
+    assert bars
+    assert "CANARY: entry window bypassed" in caplog.text
+
+
+def test_the_loop_keeps_the_calendar_for_a_canary_without_the_bypass():
+    """Monitoring always runs (a position keeps its protection); entries do not."""
+    executor = _loop_ready(canary_executor(now_fn=lambda: WEEKEND_NOW))
+    bars, monitored = [], []
+    executor.process_latest_bars = lambda: bars.append(1)
+    executor.monitor_positions = lambda: monitored.append(1)
+
+    executor.run(duration_minutes=1)
+
+    assert bars == []
+    assert monitored
+
+
+def test_wait_for_session_open_returns_at_once_for_a_bypassed_canary(caplog):
+    """Otherwise ``until_session_end`` would sleep a weekend canary until Monday."""
+    executor = canary_executor(
+        canary={"allow_outside_entry_window": True},
+        now_fn=lambda: WEEKEND_NOW,
+        sleep_fn=lambda _seconds: pytest.fail("a weekend canary must not wait"),
+    )
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        executor.wait_for_session_open()
+
+    assert "CANARY: not waiting for the MOEX session open" in caplog.text
+
+
+def test_wait_for_session_open_still_waits_without_the_bypass(caplog):
+    """The #137 wait is untouched for every run that did not opt in."""
+    executor = canary_executor(now_fn=lambda: WEEKEND_NOW)
+
+    def stop(_seconds):
+        executor.shutdown_requested.set()
+
+    executor.sleep_fn = stop
+
+    with caplog.at_level("INFO", logger=module.__name__):
+        executor.wait_for_session_open()
+
+    assert "CANARY: not waiting" not in caplog.text
+    assert "Waiting for MOEX session open at 2026-10-05 10:00 MSK" in caplog.text
+
+
+def test_the_bypass_is_published_in_the_metrics_snapshot():
+    bypassed = canary_executor(
+        canary={"allow_outside_entry_window": True}
+    ).get_metrics()
+    assert bypassed["canary_allow_outside_entry_window"] is True
+    assert bypassed["canary_window_bypass_total"] == 0
+
+    plain = canary_executor().get_metrics()
+    assert plain["canary_allow_outside_entry_window"] is False
+    assert plain["canary_window_bypass_total"] == 0
+
+    ordinary = make_executor().get_metrics()
+    # None, not False: "not a canary" stays distinct in the JSONB snapshot
+    assert ordinary["canary_allow_outside_entry_window"] is None
+    assert ordinary["canary_window_bypass_total"] == 0
+
+
+def test_the_bypass_is_named_in_the_canary_alert_lines():
+    lines = dict(
+        canary_executor(
+            canary={"allow_outside_entry_window": True}
+        )._canary_lines()
+    )
+    assert lines["Вход вне окна сессии"] == (
+        "разрешён (CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=true)"
+    )
+
+    quiet = dict(canary_executor()._canary_lines())
+    # None is dropped by _notify, so the shipped alert body stays byte-identical
+    assert quiet["Вход вне окна сессии"] is None
+
+
 

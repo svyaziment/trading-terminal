@@ -554,6 +554,15 @@ CANARY: Dict[str, Any] = {
     # min(LIVE_TRADING.max_open_positions, this), so a canary can never widen
     # the ordinary cap and stays a one-position contour.
     'max_open_positions': 1,
+    # Issue #194, PO decision of 2026-10-03 (scope variant D): the canary may be
+    # run inside the MOEX weekend / off-exchange session, where the #137 calendar
+    # gate ``is_entry_window()`` is False by design and every entry would be
+    # skipped as ``outside_entry_window``. OFF by default and read ONLY by the
+    # canary contour - the ordinary loop keeps the #137 calendar untouched. It
+    # removes the calendar gate and nothing else: the stale-orderbook, imbalance,
+    # risk-gate, sizing, kill-switch checks and both operator pauses still run,
+    # and thin weekend liquidity stays the operator's call.
+    'allow_outside_entry_window': False,
 }
 
 # Acceptable ranges, the same convention as LIVE_RISK_BOUNDS /
@@ -569,13 +578,17 @@ CANARY_BOUNDS: Dict[str, Tuple[float, float]] = {
     'max_open_positions': CANARY_MAX_OPEN_POSITIONS_RANGE,
 }
 
-# env variable -> CANARY key. Only the three knobs the go-live runbook needs;
+# env variable -> CANARY key. Only the knobs the go-live runbook needs;
 # ``max_open_positions`` stays config-only on purpose - a canary holding more
 # than one position is not a canary, and the executor clamps it anyway.
 CANARY_ENV: Dict[str, str] = {
     'CANARY_ENABLED': 'enabled',
     'CANARY_TICKER': 'ticker',
     'CANARY_MAX_LOTS': 'max_lots',
+    # Issue #194 (PO decision 2026-10-03): the calendar-gate bypass of a canary
+    # run. Strict boolean like CANARY_ENABLED - a typo must stop the process
+    # instead of quietly trading outside the session window.
+    'CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW': 'allow_outside_entry_window',
 }
 
 #: Longest ticker ``CANARY_TICKER`` may name: MOEX equity names are 3..6
@@ -672,17 +685,27 @@ def _env_canary_ticker(env_name: str, default: str) -> str:
 def get_canary_config() -> Dict[str, Any]:
     """Return an isolated copy of the canary policy (Issue #194).
 
-    Defaults come from :data:`CANARY`; ``CANARY_ENABLED``, ``CANARY_TICKER`` and
-    ``CANARY_MAX_LOTS`` override them per environment. Raises ``ValueError`` on
-    an unparsable, malformed or out-of-range override - exactly like
-    :func:`get_live_risk_config` - so a typo can never start a canary with a
-    wider cap than the operator asked for (or hide the cap altogether).
+    Defaults come from :data:`CANARY`; ``CANARY_ENABLED``, ``CANARY_TICKER``,
+    ``CANARY_MAX_LOTS`` and ``CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW`` override them
+    per environment. Raises ``ValueError`` on an unparsable, malformed or
+    out-of-range override - exactly like :func:`get_live_risk_config` - so a typo
+    can never start a canary with a wider cap than the operator asked for (or
+    hide the cap altogether), and can never turn the #137 calendar-gate bypass on
+    by accident.
     """
     config = dict(CANARY)
     config['enabled'] = _env_strict_bool('CANARY_ENABLED', bool(CANARY['enabled']))
     config['ticker'] = _env_canary_ticker('CANARY_TICKER', str(CANARY['ticker']))
     config['max_lots'] = _env_bounded_int(
         'CANARY_MAX_LOTS', 'max_lots', int(CANARY['max_lots']), CANARY_BOUNDS
+    )
+    # PO decision of 2026-10-03 (Issue #194, scope variant D): a canary may run
+    # in the weekend / off-exchange session. Strict boolean, so
+    # ``CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=ture`` stops the process instead of
+    # silently keeping the calendar gate (or silently dropping it).
+    config['allow_outside_entry_window'] = _env_strict_bool(
+        'CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW',
+        bool(CANARY['allow_outside_entry_window']),
     )
     return config
 

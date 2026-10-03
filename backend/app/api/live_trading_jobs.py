@@ -602,6 +602,8 @@ _METRICS_SNAPSHOT_FIELDS = frozenset(
         "canary_confirmations_total",
         "canary_confirm_retries_total",
         "canary_aborts_total",
+        "canary_allow_outside_entry_window",
+        "canary_window_bypass_total",
         # equity and the daily drawdown gate (#176)
         "risk_breach_active",
         "risk_breach_session_key",
@@ -791,6 +793,11 @@ def _metrics_canary_section(snapshot: dict) -> dict:
     the book or re-arm the protection) and ``aborts_total`` (the canary stopped
     the stream, deliberately leaving the open position on its broker stops) are
     the three ways a human answer ended the run.
+
+    ``allow_outside_entry_window`` / ``window_bypass_total`` (PO decision of
+    2026-10-03) answer a different question: whether this canary was allowed to
+    enter outside the #137 session calendar - a weekend / off-exchange run - and
+    how many signals actually used that bypass.
     """
     return {
         "enabled": _metrics_bool(snapshot.get("canary_enabled")),
@@ -803,6 +810,12 @@ def _metrics_canary_section(snapshot: dict) -> dict:
             snapshot.get("canary_confirm_retries_total")
         ),
         "aborts_total": _metrics_int(snapshot.get("canary_aborts_total")),
+        "allow_outside_entry_window": _metrics_bool(
+            snapshot.get("canary_allow_outside_entry_window")
+        ),
+        "window_bypass_total": _metrics_int(
+            snapshot.get("canary_window_bypass_total")
+        ),
     }
 
 
