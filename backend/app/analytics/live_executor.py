@@ -602,6 +602,13 @@ class LiveExecutor:
         # If MAX_CONSECUTIVE_ERRORS is reached, the executor stops to
         # avoid infinite retry loops on persistent failures.
         self._consecutive_errors = 0
+        # Issue #200: why the run loop ended. ``None`` while the contour is still
+        # up; set exactly once, at the exit an operator has to tell apart - a
+        # streak of errors, the end of the session, the requested duration, an
+        # external shutdown request or an exception. Published through
+        # get_metrics() so /api/live-trading/metrics answers "why did it stop"
+        # without log diving.
+        self.stopped_reason: Optional[str] = None
         # Issue #174: heartbeat and metrics for external monitoring.
         self.heartbeat_ts = None
         self.iterations_total = 0
@@ -4897,6 +4904,8 @@ class LiveExecutor:
             "errors_total": self.errors_total,
             "errors_consecutive": self._consecutive_errors,
             "last_error_at": self.last_error_at,
+            # Issue #200: why the loop stopped - see stopped_reason in __init__.
+            "stopped_reason": self.stopped_reason,
             # Issue #178: which broker contour this process trades on
             # ("sandbox" / "real" / the injected class name in the tests).
             "broker_contour": self.broker_contour,
@@ -5195,6 +5204,9 @@ class LiveExecutor:
                     duration_minutes is not None
                     and now - started_at >= duration_minutes * 60
                 ):
+                    # Issue #200: name the exit, so "ran out of the requested
+                    # window" is not confused with a halt or a signal.
+                    self.stopped_reason = "duration"
                     break
                 if now - last_context_refresh >= context_interval:
                     self.refresh_contexts()
@@ -5209,16 +5221,29 @@ class LiveExecutor:
                     # protection or trading).
                     self._refresh_risk_breach_reset()
                     self._write_live_equity()
+                    # Issue #200: ONE error streak per cycle, not per phase.
+                    #
+                    # Before this fix each phase reset the shared counter on its
+                    # own success. Inside the entry window that masked a
+                    # persistently failing monitor_positions() - the stop/take
+                    # protection of the open positions - for as long as
+                    # process_latest_bars() kept succeeding: the streak was wiped
+                    # every cycle, the threshold was never reached, and the
+                    # contour went on trading with unprotected positions.
+                    # Symmetrically, two failing phases added 2 per cycle, so
+                    # "N in a row" fired early. The counter now means what #174
+                    # documented - consecutive FAILED CYCLES - while errors_total
+                    # still counts every individual phase failure.
+                    cycle_failures = 0
+                    cycle_error_phase: Optional[str] = None
                     try:
                         self.monitor_positions()
-                        self._consecutive_errors = 0
                     except Exception as exc:
-                        self._consecutive_errors += 1
-                        self.errors_total += 1
-                        self.last_error_at = self.now_fn()
+                        cycle_failures += 1
+                        cycle_error_phase = "monitor_positions"
                         logger.warning(
-                            "monitor_positions() failed (attempt %d/%d): %s",
-                            self._consecutive_errors,
+                            "monitor_positions() failed (cycle %d/%d): %s",
+                            self._consecutive_errors + 1,
                             self._max_consecutive_errors,
                             exc,
                         )
@@ -5243,38 +5268,19 @@ class LiveExecutor:
                     if self._entry_window_open(now_msk, source="loop"):
                         try:
                             self.process_latest_bars()
-                            self._consecutive_errors = 0
                         except Exception as exc:
-                            self._consecutive_errors += 1
-                            self.errors_total += 1
-                            self.last_error_at = self.now_fn()
+                            cycle_failures += 1
+                            # Losing the protection of an open position is worse
+                            # than losing an entry, so a monitor failure keeps the
+                            # phase that is reported to the operator.
+                            if cycle_error_phase is None:
+                                cycle_error_phase = "process_latest_bars"
                             logger.warning(
-                                "process_latest_bars() failed (attempt %d/%d): %s",
-                                self._consecutive_errors,
+                                "process_latest_bars() failed (cycle %d/%d): %s",
+                                self._consecutive_errors + 1,
                                 self._max_consecutive_errors,
                                 exc,
                             )
-                            if (
-                                self._consecutive_errors
-                                >= self._max_consecutive_errors
-                            ):
-                                logger.critical(
-                                    "Too many consecutive errors (%d); stopping LiveExecutor",
-                                    self._consecutive_errors,
-                                )
-                                self._notify(
-                                    "consecutive_errors",
-                                    "Live-контур остановлен: серия ошибок",
-                                    [
-                                        ("Фаза", "process_latest_bars"),
-                                        ("Ошибок подряд", self._consecutive_errors),
-                                        ("Порог", self._max_consecutive_errors),
-                                        ("Ошибок всего", self.errors_total),
-                                        ("Последняя ошибка", self.last_error_at),
-                                    ],
-                                    critical=True,
-                                )
-                                break
                     elif session_closed:
                         if not entry_closed_logged:
                             logger.info(
@@ -5288,6 +5294,38 @@ class LiveExecutor:
                                 "No open sandbox positions after session close; "
                                 "stopping LiveExecutor"
                             )
+                            # Issue #200: a flat contour after the session close is
+                            # a planned exit, not a failure.
+                            self.stopped_reason = "session_end"
+                            break
+                    # Issue #200: the streak and the halt are decided once per
+                    # cycle, after both phases have had their say.
+                    if cycle_failures == 0:
+                        self._consecutive_errors = 0
+                    else:
+                        self.errors_total += cycle_failures
+                        self.last_error_at = self.now_fn()
+                        self._consecutive_errors += 1
+                        if self._consecutive_errors >= self._max_consecutive_errors:
+                            logger.critical(
+                                "Too many consecutive errors (%d); stopping LiveExecutor",
+                                self._consecutive_errors,
+                            )
+                            self._notify(
+                                "consecutive_errors",
+                                "Live-контур остановлен: серия ошибок",
+                                [
+                                    ("Фаза", cycle_error_phase),
+                                    ("Ошибок подряд", self._consecutive_errors),
+                                    ("Порог", self._max_consecutive_errors),
+                                    ("Ошибок всего", self.errors_total),
+                                    ("Последняя ошибка", self.last_error_at),
+                                ],
+                                critical=True,
+                            )
+                            # Issue #200: the halt is an outcome of its own, not
+                            # just a counter value - publish why the loop ended.
+                            self.stopped_reason = "max_consecutive_errors"
                             break
                     last_check = now
                     # Issue #174: update heartbeat and iteration counter
@@ -5300,6 +5338,16 @@ class LiveExecutor:
                     self._flush_metrics()
                 self.sleep_fn(min(1.0, check_interval))
         finally:
+            # Issue #200: resolve the exit reason BEFORE shutdown() - shutdown()
+            # sets shutdown_requested itself and flushes the final metrics
+            # snapshot, so the reason has to be in place by then. An explicit
+            # break above has already named the exit; what is left is either the
+            # while-condition (an external shutdown request: SIGTERM/SIGINT or
+            # request_shutdown()) or an exception unwinding out of the loop.
+            if self.stopped_reason is None:
+                self.stopped_reason = (
+                    "signal" if self.shutdown_requested.is_set() else "exception"
+                )
             try:
                 self.shutdown()
             finally:

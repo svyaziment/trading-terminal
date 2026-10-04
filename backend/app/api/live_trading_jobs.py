@@ -565,6 +565,8 @@ _METRICS_SNAPSHOT_FIELDS = frozenset(
         "errors_consecutive",
         "max_consecutive_errors",
         "last_error_at",
+        # why the loop ended (#200)
+        "stopped_reason",
         # heartbeat
         "heartbeat_ts",
         "heartbeat_interval_seconds",
@@ -677,6 +679,12 @@ def _metrics_loop_section(snapshot: dict, alerting: dict) -> dict:
         "errors_consecutive": _metrics_int(snapshot.get("errors_consecutive")),
         "max_consecutive_errors": max_consecutive,
         "last_error_at": _metrics_iso(snapshot.get("last_error_at")),
+        # Issue #200: why the executor loop ended - ``max_consecutive_errors``,
+        # ``session_end``, ``duration``, ``signal``, ``exception``, or ``None``
+        # while the contour is still up. A halted process is stale by
+        # definition, so without this field the panel can only report "stale"
+        # and the operator has to dig through the logs for the real cause.
+        "stopped_reason": _metrics_text(snapshot.get("stopped_reason")),
     }
 
 
