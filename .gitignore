@@ -23,6 +23,8 @@ build/
 # Logs and reports
 logs/
 reports/
+# Agent memory bank — session scratch, never committed.
+memory-bank/
 # Published, reviewable analysis artifacts live in analytics/ and stay tracked.
 # Рабочие кэши и отладочные выходы аналитических пакетов — не индексируются:
 # они целиком перепроизводятся из БД (см. analytics/issue-143-*/README.md).
@@ -44,3 +46,6 @@ backend/certs/*.pem
 workspace/
 
 scripts/
+
+# Root orphan (task-346): untracked, never staged; deletion pending user confirmation.
+/strategy-lab.ru.md
