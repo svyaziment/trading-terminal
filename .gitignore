@@ -41,5 +41,6 @@ frontend/dist/
 logs_internal/
 *.log
 backend/certs/*.pem
+workspace/
 
 scripts/
