@@ -321,6 +321,22 @@ def _env_strict_bool(env_name: str, default: bool) -> bool:
     )
 
 
+def _resolve_max_open_positions() -> int:
+    """Resolve the ``MAX_OPEN_POSITIONS`` override in one place (Issue #190).
+
+    Decision D3 of Issue #176 keeps the *default* in ``LIVE_TRADING`` - the
+    single source of truth the executor gate reads - and only adds the env
+    override.  The risk view now surfaces the same value so an operator
+    reading ``get_live_risk_config()`` sees the whole limit triplet; both
+    getters share this resolution point and can never disagree.
+    """
+    return _env_risk_int(
+        'MAX_OPEN_POSITIONS',
+        'max_open_positions',
+        int(LIVE_TRADING['max_open_positions']),
+    )
+
+
 def get_live_risk_config() -> Dict[str, Any]:
     """Return an isolated copy of the live equity risk-gate policy.
 
@@ -344,6 +360,10 @@ def get_live_risk_config() -> Dict[str, Any]:
         'LIVE_EQUITY_SNAPSHOT',
         bool(LIVE_RISK['equity_snapshot_enabled']),
     )
+    # Issue #190: the open-position cap joins the risk view.  The default
+    # stays in LIVE_TRADING (decision D3, #176); only the resolution point
+    # is shared, so the risk and trading getters can never disagree.
+    config['max_open_positions'] = _resolve_max_open_positions()
     return config
 
 
@@ -521,11 +541,7 @@ def get_live_trading_config() -> Dict[str, Any]:
         'max_position_pct': POSITION_SIZING['max_position_pct'],
         **LIVE_TRADING,
     }
-    config['max_open_positions'] = _env_risk_int(
-        'MAX_OPEN_POSITIONS',
-        'max_open_positions',
-        int(LIVE_TRADING['max_open_positions']),
-    )
+    config['max_open_positions'] = _resolve_max_open_positions()
     return config
 
 
