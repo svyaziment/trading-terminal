@@ -21,6 +21,16 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+@pytest.fixture(autouse=True)
+def _clean_risk_env(monkeypatch):
+    # Host .env often sets risk limits (e.g. MAX_POSITION_SIZE=10000), which leaks into the container.
+    monkeypatch.delenv("MAX_OPEN_POSITIONS", raising=False)
+    monkeypatch.delenv("MAX_POSITION_SIZE", raising=False)
+    monkeypatch.delenv("MAX_DAILY_LOSS_PCT", raising=False)
+    monkeypatch.delenv("LIVE_EQUITY_SNAPSHOT", raising=False)
+    yield
+
+
 from app.analytics import live_executor as module
 from app.analytics.live_executor import (
     LIVE_EQUITY_INSERT_COLUMNS,
@@ -40,6 +50,7 @@ from app.analytics.live_schema import (
 from app.analytics.trading_config import (
     LIVE_RISK,
     LIVE_RISK_BOUNDS,
+    LIVE_TRADING,
     get_live_risk_config,
     get_live_trading_config,
 )
@@ -1407,3 +1418,24 @@ def test_equity_endpoints_are_read_only():
             checked += 1
     assert checked == 3
 
+
+# --- Issue #190: the risk view carries the full limit triplet -------------
+def test_risk_config_exposes_max_open_positions_from_env(monkeypatch):
+    monkeypatch.setenv("MAX_OPEN_POSITIONS", "4")
+    risk = get_live_risk_config()
+    live = get_live_trading_config()
+    assert risk["max_open_positions"] == 4
+    assert live["max_open_positions"] == 4
+
+
+def test_risk_config_max_open_positions_defaults_to_live_trading(monkeypatch):
+    monkeypatch.delenv("MAX_OPEN_POSITIONS", raising=False)
+    assert get_live_risk_config()["max_open_positions"] == int(
+        LIVE_TRADING["max_open_positions"]
+    )
+
+
+def test_risk_config_max_open_positions_fail_fast_on_garbage(monkeypatch):
+    monkeypatch.setenv("MAX_OPEN_POSITIONS", "many")
+    with pytest.raises(ValueError, match="MAX_OPEN_POSITIONS"):
+        get_live_risk_config()
