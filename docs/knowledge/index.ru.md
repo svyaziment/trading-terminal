@@ -6,7 +6,7 @@
 
 ## Карта за 30 секунд
 
-**Торговый терминал** — система paper trading по акциям MOEX (без реальной торговли).
+**Торговый терминал** — система paper и real trading по акциям MOEX.
 **Стек:** FastAPI (Python 3.12), React, PostgreSQL. **Данные:** T-Bank Invest API (gRPC, песочница) + MOEX ISS API (REST, минутные свечи).
 **Три опоры:** бэктест / Strategy Lab, paper trading, live-исполнение в песочнице.
 

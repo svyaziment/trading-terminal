@@ -6,7 +6,7 @@
 
 ## 30-second map
 
-The **Trading Terminal** is a paper trading system for MOEX stocks (no real trading).
+The **Trading Terminal** is a paper and real trading trading system for MOEX stocks.
 **Stack:** FastAPI (Python 3.12), React, PostgreSQL. **Data:** T-Bank Invest API (gRPC, sandbox) + MOEX ISS API (REST, 1-min candles).
 **Three pillars:** backtesting / Strategy Lab, paper trading, live execution in sandbox.
 
