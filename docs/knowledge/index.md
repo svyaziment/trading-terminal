@@ -62,7 +62,7 @@ The **Trading Terminal** is a paper and real trading trading system for MOEX sto
 
 - **SOP:** `.clinerules/developer-sop.ru.md` — project rules of the game for all agents.
 - **Documentation policy:** `docs/agents/documentation-policy.md`.
-- **Red lines:** locked strategies (126 / 36 / 102 / 118) and closed `analytics/` — reference only; `allow_real_trading` is never enabled; EN+RU pairs are updated together.
+- **Red lines:** locked strategies (126 / 36 / 102 / 118) and closed `analytics/` — reference only; `allow_real_trading` is disabled by default and can be enabled only by explicit operator approval; EN+RU pairs are updated together.
 - **`reports/`** — working documents, not committed (epic/issue folders are kept locally).
 
 ## Cross-reference from old paths
