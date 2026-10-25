@@ -319,6 +319,7 @@ def ensure_live_runtime_schema(db: Any) -> None:
     """Converge every live-trading runtime table (Issues #173 + #176)."""
     ensure_live_positions_schema(db)
     ensure_live_equity_schema(db)
+    ensure_live_signal_log_schema(db)
 
 
 
@@ -569,3 +570,85 @@ def live_schema_summary(validation: LiveSchemaValidation) -> dict[str, Any]:
         ],
         "app_settings_keys_found": sorted(snapshot.app_settings_keys),
     }
+
+
+# Issue #216: live signal log schema contract
+LIVE_SIGNAL_LOG_TABLE = "trading.live_signal_log"
+LIVE_SIGNAL_LOG_CREATED_INDEX_NAME = "idx_live_signal_log_created"
+LIVE_SIGNAL_LOG_TICKER_TS_INDEX_NAME = "idx_live_signal_log_ticker_ts"
+LIVE_SIGNAL_LOG_OUTCOME_REASON_INDEX_NAME = "idx_live_signal_log_outcome_reason"
+
+REQUIRED_LIVE_SIGNAL_LOG_COLUMNS: tuple[str, ...] = (
+    "id",
+    "signal_ts",
+    "ticker",
+    "contour",
+    "outcome",
+    "reason",
+    "entry_price",
+    "stop_price",
+    "take_price",
+    "imbalance",
+    "size_lots",
+    "position_id",
+    "strategy_name",
+    "details",
+    "created_at",
+)
+
+_CREATE_LIVE_SIGNAL_LOG_SCHEMA_SQL = "CREATE SCHEMA IF NOT EXISTS trading"
+
+_CREATE_LIVE_SIGNAL_LOG_SQL = f"""
+CREATE TABLE IF NOT EXISTS {LIVE_SIGNAL_LOG_TABLE} (
+    id BIGSERIAL PRIMARY KEY,
+    signal_ts TIMESTAMP NOT NULL,
+    ticker VARCHAR(32) NOT NULL,
+    contour VARCHAR(16) NOT NULL,
+    outcome VARCHAR(16) NOT NULL,
+    reason VARCHAR(64) NOT NULL,
+    entry_price NUMERIC(20, 9),
+    stop_price NUMERIC(20, 9),
+    take_price NUMERIC(20, 9),
+    imbalance NUMERIC,
+    size_lots INTEGER,
+    position_id INTEGER,
+    strategy_name VARCHAR(255),
+    details JSONB,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+_CREATE_LIVE_SIGNAL_LOG_CREATED_INDEX_SQL = f"""
+CREATE INDEX IF NOT EXISTS {LIVE_SIGNAL_LOG_CREATED_INDEX_NAME}
+ON {LIVE_SIGNAL_LOG_TABLE} (created_at DESC)
+"""
+
+_CREATE_LIVE_SIGNAL_LOG_TICKER_TS_INDEX_SQL = f"""
+CREATE INDEX IF NOT EXISTS {LIVE_SIGNAL_LOG_TICKER_TS_INDEX_NAME}
+ON {LIVE_SIGNAL_LOG_TABLE} (ticker, signal_ts DESC)
+"""
+
+_CREATE_LIVE_SIGNAL_LOG_OUTCOME_REASON_INDEX_SQL = f"""
+CREATE INDEX IF NOT EXISTS {LIVE_SIGNAL_LOG_OUTCOME_REASON_INDEX_NAME}
+ON {LIVE_SIGNAL_LOG_TABLE} (outcome, reason)
+"""
+
+#: Ordered idempotent DDL for the live-signal-log contract.
+LIVE_SIGNAL_LOG_SCHEMA_STATEMENTS: tuple[str, ...] = (
+    _CREATE_LIVE_SIGNAL_LOG_SCHEMA_SQL,
+    _CREATE_LIVE_SIGNAL_LOG_SQL,
+    _CREATE_LIVE_SIGNAL_LOG_CREATED_INDEX_SQL,
+    _CREATE_LIVE_SIGNAL_LOG_TICKER_TS_INDEX_SQL,
+    _CREATE_LIVE_SIGNAL_LOG_OUTCOME_REASON_INDEX_SQL,
+)
+
+
+def ensure_live_signal_log_schema(db: Any) -> None:
+    """Apply the idempotent runtime form of 20261025_001_live_signal_log.
+
+    Never drops anything: the statements are a superset of the migration, so
+    re-running on an already migrated database is a no-op.
+    """
+    for statement in LIVE_SIGNAL_LOG_SCHEMA_STATEMENTS:
+        db.execute(statement)
+

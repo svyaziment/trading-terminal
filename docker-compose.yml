@@ -89,7 +89,7 @@ services:
     image: trading-terminal-backend
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.overlay
     container_name: trading-terminal-migrate
     working_dir: /app
     command: ["alembic", "upgrade", "head"]
@@ -102,7 +102,7 @@ services:
     image: trading-terminal-backend
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.overlay
     container_name: trading-terminal-backend
     ports:
       - "8000:8000"

@@ -1,0 +1,46 @@
+# Temporary overlay build for Issue #216.
+#
+# Why this exists:
+# - official private T-Bank PyPI index is currently unreachable from this machine;
+# - PyPI project t-tech-investments is quarantined / has no usable files;
+# - GitHub Tinkoff/invest-python is archived and does not provide 1.51.0 release assets;
+# - current running backend image is known-good and already contains t-tech-investments==1.51.0.
+#
+# This overlay does NOT reinstall Python dependencies.
+# It inherits the dependency layer from the known-good backend image and replaces only:
+# - app/
+# - tests/
+# - alembic/
+# - alembic.ini
+#
+# This is a temporary controlled mitigation, not a full clean supply-chain build.
+# Before real trading enablement, restore official wheel/index or explicitly approve this procedure.
+
+ARG BASE_IMAGE=trading-terminal-backend:known-good-base-20261024
+FROM ${BASE_IMAGE}
+ARG BASE_IMAGE
+
+WORKDIR /app
+
+# Replace application code, tests and migrations from the current working tree.
+COPY app ./app
+COPY tests ./tests
+COPY alembic.ini ./
+COPY alembic ./alembic
+
+# Clean Windows artifacts, matching the original Dockerfile.
+RUN find /app -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+RUN find /app -type f -name '*.py' -exec sed -i 's/\r$//' {} + 2>/dev/null || true
+
+# Build-time smoke check: SDK must still import from the known-good base layer.
+RUN python -c "import t_tech.invest; from t_tech.invest.constants import INVEST_GRPC_API; print('SDK_OK')"
+
+# Provenance labels for audit.
+LABEL org.opencontainers.image.title="trading-terminal-backend-overlay"
+LABEL org.opencontainers.image.description="Temporary overlay image for Issue #216; dependencies inherited from known-good backend image"
+LABEL ru.trading-terminal.provenance="temporary-known-good-overlay"
+LABEL ru.trading-terminal.base-image="${BASE_IMAGE}"
+LABEL ru.trading-terminal.issue="216"
+
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

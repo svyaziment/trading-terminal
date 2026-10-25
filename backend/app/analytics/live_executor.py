@@ -43,6 +43,9 @@ from app.analytics.live_schema import (
     assert_live_schema,
     ensure_live_equity_schema,
     ensure_live_positions_schema,
+    ensure_live_signal_log_schema,
+    LIVE_SIGNAL_LOG_TABLE,
+    REQUIRED_LIVE_SIGNAL_LOG_COLUMNS,
 )
 from app.analytics.moex_session import (
     is_entry_window,
@@ -2034,6 +2037,15 @@ class LiveExecutor:
             args.append(details)
         log = logger.warning if warning else logger.info
         log(message, *args)
+        
+        # Issue #216: Log rejection to DB
+        self._record_signal_log(
+            ticker=ticker,
+            outcome="rejected",
+            reason=reason,
+            details={"values": values},
+        )
+        
         return {"executed": False, "reason": reason}
 
     def _latest_orderbook(self, ticker: str) -> tuple[Optional[float], Optional[float]]:
@@ -2067,6 +2079,62 @@ class LiveExecutor:
             calculate_volume_imbalance(row.get("bid_depth"), row.get("ask_depth")),
             age_seconds,
         )
+
+
+    def _record_signal_log(
+        self,
+        ticker: str,
+        outcome: str,  # "executed" or "rejected"
+        reason: str,
+        *,
+        signal_ts=None,
+        entry_price=None,
+        stop_price=None,
+        take_price=None,
+        imbalance=None,
+        size_lots=None,
+        position_id=None,
+        strategy_name=None,
+        details=None,
+    ) -> None:
+        """Write one row to trading.live_signal_log (Issue #216).
+
+        Fail-open: logging errors must never break the trading loop.
+        """
+        try:
+            ts = signal_ts or self.now_fn()
+            contour = self.contour_label
+            
+            sql = f"""
+                INSERT INTO {{LIVE_SIGNAL_LOG_TABLE}} (
+                    signal_ts, ticker, contour, outcome, reason,
+                    entry_price, stop_price, take_price, imbalance, size_lots,
+                    position_id, strategy_name, details
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s::jsonb)
+            """.replace("{LIVE_SIGNAL_LOG_TABLE}", LIVE_SIGNAL_LOG_TABLE)
+            
+            params = (
+                ts,
+                ticker,
+                contour,
+                outcome,
+                reason[:64],
+                entry_price,
+                stop_price,
+                take_price,
+                imbalance,
+                size_lots,
+                position_id,
+                strategy_name or getattr(self, "strategy_name", None),
+                json.dumps(details or {}),
+            )
+            
+            self.db.execute(sql, params)
+        except Exception as exc:
+            logger.warning(
+                "Failed to record signal log: ticker=%s outcome=%s error_type=%s msg=%s",
+                ticker, outcome, type(exc).__name__, str(exc)[:200],
+            )
 
     def process_signal(
         self,
@@ -2472,6 +2540,19 @@ class LiveExecutor:
             # The operator accepted a position whose take never reached the
             # exchange - report the protection gap instead of a clean "open".
             reason = "protection_pending"
+        self._record_signal_log(
+            ticker=ticker,
+            outcome="executed",
+            reason=reason,
+            signal_ts=signal_ts,
+            entry_price=entry_price,
+            stop_price=stop_price,
+            take_price=take_price,
+            imbalance=imbalance_value,
+            size_lots=size_lots,
+            position_id=position_id,
+            details={"status": status, "broker_order_id": order.get("order_id")},
+        )
         return {
             "executed": True,
             "reason": reason,
