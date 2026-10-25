@@ -43,3 +43,30 @@ python docs/refresh/context_collector.py
 - **Скрипты задач живут в `scripts/`** (gitignored). Каждая задача пишет отчёты в `reports/<AGENT_NAME>/<ISSUE_NUMBER>_<ISSUE_NAME>/` (см. developer-sop.md для конвенций именования).
 - **Проверяйте после записи**: всегда проверяйте размеры файлов (`wc -c`) и выполняйте build/health check после изменений.
 - **Документация двуязычная**: держите `*.md` и `*.ru.md` синхронно (project-context, handover, strategy docs).
+
+## Операции живой торговли (Issue #216)
+
+### Предварительные условия
+Перед включением реальной торговли (`ALLOW_REAL_TRADING=true`) убедитесь в следующем:
+1.  **Учетные данные:** Валидные `TINVEST_LIVE_TOKEN` и `TINVEST_LIVE_ACC` в `.env`.
+2.  **Лимиты бюджета:** Установлены `MAX_POSITION_SIZE`, `MAX_OPEN_POSITIONS`, `MAX_DAILY_LOSS_PCT` в `.env`.
+3.  **Статус Kill Switch:** Глобальный аварийный выключатель (`live_kill_switch`) должен быть **АКТИВЕН** (заблокирован) изначально.
+
+### Запуск живой торговой сессии
+1.  Проверьте здоровье системы через эндпоинт `/health`.
+2.  Проверьте текущее состояние Kill Switch в БД:
+    ```sql
+    SELECT value FROM trading.app_settings WHERE key = 'live_kill_switch';
+    -- Должно вернуть 'true' (Активен/Заблокирован)
+    ```
+3.  Для начала торгов отключите Kill Switch через API или SQL:
+    *   **API:** `POST /api/v1/live-trading/jobs/kill-switch` с телом `{"enabled": false}`.
+    *   **SQL:** `UPDATE trading.app_settings SET value = 'false'::jsonb WHERE key = 'live_kill_switch';`
+4.  Мониторьте логи на предмет инициализации `TinkoffLiveClient` и обработки первых сигналов.
+
+### Экстренная остановка
+При обнаружении аномалий (неверный размер ордера, ошибки авторизации):
+1.  Немедленно повторно активируйте Kill Switch:
+    *   **API:** `POST ... {"enabled": true}`.
+    *   **SQL:** `UPDATE ... SET value = 'true'::jsonb ...`.
+2.  Просмотрите таблицу `trading.live_signal_log` для аудита событий.

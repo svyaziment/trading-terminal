@@ -32,3 +32,7 @@
 | T-Bank Invest API | Брокерский API (gRPC, sandbox) — ордера, позиции, котировки. | `01-data-pipeline/broker-streaming.md` |
 | MOEX ISS API | API биржи (REST) — рыночные данные, минутные свечи. | `01-data-pipeline/candle-pipeline.md` |
 | Runbook | Операционный playbook: запуск / остановка / проверка / восстановление сервисов. | `07-operations/runbook.md` |
+| TinkoffLiveClient|Реализация брокерского клиента для торговли реальными деньгами через T-Bank Invest API.|04-execution/live-executor.ru.md|
+| Kill Switch|Глобальный механизм аварийной остановки, хранящийся в БД; блокирует все новые заявки при активации.|04-execution/live-executor.ru.md|
+| Signal Log|Таблица аудита `trading.live_signal_log`, фиксирующая каждый обработанный сигнал (исполненный или отклоненный).|02-database/schema.ru.md|
+| Реальный контур|Операционный режим, в котором ордера отправляются на биржу с использованием живых учетных данных.|04-execution/live-executor.ru.md|

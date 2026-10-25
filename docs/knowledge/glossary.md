@@ -32,3 +32,7 @@
 | T-Bank Invest API | Broker API (gRPC, sandbox) — orders, positions, quotes. | `01-data-pipeline/broker-streaming.md` |
 | MOEX ISS API | Exchange API (REST) — market data, 1-minute candles. | `01-data-pipeline/candle-pipeline.md` |
 | Runbook | Operational playbook: start / stop / check / recover services. | `07-operations/runbook.md` |
+| TinkoffLiveClient|Broker client implementation for real-money trading via T-Bank Invest API.|04-execution/live-executor.md|
+| Kill Switch|Global emergency stop mechanism stored in DB; blocks all new order entries when active.|04-execution/live-executor.md|
+| Signal Log|Audit table `trading.live_signal_log` recording every processed signal (executed or rejected).|02-database/schema.md|
+| Real Money Contour|Operational mode where orders are sent to the exchange using live credentials.|04-execution/live-executor.md|

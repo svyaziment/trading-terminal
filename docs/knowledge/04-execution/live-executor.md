@@ -118,3 +118,49 @@ python -c "from app.broker.tinkoff_sandbox import TinkoffSandboxClient; print(Ti
 ```
 
 If a balance (number) is returned, the certificate works. If `CERTIFICATE_VERIFY_FAILED`, verify that `backend/certs/tbank-root.pem` exists and contains a valid PEM certificate.
+
+## Real Money Contour (Issue #216)
+
+The `LiveExecutor` supports two operational modes determined at startup by the environment variable `ALLOW_REAL_TRADING`:
+
+| Mode | Client Class | Behavior |
+|------|--------------|----------|
+| Sandbox (Default) | `TinkoffSandboxClient` | Orders simulated locally; no interaction with real broker API. |
+| Real Money | `TinkoffLiveClient` | Orders sent to T-Bank Invest API using valid credentials (`TINVEST_LIVE_TOKEN`, `TINVEST_LIVE_ACC`). |
+
+### Factory Pattern Initialization
+Clients are instantiated via `app.broker.client_factory.create_execution_client()`. This function inspects `ALLOW_REAL_TRADING` and returns the appropriate client instance. Direct instantiation of `TinkoffLiveClient` outside the factory is discouraged to ensure consistent configuration loading.
+
+### Global Kill Switch Integration
+Before executing any signal in Real Money mode, the executor checks the state of the global kill switch stored in `trading.app_settings` (key: `live_kill_switch`).
+
+*   **State TRUE (Active):** All incoming signals are rejected immediately with reason `kill_switch`. No orders are sent to the broker.
+*   **State FALSE (Inactive):** Signals proceed to risk gates (budget limits) and then to execution.
+
+The kill switch state is refreshed periodically or on-demand via `_refresh_kill_switch()` method. It acts as the master safety brake for the entire trading loop.
+
+### Signal Logging Audit Trail
+Every processed signal (whether executed or rejected) is logged to `trading.live_signal_log`. This provides a complete audit trail for compliance and debugging purposes. The logging operation is wrapped in try/except blocks to ensure that database failures do not crash the trading engine (Fail-Open strategy for logs).
+
+## Real Money Contour (Issue #216)
+
+The `LiveExecutor` supports two operational modes determined at startup by the environment variable `ALLOW_REAL_TRADING`:
+
+| Mode | Client Class | Behavior |
+|------|--------------|----------|
+| Sandbox (Default) | `TinkoffSandboxClient` | Orders simulated locally; no interaction with real broker API. |
+| Real Money | `TinkoffLiveClient` | Orders sent to T-Bank Invest API using valid credentials (`TINVEST_LIVE_TOKEN`, `TINVEST_LIVE_ACC`). |
+
+### Factory Pattern Initialization
+Clients are instantiated via `app.broker.client_factory.create_execution_client()`. This function inspects `ALLOW_REAL_TRADING` and returns the appropriate client instance. Direct instantiation of `TinkoffLiveClient` outside the factory is discouraged to ensure consistent configuration loading.
+
+### Global Kill Switch Integration
+Before executing any signal in Real Money mode, the executor checks the state of the global kill switch stored in `trading.app_settings` (key: `live_kill_switch`).
+
+*   **State TRUE (Active):** All incoming signals are rejected immediately with reason `kill_switch`. No orders are sent to the broker.
+*   **State FALSE (Inactive):** Signals proceed to risk gates (budget limits) and then to execution.
+
+The kill switch state is refreshed periodically or on-demand via `_refresh_kill_switch()` method. It acts as the master safety brake for the entire trading loop.
+
+### Signal Logging Audit Trail
+Every processed signal (whether executed or rejected) is logged to `trading.live_signal_log`. This provides a complete audit trail for compliance and debugging purposes. The logging operation is wrapped in try/except blocks to ensure that database failures do not crash the trading engine (Fail-Open strategy for logs).

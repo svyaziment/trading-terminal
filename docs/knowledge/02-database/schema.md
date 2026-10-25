@@ -78,3 +78,28 @@ Production database result (2026-09-18): `ok: true`, `columns_found: 30/30`, all
 
 - `live_executor_preflight.py` still requires Linux `/proc` and a healthy backend on `localhost:8000`; only its schema part is unit-testable on Windows.
 - Two pre-existing stale assertions still expect the pre-#149 two-status `closed` group: `test_live_trading_api.py::test_live_filters_target_closed_positions_ticker_and_dates` and `test_paper_trading_monitoring_api.py::test_monitoring_filters_support_closed_group_ticker_and_dates`. Tracked in Issue #179, out of scope for #173.
+
+## trading.live_signal_log (Issue #216)
+
+Audit trail for every signal processed by the `LiveExecutor` in real-money mode. This table captures both executed trades and rejected signals (due to risk gates or kill switch), ensuring full observability of the live trading loop.
+
+| Column | Type | Nullable | Description |
+|--------|------|----------|-------------|
+| id | UUID | No | Primary key. |
+| created_at | TIMESTAMP WITH TIME ZONE | No | UTC timestamp when the record was inserted. Indexed (`idx_live_signal_log_created`). |
+| ticker | VARCHAR(10) | No | MOEX ticker symbol (e.g., SBER, GAZP). Indexed (`idx_live_signal_log_ticker_ts`). |
+| action | VARCHAR(10) | No | Trade direction: `BUY` or `SELL`. |
+| outcome | VARCHAR(20) | No | Result status: `EXECUTED`, `REJECTED_KILL_SWITCH`, `REJECTED_LIMIT`, `ERROR`. Indexed (`idx_live_signal_log_outcome_reason`). |
+| reason_code | VARCHAR(50) | Yes | Machine-readable rejection code if applicable (e.g., `MAX_POSITION_SIZE`, `KILL_SWITCH_ACTIVE`). |
+| details | JSONB | Yes | Structured payload containing trade parameters (price, qty, equity snapshot) or error context. |
+| executor_pid | INTEGER | Yes | Process ID of the executor instance that handled the signal (for debugging race conditions). |
+| session_date | DATE | No | Trading day partition key (derived from `created_at`). Used for daily loss calculations. |
+
+**Indexes:**
+*   `live_signal_log_pkey` (id)
+*   `idx_live_signal_log_created` (created_at DESC) — For recent activity monitoring.
+*   `idx_live_signal_log_ticker_ts` (ticker, created_at DESC) — For per-ticker analysis.
+*   `idx_live_signal_log_outcome_reason` (outcome, reason_code) — For aggregating rejection rates.
+
+**Usage:**
+Written by `_record_signal_log()` method in `backend/app/analytics/live_executor.py`. Fail-open strategy: logging errors do not crash the trading loop.
