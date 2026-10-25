@@ -78,3 +78,28 @@ cd f:\GIT\trading-terminal\backend; python ..\reports\173-issue-173-live-schema-
 
 - `live_executor_preflight.py` по-прежнему требует Linux `/proc` и живой backend на `localhost:8000`; на Windows юнит-тестируется только его часть про схему.
 - Два устаревших ассерта (появились до #173) всё ещё ожидают группу `closed` из двух статусов, как до #149: `test_live_trading_api.py::test_live_filters_target_closed_positions_ticker_and_dates` и `test_paper_trading_monitoring_api.py::test_monitoring_filters_support_closed_group_ticker_and_dates`. Зафиксировано в Issue #179, вне объёма #173.
+
+## trading.live_signal_log (Issue #216)
+
+Журнал аудита для каждого сигнала, обработанного `LiveExecutor` в режиме реальных денег. Эта таблица фиксирует как исполненные сделки, так и отклоненные сигналы (из-за риск-гейтов или kill switch), обеспечивая полную наблюдаемость цикла живой торговли.
+
+| Колонка | Тип | Nullable | Описание |
+|---------|-----|----------|----------|
+| id | UUID | Нет | Первичный ключ. |
+| created_at | TIMESTAMP WITH TIME ZONE | Нет | UTC время вставки записи. Индексирована (`idx_live_signal_log_created`). |
+| ticker | VARCHAR(10) | Нет | Тикер MOEX (например, SBER, GAZP). Индексирована (`idx_live_signal_log_ticker_ts`). |
+| action | VARCHAR(10) | Нет | Направление сделки: `BUY` или `SELL`. |
+| outcome | VARCHAR(20) | Нет | Статус результата: `EXECUTED`, `REJECTED_KILL_SWITCH`, `REJECTED_LIMIT`, `ERROR`. Индексирована (`idx_live_signal_log_outcome_reason`). |
+| reason_code | VARCHAR(50) | Да | Машинно-читаемый код отказа, если применимо (например, `MAX_POSITION_SIZE`, `KILL_SWITCH_ACTIVE`). |
+| details | JSONB | Да | Структурированный payload, содержащий параметры сделки (цена, кол-во, снимок капитала) или контекст ошибки. |
+| executor_pid | INTEGER | Да | PID процесса исполнителя, обработавшего сигнал (для отладки гонок). |
+| session_date | DATE | Нет | Ключ партиционирования по торговому дню (производная от `created_at`). Используется для расчета дневных убытков. |
+
+**Индексы:**
+*   `live_signal_log_pkey` (id)
+*   `idx_live_signal_log_created` (created_at DESC) — Для мониторинга последней активности.
+*   `idx_live_signal_log_ticker_ts` (ticker, created_at DESC) — Для анализа по тикерам.
+*   `idx_live_signal_log_outcome_reason` (outcome, reason_code) — Для агрегации частоты отказов.
+
+**Использование:**
+Записывается методом `_record_signal_log()` в файле `backend/app/analytics/live_executor.py`. Стратегия Fail-open: ошибки логирования не приводят к падению торгового цикла.

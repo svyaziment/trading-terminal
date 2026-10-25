@@ -43,3 +43,30 @@ python docs/refresh/context_collector.py
 - **Task scripts live in `scripts/`** (gitignored). Each task writes reports to `reports/<AGENT_NAME>/<ISSUE_NUMBER>_<ISSUE_NAME>/` (see developer-sop.md for naming conventions).
 - **Verify after write**: always check file sizes (`wc -c`) and run a build/health check after changes.
 - **Docs are bilingual**: keep `*.md` and `*.ru.md` in sync (project-context, handover, strategy docs).
+
+## Live Trading Operations (Issue #216)
+
+### Prerequisites
+Before enabling real trading (`ALLOW_REAL_TRADING=true`), ensure the following are verified:
+1.  **Credentials:** Valid `TINVEST_LIVE_TOKEN` and `TINVEST_LIVE_ACC` in `.env`.
+2.  **Budget Limits:** `MAX_POSITION_SIZE`, `MAX_OPEN_POSITIONS`, `MAX_DAILY_LOSS_PCT` set in `.env`.
+3.  **Kill Switch Status:** The global kill switch (`live_kill_switch`) must be **ACTIVE** (blocked) initially.
+
+### Starting a Live Session
+1.  Verify system health via `/health` endpoint.
+2.  Check current Kill Switch state in DB:
+    ```sql
+    SELECT value FROM trading.app_settings WHERE key = 'live_kill_switch';
+    -- Must return 'true' (Active/Blocked)
+    ```
+3.  To start trading, disable the Kill Switch via API or SQL:
+    *   **API:** `POST /api/v1/live-trading/jobs/kill-switch` with `{"enabled": false}`.
+    *   **SQL:** `UPDATE trading.app_settings SET value = 'false'::jsonb WHERE key = 'live_kill_switch';`
+4.  Monitor logs for `TinkoffLiveClient` initialization and first signal processing.
+
+### Emergency Stop
+If anomalies occur (wrong order size, auth errors):
+1.  Immediately re-enable Kill Switch:
+    *   **API:** `POST ... {"enabled": true}`.
+    *   **SQL:** `UPDATE ... SET value = 'true'::jsonb ...`.
+2.  Review `trading.live_signal_log` table for audit trail.

@@ -75,3 +75,10 @@ The **Trading Terminal** is a paper and real trading trading system for MOEX sto
 
 - `docs/knowledge/09-epics-history/epics-history.md` — historical wave of work.
 - `workspace/context/docs-tree-before.txt` — snapshot of the tree before the migration.
+
+## Live Operations (Issue #216)
+
+*   **Runbook:** See `07-operations/runbook.md` § "Live Trading Operations".
+*   **Risk Gates:** See `05-risk-management/risk-gates.md` § "Real Money Risk Limits".
+*   **Executor Logic:** See `04-execution/live-executor.md` § "Real Money Contour".
+*   **Audit Trail:** Table `trading.live_signal_log` records all executed/rejected signals.

@@ -275,3 +275,21 @@ fired. #191 makes the marking explicit instead of silent.
   `LiveExecutor._notify("risk_breach", ..., critical=True)` fires on top of the same
   `logger.critical` and `get_metrics()` counters. It needs no debounce - the latch fires
   once per session (decision D2). See §45.
+
+## Real Money Risk Limits (Issue #216)
+
+When operating in the real trading contour (`ALLOW_REAL_TRADING=true`), the following hard limits are enforced by the `LiveExecutor` before any order is sent to the broker. These values are loaded from environment variables at startup and validated against ranges defined in `trading_config.py`.
+
+| Variable | Type | Range | Default (Dev) | Purpose |
+|----------|------|-------|---------------|---------|
+| `MAX_POSITION_SIZE` | Float | 0.0 – 1e12 | 10000.0 | Maximum monetary value (RUB) of a single position entry. Prevents accidental large buys. |
+| `MAX_OPEN_POSITIONS` | Int | 1 – 100 | 3 | Maximum number of simultaneous open positions across the entire universe. Prevents over-exposure. |
+| `MAX_DAILY_LOSS_PCT` | Float | 0.0 – 100.0 | 2.0 | Maximum daily drawdown percentage allowed. If breached, the system triggers a soft halt (requires manual reset or restart). |
+
+### Enforcement Mechanism
+1.  **Pre-trade Check:** Inside `process_signal()`, the executor calculates the proposed position size and checks it against `MAX_POSITION_SIZE`.
+2.  **Portfolio Check:** It counts current open positions and compares against `MAX_OPEN_POSITIONS`.
+3.  **Daily Loss Monitor:** A background task tracks cumulative PnL for the day. If loss exceeds `MAX_DAILY_LOSS_PCT`, new entries are blocked until the next trading day or manual intervention.
+
+### Interaction with Kill Switch
+These limits act as **fine-grained controls**. The Global Kill Switch (`live_kill_switch` in DB) acts as the **master brake**. Even if limits allow a trade, an active Kill Switch will reject all signals with reason `kill_switch`.

@@ -75,3 +75,10 @@
 
 - `docs/knowledge/09-epics-history/epics-history.ru.md` — исторические волны работ.
 - `workspace/context/docs-tree-before.txt` — снимок дерева до миграции.
+
+## Операции живой торговли (Issue #216)
+
+*   **Runbook:** См. `07-operations/runbook.ru.md` § «Операции живой торговли».
+*   **Риск-гейты:** См. `05-risk-management/risk-gates.ru.md` § «Лимиты риска для реальных денег».
+*   **Логика исполнителя:** См. `04-execution/live-executor.ru.md` § «Реальный торговый контур».
+*   **Журнал аудита:** Таблица `trading.live_signal_log` записывает все обработанные сигналы.
