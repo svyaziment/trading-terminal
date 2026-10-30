@@ -46,27 +46,25 @@ python docs/refresh/context_collector.py
 
 ## Операции живой торговли (Issue #216)
 
-### Предварительные условия
-Перед включением реальной торговли (`ALLOW_REAL_TRADING=true`) убедитесь в следующем:
-1.  **Учетные данные:** Валидные `TINVEST_LIVE_TOKEN` и `TINVEST_LIVE_ACC` в `.env`.
-2.  **Лимиты бюджета:** Установлены `MAX_POSITION_SIZE`, `MAX_OPEN_POSITIONS`, `MAX_DAILY_LOSS_PCT` в `.env`.
-3.  **Статус Kill Switch:** Глобальный аварийный выключатель (`live_kill_switch`) должен быть **АКТИВЕН** (заблокирован) изначально.
+### Модель процессов
+- **Запуск исполнительного процесса:** исполнитель — отдельный процесс — не запускается `start_processes.sh` и не запускается FastAPI API. Контейнер backend работает только FastAPI API.
+- **Kill Switch — это шлюз:** исполнитель торгует только тогда, когда `live_kill_switch` = `false` и `ALLOW_REAL_TRADING` = `true`.
+- **Перезапуск backend убивает исполнитель:** любой `docker compose restart backend` / `docker compose up -d --build backend` / перезапуск после сбоя завершает процесс исполнителя. API остаётся живым; live-торговля остановлена.
+- **Перезапуск исполнителя:** после каждого перезапуска backend и до торгового дня выполните `START_LIVE_EXECUTOR=1 bash start_processes.sh`.
 
-### Запуск живой торговой сессии
-1.  Проверьте здоровье системы через эндпоинт `/health`.
-2.  Проверьте текущее состояние Kill Switch в БД:
-    ```sql
-    SELECT value FROM trading.app_settings WHERE key = 'live_kill_switch';
-    -- Должно вернуть 'true' (Активен/Заблокирован)
-    ```
-3.  Для начала торгов отключите Kill Switch через API или SQL:
-    *   **API:** `POST /api/v1/live-trading/jobs/kill-switch` с телом `{"enabled": false}`.
-    *   **SQL:** `UPDATE trading.app_settings SET value = 'false'::jsonb WHERE key = 'live_kill_switch';`
-4.  Мониторьте логи на предмет инициализации `TinkoffLiveClient` и обработки первых сигналов.
+### Состояние Kill Switch
+- `trading.app_settings.live_kill_switch` = JSON `true` → **все live-сигналы отклонены** (`reason_code=KILL_SWITCH_ACTIVE`).
+- JSON `false` → live-сигналы проходят risk-гейты.
+- Состояние читается **при старте исполнителя** и обновляется **пока цикл исполнителя активен** — для остановки live-торговли перезапуск не требуется.
+- Переключение через API: `POST /api/v1/live-trading/jobs/kill-switch` (`{"enabled": true/false}`), или SQL: `UPDATE trading.app_settings SET value = 'true'::jsonb WHERE key = 'live_kill_switch';`
+- Дефолт при включении: `true` (заблокировано).
 
-### Экстренная остановка
-При обнаружении аномалий (неверный размер ордера, ошибки авторизации):
-1.  Немедленно повторно активируйте Kill Switch:
-    *   **API:** `POST ... {"enabled": true}`.
-    *   **SQL:** `UPDATE ... SET value = 'true'::jsonb ...`.
-2.  Просмотрите таблицу `trading.live_signal_log` для аудита событий.
+### Postgres логирование (`PostgresLogHandler`)
+- Каждая строка лога `LiveExecutor` записывается в `trading.live_executor_events` (`id UUID`, `timestamp`, `level`, `source`, `message`, `details JSONB`) → полный аудит событий процесса исполнителя (старт, итерации цикла, ошибки, остановка, алерты).
+- Fail-open: ошибки записи в БД перехватываются обработчиком и пишутся в stderr → торговый цикл не падает на ошибках логирования.
+
+### Сигнальный лог-аудит
+- Каждый обработанный/отклонённый сигнал фиксируется в `trading.live_signal_log` (`_record_signal_log()`), с outcome, reason_code, details.
+- Fail-open: сбои логирования не рвут торговый движок.
+
+Исполнитель НЕ запускается автоматически вместе с API.

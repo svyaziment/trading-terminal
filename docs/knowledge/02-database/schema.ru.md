@@ -103,3 +103,23 @@ cd f:\GIT\trading-terminal\backend; python ..\reports\173-issue-173-live-schema-
 
 **Использование:**
 Записывается методом `_record_signal_log()` в файле `backend/app/analytics/live_executor.py`. Стратегия Fail-open: ошибки логирования не приводят к падению торгового цикла.
+
+## trading.live_executor_events (Issue #216)
+
+Postgres-таблица аудита событий процесса `LiveExecutor`, записывается `PostgresLogHandler`, подключённым к корневому логгеру исполнителя.
+
+| Колонка | Тип | Not Null | Описание |
+|---------|-----|----------|----------|
+| id | UUID | Да | Primary key; дефолт `gen_random_uuid()`. |
+| timestamp | TIMESTAMP(tz) | Да | Время события; дефолт `now()`. |
+| level | VARCHAR(10) | Да | Уровень лога: `INFO`, `WARNING`, `ERROR`, `CRITICAL`. |
+| source | VARCHAR(50) | Да | Компонент-источник (напр. `kill_switch`, `broker_client`, `signal_processor`). |
+| message | TEXT | Да | Сообщение события (человеческий формат). |
+| details | JSONB | Нет | Структурированный payload события (опционально). |
+
+**Индексы:**
+*   `idx_live_executor_events_ts_level` (`timestamp`, `level`) — быстрое получение недавних ошибок/предупреждений.
+*   `idx_live_executor_events_source` (`source`) — фильтрация по компоненту-источнику.
+
+**Использование:**
+Записывается `PostgresLogHandler` (`backend/app/analytics/live_executor.py`) для событий уровня `INFO`, `WARNING`, `ERROR` процесса исполнителя (старт/стоп процесса, смена состояния сессии, инициализация клиента, решения риск-гейтов, ошибки). Стратегия Fail-open: ошибки записи в БД перехватываются обработчиком и пишутся в stderr — торговый цикл не падает на ошибках логирования.

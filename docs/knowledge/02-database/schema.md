@@ -103,3 +103,23 @@ Audit trail for every signal processed by the `LiveExecutor` in real-money mode.
 
 **Usage:**
 Written by `_record_signal_log()` method in `backend/app/analytics/live_executor.py`. Fail-open strategy: logging errors do not crash the trading loop.
+
+## trading.live_executor_events (Issue #216)
+
+Postgres audit table of `LiveExecutor` process events, written by the `PostgresLogHandler` attached to the executor root logger.
+
+| Column | Type | Not Null | Description |
+|--------|------|----------|-------------|
+| id | UUID | Yes | Primary key; default `gen_random_uuid()`. |
+| timestamp | TIMESTAMP(tz) | Yes | Event time; default `now()`. |
+| level | VARCHAR(10) | Yes | Log level: `INFO`, `WARNING`, `ERROR`, `CRITICAL`. |
+| source | VARCHAR(50) | Yes | Source component (e.g. `kill_switch`, `broker_client`, `signal_processor`). |
+| message | TEXT | Yes | Human-readable event message. |
+| details | JSONB | No | Structured event payload (optional). |
+
+**Indexes:**
+*   `idx_live_executor_events_ts_level` (`timestamp`, `level`) — fast retrieval of recent errors/warnings.
+*   `idx_live_executor_events_source` (`source`) — filtering by source component.
+
+**Usage:**
+Written by `PostgresLogHandler` (`backend/app/analytics/live_executor.py`) for `INFO`, `WARNING`, `ERROR` level executor events (process start/stop, session state changes, client init, risk-gate decisions, errors). Fail-open strategy: DB write failures are caught by the handler and written to stderr — the trading loop does not crash on logging errors.

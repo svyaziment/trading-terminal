@@ -121,46 +121,52 @@ If a balance (number) is returned, the certificate works. If `CERTIFICATE_VERIFY
 
 ## Real Money Contour (Issue #216)
 
-The `LiveExecutor` supports two operational modes determined at startup by the environment variable `ALLOW_REAL_TRADING`:
+### Process Model: API vs. Executor
+
+Real-money trading runs on two separate processes:
+
+| Process | Responsibility | Lifetime |
+|---------|---------------|----------|
+| **API (FastAPI, `backend` container)** | HTTP endpoints, config read/write (`app_settings`: kill switch, risk gates), telemetry | Managed by `docker compose`; auto-starts |
+| **Executor (`LiveExecutor`, detached process inside the `backend` container)** | Trading loop: signal detection, kill switch check, risk gates, order sending via `TinkoffLiveClient`/`TinkoffSandboxClient` | Started explicitly; no auto-start |
+
+The `backend` Docker container launches **only** the FastAPI server. It does **not** auto-start trading processes. The single correct way to start the loop:
+
+```bash
+START_LIVE_EXECUTOR=1 bash start_processes.sh
+```
+
+Because the processes are detached and live **inside** the container, `docker compose up -d --build backend` (or any container restart) kills the running loop. The API comes back up; the loop must be re-launched manually. See `07-operations/runbook.md` section "Live Trading Operations" (pre-flight checks and restart procedure).
+
+### Modes and Client Initialization
 
 | Mode | Client Class | Behavior |
 |------|--------------|----------|
-| Sandbox (Default) | `TinkoffSandboxClient` | Orders simulated locally; no interaction with real broker API. |
+| Sandbox (default) | `TinkoffSandboxClient` | Orders simulated locally; no interaction with real broker API. |
 | Real Money | `TinkoffLiveClient` | Orders sent to T-Bank Invest API using valid credentials (`TINVEST_LIVE_TOKEN`, `TINVEST_LIVE_ACC`). |
 
-### Factory Pattern Initialization
 Clients are instantiated via `app.broker.client_factory.create_execution_client()`. This function inspects `ALLOW_REAL_TRADING` and returns the appropriate client instance. Direct instantiation of `TinkoffLiveClient` outside the factory is discouraged to ensure consistent configuration loading.
 
-### Global Kill Switch Integration
-Before executing any signal in Real Money mode, the executor checks the state of the global kill switch stored in `trading.app_settings` (key: `live_kill_switch`).
+### Global Kill Switch - Read Model
 
-*   **State TRUE (Active):** All incoming signals are rejected immediately with reason `kill_switch`. No orders are sent to the broker.
-*   **State FALSE (Inactive):** Signals proceed to risk gates (budget limits) and then to execution.
+The kill switch state is stored in `trading.app_settings` (key: `live_kill_switch`) and is consumed by a two-phase read model:
 
-The kill switch state is refreshed periodically or on-demand via `_refresh_kill_switch()` method. It acts as the master safety brake for the entire trading loop.
+1.  **Read at startup.** When the `LiveExecutor` process starts, the kill switch state is loaded before the loop begins.
+2.  **Refreshed only while the executor loop is active.** Inside the running loop the state is re-fetched by `_refresh_kill_switch()`. If the loop is not running (no active process, no active session, or the process is waiting for the session to open), a change to `live_kill_switch` in the DB **will not take effect until the executor process is restarted**.
 
-### Signal Logging Audit Trail
-Every processed signal (whether executed or rejected) is logged to `trading.live_signal_log`. This provides a complete audit trail for compliance and debugging purposes. The logging operation is wrapped in try/except blocks to ensure that database failures do not crash the trading engine (Fail-Open strategy for logs).
+Practical consequence: when arming/disarming the kill switch, always verify the executor process is alive (pre-flight checks, runbook section "Live Trading Operations"); after a container restart, re-run `START_LIVE_EXECUTOR=1 bash start_processes.sh` and only then toggle the switch.
 
-## Real Money Contour (Issue #216)
+*   **State TRUE (armed):** All incoming signals are rejected immediately with reason `kill_switch`. No orders are sent to the broker.
+*   **State FALSE (disarmed):** Signals proceed to risk gates (budget limits) and then to execution.
 
-The `LiveExecutor` supports two operational modes determined at startup by the environment variable `ALLOW_REAL_TRADING`:
+### Postgres Logging (`PostgresLogHandler`)
 
-| Mode | Client Class | Behavior |
-|------|--------------|----------|
-| Sandbox (Default) | `TinkoffSandboxClient` | Orders simulated locally; no interaction with real broker API. |
-| Real Money | `TinkoffLiveClient` | Orders sent to T-Bank Invest API using valid credentials (`TINVEST_LIVE_TOKEN`, `TINVEST_LIVE_ACC`). |
+Since Issue #216, the executor no longer relies on ephemeral file logs for auditing. A `PostgresLogHandler` writes all `INFO`, `WARNING`, and `ERROR` events of the executor process to `trading.live_executor_events` (see `02-database/schema.md`).
 
-### Factory Pattern Initialization
-Clients are instantiated via `app.broker.client_factory.create_execution_client()`. This function inspects `ALLOW_REAL_TRADING` and returns the appropriate client instance. Direct instantiation of `TinkoffLiveClient` outside the factory is discouraged to ensure consistent configuration loading.
-
-### Global Kill Switch Integration
-Before executing any signal in Real Money mode, the executor checks the state of the global kill switch stored in `trading.app_settings` (key: `live_kill_switch`).
-
-*   **State TRUE (Active):** All incoming signals are rejected immediately with reason `kill_switch`. No orders are sent to the broker.
-*   **State FALSE (Inactive):** Signals proceed to risk gates (budget limits) and then to execution.
-
-The kill switch state is refreshed periodically or on-demand via `_refresh_kill_switch()` method. It acts as the master safety brake for the entire trading loop.
+*   The handler is attached to the executor root logger; every log record (process start/stop, session state changes, client initialization, risk-gate decisions, errors) becomes a DB row.
+*   Fail-open: DB write failures are caught inside the handler and written to stderr - the trading loop does not crash on logging errors.
+*   DB rows survive restarts and file-log rotation, unlike file logs - this is the audit source of truth for what happened in the loop.
 
 ### Signal Logging Audit Trail
+
 Every processed signal (whether executed or rejected) is logged to `trading.live_signal_log`. This provides a complete audit trail for compliance and debugging purposes. The logging operation is wrapped in try/except blocks to ensure that database failures do not crash the trading engine (Fail-Open strategy for logs).

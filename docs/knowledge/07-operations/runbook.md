@@ -46,27 +46,25 @@ python docs/refresh/context_collector.py
 
 ## Live Trading Operations (Issue #216)
 
-### Prerequisites
-Before enabling real trading (`ALLOW_REAL_TRADING=true`), ensure the following are verified:
-1.  **Credentials:** Valid `TINVEST_LIVE_TOKEN` and `TINVEST_LIVE_ACC` in `.env`.
-2.  **Budget Limits:** `MAX_POSITION_SIZE`, `MAX_OPEN_POSITIONS`, `MAX_DAILY_LOSS_PCT` set in `.env`.
-3.  **Kill Switch Status:** The global kill switch (`live_kill_switch`) must be **ACTIVE** (blocked) initially.
+### Process Model
+- **Executor startup:** the executor is a separate process — not started by `start_processes.sh` and not run by the FastAPI API. The backend container runs only the FastAPI API.
+- **Kill switch is the gate:** the executor trades only while `live_kill_switch` is `false` and `ALLOW_REAL_TRADING` is `true`.
+- **Backend restart kills the executor:** any `docker compose restart backend` / `docker compose up -d --build backend` / crash restart terminates the executor process. The API stays up; live trading stops.
+- **Executor restart:** run `START_LIVE_EXECUTOR=1 bash start_processes.sh` after each backend restart and before the trading day.
 
-### Starting a Live Session
-1.  Verify system health via `/health` endpoint.
-2.  Check current Kill Switch state in DB:
-    ```sql
-    SELECT value FROM trading.app_settings WHERE key = 'live_kill_switch';
-    -- Must return 'true' (Active/Blocked)
-    ```
-3.  To start trading, disable the Kill Switch via API or SQL:
-    *   **API:** `POST /api/v1/live-trading/jobs/kill-switch` with `{"enabled": false}`.
-    *   **SQL:** `UPDATE trading.app_settings SET value = 'false'::jsonb WHERE key = 'live_kill_switch';`
-4.  Monitor logs for `TinkoffLiveClient` initialization and first signal processing.
+### Kill Switch State
+- `trading.app_settings.live_kill_switch` = JSON `true` → **all live signals are rejected** (`reason_code=KILL_SWITCH_ACTIVE`).
+- JSON `false` → live signals pass through the risk gate.
+- State is read **at executor startup** and refreshed **while the executor loop is active** → no restart needed to stop live trading.
+- Toggle via API: `POST /api/v1/live-trading/jobs/kill-switch` (`{"enabled": true/false}`), or via SQL: `UPDATE trading.app_settings SET value = 'true'::jsonb WHERE key = 'live_kill_switch';`
+- Default at enable: `true` (blocked).
 
-### Emergency Stop
-If anomalies occur (wrong order size, auth errors):
-1.  Immediately re-enable Kill Switch:
-    *   **API:** `POST ... {"enabled": true}`.
-    *   **SQL:** `UPDATE ... SET value = 'true'::jsonb ...`.
-2.  Review `trading.live_signal_log` table for audit trail.
+### Postgres Logging (`PostgresLogHandler`)
+- Every log line of `LiveExecutor` is written to `trading.live_executor_events` (`id UUID`, `timestamp`, `level`, `source`, `message`, `details JSONB`) → full audit of the executor's process events (start, loop iterations, errors, stop, alerts).
+- Fail-open: DB write failures are caught by the handler and written to stderr → the trading loop does not crash on logging errors.
+
+### Signal Logging Audit Trail
+- Every processed/rejected signal is recorded in `trading.live_signal_log` (`_record_signal_log()`), with outcome, reason_code, details.
+- Fail-open: logging failures do not crash the trading engine.
+
+The executor does not auto-start with the API.
