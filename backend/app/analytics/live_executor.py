@@ -434,6 +434,42 @@ def ensure_live_positions_table(db: Any) -> None:
     ensure_live_positions_schema(db)
 
 
+
+class PostgresLogHandler(logging.Handler):
+    """Custom logging handler that writes log records to trading.live_executor_events."""
+    
+    def __init__(self, db_manager):
+        super().__init__()
+        self.db = db_manager
+        
+    def emit(self, record):
+        try:
+            import json
+            
+            msg = self.format(record)
+            
+            sql = """
+                INSERT INTO trading.live_executor_events (level, source, message, details)
+                VALUES (%s, %s, %s, %s)
+            """
+            
+            source = f"{record.module}.{record.funcName}"
+            
+            details_payload = {
+                "lineno": record.lineno,
+                "pathname": record.pathname,
+                "thread_name": record.threadName
+            }
+            payload_json = json.dumps(details_payload)
+            
+            # Execute insert directly using DBManager's execute method
+            self.db.execute(sql, (record.levelname, source, msg, payload_json))
+            
+        except Exception:
+            # Avoid recursion or crashing the app due to logging errors
+            pass
+
+
 class LiveExecutor:
     """Evaluate live bars and execute resulting trades in T-Bank Sandbox."""
 
@@ -5492,6 +5528,24 @@ def run_live_executor(
     caller - or a canary script - can read ``get_metrics()`` after the run.
     """
     executor = LiveExecutor(notifier=build_default_notifier())
+    
+    # Issue #216: Attach PostgresLogHandler to ensure logs go to DB
+    try:
+        pg_logger = logging.getLogger(__name__)
+        pg_handler = PostgresLogHandler(executor.db)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        pg_handler.setFormatter(formatter)
+        
+        # Remove existing handlers to avoid duplicates
+        for h in list(pg_logger.handlers):
+            if isinstance(h, PostgresLogHandler):
+                pg_logger.removeHandler(h)
+                
+        pg_logger.addHandler(pg_handler)
+        print(f"[INFO] PostgresLogHandler attached to '{__name__}' in run_live_executor")
+    except Exception as err:
+        print(f"[WARN] Failed to attach PostgresLogHandler: {err}", file=sys.stderr)
+
     executor.run(
         duration_minutes=duration_minutes,
         until_session_end=until_session_end,
