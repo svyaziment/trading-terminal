@@ -1539,6 +1539,23 @@ class LiveExecutor:
         cost_basis = 0.0
         unpriced: Dict[str, float] = {}
         stale_priced: Dict[str, Dict[str, float]] = {}
+
+        # Issue #220: live universe for risk gate scoping.
+        # Positions outside the configured universe do not reduce
+        # risk_equity: the terminal is not responsible for holdings
+        # it did not open, and an unpriced external holding must not
+        # manufacture a phantom drawdown breach on the account.
+        # Issue #220: scope the drawdown gate to the instruments the terminal
+        # is configured to trade. Primary source is self.instruments (built in
+        # initialize()); fall back to the DB universe only when the executor has
+        # not populated instruments, which keeps legacy unit fixtures working.
+        live_universe = set(self.instruments.keys())
+        if not live_universe:
+            live_universe = set(get_live_trading_universe(self.db))
+
+        risk_market_value = 0.0
+        unpriced_in_universe: Dict[str, float] = {}
+
         for position in positions or ():
             quantity = _finite_float(getattr(position, "quantity", None), 0.0)
             if quantity == 0:
@@ -1554,6 +1571,29 @@ class LiveExecutor:
                 # position was bought, so dropping its notional understates
                 # equity and can latch a drawdown breach that never happened.
                 unpriced[ticker] = unpriced.get(ticker, 0.0) + quantity
+                if ticker in live_universe:
+                    # Issue #220: unpriced holding inside the universe is a
+                    # data-quality problem for the terminal's own book.
+                    unpriced_in_universe[ticker] = (
+                        unpriced_in_universe.get(ticker, 0.0) + quantity
+                    )
+                    logger.warning(
+                        "live equity: no usable price for holding %s (qty=%.0f) "
+                        "in LIVE_UNIVERSE; excluded from risk_equity - "
+                        "risk gate may be understated",
+                        ticker,
+                        quantity,
+                    )
+                else:
+                    # Issue #220: unpriced holding outside the universe is an
+                    # external position; it must not reduce risk_equity.
+                    logger.info(
+                        "live equity: no usable price for holding %s (qty=%.0f) "
+                        "outside LIVE_UNIVERSE; excluded from risk_equity "
+                        "(reporting only)",
+                        ticker,
+                        quantity,
+                    )
                 logger.warning(
                     "live equity: no usable price for holding %s (qty=%.0f); "
                     "excluded from market_value - equity is understated",
@@ -1562,6 +1602,10 @@ class LiveExecutor:
                 )
                 continue
             market_value += price * quantity
+            # Issue #220: only priced holdings inside the configured live
+            # universe count toward the risk gate equity.
+            if ticker in live_universe:
+                risk_market_value += price * quantity
             if current is None:
                 # Issue #191: current_price was unusable, so this holding is
                 # marked at its average cost. Equity stays whole (no phantom
@@ -1575,9 +1619,16 @@ class LiveExecutor:
             "cash_rub": cash_rub,
             "market_value_rub": market_value,
             "equity_rub": cash_rub + market_value,
+            # Issue #220: risk gate equity - terminal universe holdings only.
+            # An external holding without a price must not manufacture a
+            # phantom drawdown breach on the account.
+            "risk_market_value_rub": risk_market_value,
+            "risk_equity_rub": cash_rub + risk_market_value,
+            "unpriced_in_universe_tickers": sorted(unpriced_in_universe.keys()),
             "unrealized_pnl_rub": market_value - cost_basis,
         }
 
+    @staticmethod
     @staticmethod
     def _mark_price(value: Any) -> Optional[float]:
         """A usable holding price, or ``None`` (Issue #191).
@@ -1948,7 +1999,12 @@ class LiveExecutor:
                 self._clear_risk_breach(reason="new_msk_session_day")
             self._equity_session_key = session_key
 
-            equity = _finite_float(computed["equity_rub"], 0.0)
+            # Issue #220: separate the risk-gate equity from the reported
+            # account equity. The drawdown gate must see only the terminal
+            # universe (risk_equity_rub). The persisted/reporting equity_rub
+            # remains cash + all priced broker holdings.
+            equity = _finite_float(computed["risk_equity_rub"], 0.0)
+            reporting_equity = _finite_float(computed["equity_rub"], 0.0)
             peak = self._daily_peak_equity(session_key, equity)
             peak_all_time = self._all_time_peak_equity(equity)
             drawdown_pct = (peak - equity) / peak * 100.0 if peak > 0 else 0.0
@@ -1962,7 +2018,7 @@ class LiveExecutor:
             snapshot: Dict[str, Any] = {
                 "timestamp": now,
                 "session_key": session_key,
-                "equity_rub": round(equity, 4),
+                "equity_rub": round(reporting_equity, 4),
                 "cash_rub": round(_finite_float(computed["cash_rub"]), 4),
                 "market_value_rub": round(
                     _finite_float(computed["market_value_rub"]), 4
@@ -1978,7 +2034,18 @@ class LiveExecutor:
                 # A latched breach stays true for the rest of the session_key
                 # even if equity recovers, so the persisted flag and the gate
                 # cannot disagree within one day.
-                "risk_breach": bool(breached or self._risk_breach_active),
+                # Issue #220: risk-gate equity (terminal-universe holdings only)
+            # plus the unpriced-in-universe bookkeeping, exposed for tests and
+            # metrics. Deliberately NOT in LIVE_EQUITY_INSERT_COLUMNS, so the
+            # live_equity row keeps its 16-column contract untouched.
+            "risk_equity_rub": round(equity, 4),
+            "risk_market_value_rub": round(
+                _finite_float(computed["risk_market_value_rub"]), 4
+            ),
+            "unpriced_in_universe_tickers": computed[
+                "unpriced_in_universe_tickers"
+            ],
+            "risk_breach": bool(breached or self._risk_breach_active),
                 "account_id": self._account_id(),
                 "strategy_name": self.strategy_name or None,
             }
@@ -2585,9 +2652,9 @@ class LiveExecutor:
             stop_price=stop_price,
             take_price=take_price,
             imbalance=imbalance_value,
-            size_lots=size_lots,
+            size_lots=stored_lots,
             position_id=position_id,
-            details={"status": status, "broker_order_id": order.get("order_id")},
+            details={"status": status, "broker_order_id": str(entry_order.order_id)},
         )
         return {
             "executed": True,
