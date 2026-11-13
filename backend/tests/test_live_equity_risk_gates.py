@@ -1439,3 +1439,248 @@ def test_risk_config_max_open_positions_fail_fast_on_garbage(monkeypatch):
     monkeypatch.setenv("MAX_OPEN_POSITIONS", "many")
     with pytest.raises(ValueError, match="MAX_OPEN_POSITIONS"):
         get_live_risk_config()
+
+
+def _issue220_position(
+    ticker: str,
+    quantity: float,
+    current_price=None,
+    average_price=None,
+):
+    """Small position object for Issue #220 tests.
+
+    LiveExecutor reads broker holdings via getattr(), so plain dicts are
+    silently ignored. This helper gives the fake broker attribute-shaped
+    positions without importing an extra namespace helper into the test file.
+    """
+    return type(
+        "Issue220Position",
+        (),
+        {
+            "ticker": ticker,
+            "quantity": quantity,
+            "current_price": current_price,
+            "average_price": average_price,
+        },
+    )()
+
+
+def test_position_outside_universe_without_price_does_not_trigger_risk_breach():
+    """Issue #220: unpriced holding outside the traded universe is reporting-only.
+
+    The drawdown gate must not see a phantom loss when an external holding
+    cannot be priced. AGRO is outside executor.instruments, so it must not
+    reduce risk_equity_rub.
+    """
+    broker = RiskFakeBroker(
+        cash=Decimal("100000"),
+        positions=[
+            _issue220_position(
+                "SBER",
+                quantity=500.0,
+                current_price=100.0,
+                average_price=100.0,
+            ),
+            _issue220_position(
+                "AGRO",
+                quantity=300.0,
+                current_price=None,
+                average_price=None,
+            ),
+        ],
+    )
+
+    db = RiskFakeDB(
+        equity_rows=[
+            equity_row(
+                peak_equity_rub=100000.0,
+                peak_equity_all_time_rub=100000.0,
+                risk_breach=False,
+            )
+        ]
+    )
+
+    executor = make_risk_executor(
+        broker=broker,
+        db=db,
+        max_daily_loss_pct=2.0,
+    )
+
+    # Issue #220: risk universe is the set of instruments the terminal trades.
+    executor.instruments = {"SBER": {}}
+
+    executor._restore_risk_breach_state()
+    snapshot = executor._write_live_equity()
+
+    assert snapshot is not None, "Snapshot should not be None"
+
+    # SBER is inside the traded universe and priced:
+    # cash 100000 + SBER 500 * 100 = 150000.
+    assert "risk_equity_rub" in snapshot
+    assert snapshot["risk_equity_rub"] == 150000.0, (
+        f"risk_equity_rub should be 150000.0, got {snapshot['risk_equity_rub']}"
+    )
+    assert snapshot["risk_market_value_rub"] == 50000.0, (
+        f"risk_market_value_rub should be 50000.0, got {snapshot['risk_market_value_rub']}"
+    )
+
+    # Reporting equity also excludes AGRO because AGRO has no usable price.
+    assert snapshot["equity_rub"] == 150000.0, (
+        f"equity_rub should be 150000.0, got {snapshot['equity_rub']}"
+    )
+    assert snapshot["market_value_rub"] == 50000.0, (
+        f"market_value_rub should be 50000.0, got {snapshot['market_value_rub']}"
+    )
+
+    # AGRO is outside the traded universe, so it is not an in-universe data gap.
+    assert snapshot["unpriced_in_universe_tickers"] == [], (
+        f"unpriced_in_universe_tickers should be empty, got {snapshot['unpriced_in_universe_tickers']}"
+    )
+
+    # Peak ratchets up to the new risk equity, so drawdown is zero, not negative.
+    assert snapshot["drawdown_pct"] <= 0.0, (
+        f"drawdown_pct should be <= 0.0, got {snapshot['drawdown_pct']}"
+    )
+    assert snapshot["risk_breach"] is False
+    assert executor._risk_breach_active is False
+
+
+def test_position_in_universe_without_price_does_not_trigger_risk_breach():
+    """Issue #220: unpriced holding inside the traded universe is a data gap.
+
+    It still must not manufacture a phantom drawdown breach, but it must be
+    visible as an in-universe unpriced holding.
+    """
+    broker = RiskFakeBroker(
+        cash=Decimal("100000"),
+        positions=[
+            _issue220_position(
+                "SBER",
+                quantity=500.0,
+                current_price=100.0,
+                average_price=100.0,
+            ),
+            _issue220_position(
+                "GAZP",
+                quantity=400.0,
+                current_price=None,
+                average_price=None,
+            ),
+        ],
+    )
+
+    db = RiskFakeDB(
+        equity_rows=[
+            equity_row(
+                peak_equity_rub=100000.0,
+                peak_equity_all_time_rub=100000.0,
+                risk_breach=False,
+            )
+        ]
+    )
+
+    executor = make_risk_executor(
+        broker=broker,
+        db=db,
+        max_daily_loss_pct=2.0,
+    )
+
+    # Both SBER and GAZP are inside the tested risk universe.
+    executor.instruments = {"SBER": {}, "GAZP": {}}
+
+    executor._restore_risk_breach_state()
+    snapshot = executor._write_live_equity()
+
+    assert snapshot is not None
+
+    # GAZP has no price, so only SBER contributes to risk equity.
+    assert snapshot["risk_equity_rub"] == 150000.0, (
+        f"risk_equity_rub should be 150000.0, got {snapshot['risk_equity_rub']}"
+    )
+    assert snapshot["risk_market_value_rub"] == 50000.0, (
+        f"risk_market_value_rub should be 50000.0, got {snapshot['risk_market_value_rub']}"
+    )
+
+    # Reporting equity also excludes the unpriced in-universe holding rather
+    # than inventing a price.
+    assert snapshot["equity_rub"] == 150000.0
+    assert snapshot["market_value_rub"] == 50000.0
+
+    # Unlike AGRO outside the universe, GAZP is an in-universe data gap.
+    assert snapshot["unpriced_in_universe_tickers"] == ["GAZP"], (
+        f"unpriced_in_universe_tickers should contain GAZP, got {snapshot['unpriced_in_universe_tickers']}"
+    )
+
+    assert snapshot["drawdown_pct"] <= 0.0
+    assert snapshot["risk_breach"] is False
+    assert executor._risk_breach_active is False
+
+
+def test_risk_equity_excludes_outside_universe_positions():
+    """Issue #220: priced holdings outside the traded universe are reporting-only.
+
+    This is the pure scoping test: AGRO has a valid price, but it is not in
+    executor.instruments, therefore it must not affect risk_equity_rub.
+    """
+    broker = RiskFakeBroker(
+        cash=Decimal("100000"),
+        positions=[
+            _issue220_position(
+                "SBER",
+                quantity=500.0,
+                current_price=100.0,
+                average_price=100.0,
+            ),
+            _issue220_position(
+                "AGRO",
+                quantity=300.0,
+                current_price=100.0,
+                average_price=100.0,
+            ),
+        ],
+    )
+
+    db = RiskFakeDB(
+        equity_rows=[
+            equity_row(
+                peak_equity_rub=100000.0,
+                peak_equity_all_time_rub=100000.0,
+                risk_breach=False,
+            )
+        ]
+    )
+
+    executor = make_risk_executor(
+        broker=broker,
+        db=db,
+        max_daily_loss_pct=2.0,
+    )
+
+    # Only SBER is traded by the terminal in this scenario.
+    executor.instruments = {"SBER": {}}
+
+    executor._restore_risk_breach_state()
+    snapshot = executor._write_live_equity()
+
+    assert snapshot is not None
+
+    # Risk equity: cash + SBER only = 100000 + 50000 = 150000.
+    assert snapshot["risk_equity_rub"] == 150000.0, (
+        f"risk_equity_rub should be 150000.0, got {snapshot['risk_equity_rub']}"
+    )
+    assert snapshot["risk_market_value_rub"] == 50000.0, (
+        f"risk_market_value_rub should be 50000.0, got {snapshot['risk_market_value_rub']}"
+    )
+
+    # Reporting equity: cash + SBER + AGRO = 100000 + 50000 + 30000 = 180000.
+    assert snapshot["equity_rub"] == 180000.0, (
+        f"equity_rub should be 180000.0, got {snapshot['equity_rub']}"
+    )
+    assert snapshot["market_value_rub"] == 80000.0, (
+        f"market_value_rub should be 80000.0, got {snapshot['market_value_rub']}"
+    )
+
+    assert snapshot["unpriced_in_universe_tickers"] == []
+    assert snapshot["drawdown_pct"] <= 0.0
+    assert snapshot["risk_breach"] is False
+    assert executor._risk_breach_active is False
