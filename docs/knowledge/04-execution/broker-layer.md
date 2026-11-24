@@ -1,7 +1,7 @@
 # The broker layer: sandbox and the real contour (Issue #178, Epic #172 block F)
 
 > **Source:** project-context.md sections 24
-> **Last refreshed:** 2026-10-04, task-346
+> **Last refreshed:** 2026-11-24, task-222
 
 ## 24. The broker layer: sandbox and the real contour (Issue #178, Epic #172 block F)
 
@@ -145,8 +145,11 @@ entries only: for an `open` row with `close_positions_on_shutdown=false` it logs
 `live_positions`, releases advisory lock `151001` and forces the final metrics
 flush (decision D5). A restart restores everything from the database. A position
 closed by hand in the broker application is reconciled on the next cycle through
-`GetOperations` and `_classify_exit_reason`, and lands as `closed_take` /
-`closed_broker` - the frozen #173 status list has no "manual" reason, so
+`GetOperations` and `_classify_exit_reason`. Since Issue #222 (decision D2)
+the classifier reads BOTH stop legs: a still-ACTIVE STOP_LOSS together with
+a still-ACTIVE TAKE_PROFIT means the close was external, so a hand-closed
+position lands as `closed_broker`, and `closed_take` is recorded only when
+the take actually fired. The frozen #173 status list has no "manual" reason, so
 `exit_price_actual` / `lots_executed` are the trustworthy fields.
 
 Verification: `193-shutdown-drill.py` in
@@ -159,7 +162,7 @@ runbooks A/B/C and the drill run order: `handover.md` §46.11.
 
 ### 24.7 Account-wide orphan stop sweep (Issue #199)
 
-`LiveExecutor` closes the loop the #193 drill opened. `_sweep_orphan_stops()` is the last pass of `_finish_monitor_cycle()` - so it also runs on the empty-book early return, when every stop still sitting at the broker belongs to nobody - and cancels ACTIVE SELL stop orders that protect no live position any more. Eligibility is a single fail-closed chain (`_orphan_stop_skip_reason`): the stop must be ACTIVE, a SELL/STOP_LOSS, inside the configured live universe (ticker / FIGI / instrument_uid), referenced by no `pending`/`open` `live_positions` row, claimed by neither the #175 OCO pass nor either side of a pending amend, not backed by a broker holding of that instrument, and older than `orphan_stop_grace_seconds`. Anything else is kept and logged with its reason.
+`LiveExecutor` closes the loop the #193 drill opened. `_sweep_orphan_stops()` is the last pass of `_finish_monitor_cycle()` - so it also runs on the empty-book early return, when every stop still sitting at the broker belongs to nobody - and cancels ACTIVE SELL stop orders that protect no live position any more. Eligibility is a single fail-closed chain (`_orphan_stop_skip_reason`): the stop must be ACTIVE, a SELL stop (STOP_LOSS or, since Issue #222, TAKE_PROFIT), inside the configured live universe (ticker / FIGI / instrument_uid), referenced by no `pending`/`open` `live_positions` row, claimed by neither the #175 OCO pass nor either side of a pending amend, not backed by a broker holding of that instrument, and older than `orphan_stop_grace_seconds`. Anything else is kept and logged with its reason.
 
 Acting needs evidence from two directions in time: the same orphan must be reported by `orphan_stop_confirmations` consecutive sweeps (the candidate table is replaced wholesale each pass, so a flapping stop never accumulates confirmations), and a pass that finds more confirmed orphans than `orphan_stop_max_cancels` cancels nothing at all and trips `orphan_sweep_fail_closed_total` plus a throttled critical alert - a stop book full of orphans means the model of the account is wrong, and cancelling is how that mistake becomes real money. Knobs live in `LIVE_TRADING` (`orphan_stop_*`, re-read every pass, validated at startup), counters are published under `protection.orphan_*` of `/api/live-trading/metrics`, and `shutdown()` now passes `force=True` to `_cancel_pending_stops()` so an amend-trailing stop that was superseded but never confirmed is still removed on the way out instead of becoming the next orphan. Operational detail: `handover.md` §46.12.
 
@@ -171,3 +174,14 @@ Acting needs evidence from two directions in time: the same orphan must be repor
 `LiveExecutor` resolves that policy *before* `_validate_config()` (a canary narrows `max_open_positions` to `min(config, canary)`, never the reverse) and then behaves like the shipped contour with four extra belts. `_apply_canary_universe()` narrows the live universe to the single canary ticker and fails closed to an EMPTY universe when `trading_universe` does not mark it live-enabled; `process_signal()` repeats that gate right after the kill switch and before the session window, the order book, sizing and any broker call (reason `canary_universe`), so a direct call cannot smuggle another name in; the entry size is capped after the sizer and after the #176 notional gate with its own reason code `canary_cap` (the cap only ever shrinks and never touches the `LIVE_RISK` limits - decision D3); and two blocking pauses read an answer through the injectable `confirm_fn` (default `_stdin_confirm`, where EOF is "no") - `_canary_confirm_entry()` before `execute_order` and `_canary_post_entry_gate()` after the fill and its protection, where `retry` re-posts only the missing leg (`_canary_rearm_protection()` never duplicates an armed stop) and a refusal calls `_canary_abort()`. One belt goes the other way and is opt-in (PO decision of 2026-10-03): `CANARY_ALLOW_OUTSIDE_ENTRY_WINDOW=true` lets **this canary only** enter outside the #137 calendar ([10:00, 19:00) MSK on weekdays), which is what a weekend / off-exchange run needs. `_entry_window_open()` is the single reader - the entry gate of `process_signal()`, the `process_latest_bars()` gate of the main loop and `wait_for_session_open()`, which then returns at once instead of sleeping until Monday; the shipped default is `false`, an ordinary run never reads the knob, and every other gate (kill switch, canary universe, risk, book freshness, imbalance, sizing, the one-lot cap, both pauses) still applies.
 
 The abort is the #193 asymmetry in canary form: `request_shutdown()` plus `_canary_abort_no_flatten`, which forces `close_positions_on_shutdown` OFF inside `shutdown()` so the filled position keeps its broker stop/take and waits for the manual runbook instead of being liquidated because a prompt was refused. The counters (`canary_capped_total`, `canary_rejections_total`, `canary_confirmations_total`, `canary_confirm_retries_total`, `canary_aborts_total`, `canary_window_bypass_total`) and the identity fields (`canary_enabled`, `canary_ticker`, `canary_max_lots`, `canary_allow_outside_entry_window` - `None`, not `0`, when the canary is off) go into `get_metrics()`, into the persisted snapshot of §23 and into their own `canary` section of `GET /api/live-trading/metrics`; `_canary_lines()` appends the canary block to the `live_start` / `live_entry` alerts only inside the canary. The sandbox drill (`194-canary-drill.py`, ten phases, mutating broker methods shadowed by counting guards) and the operator runbook live in `handover.md` §46.14.
+
+### 24.9 Both protection legs are stop orders (Issue #222)
+
+The take-profit joined the stop-loss on the broker's stop book: `LiveExecutor` posts it through the same `post_stop_order()` / `PostStopOrder` call with `stop_order_type="take_profit"` and **no** `price`, so activation produces a market order (decision D1). No client change was needed - `STOP_ORDER_TYPE_MAP` in `tinkoff_sandbox.py` already mapped `take_profit`, and `tinkoff_live.py` imports that map, so both contours accepted the type from day one.
+
+What that changes for this layer:
+
+- `broker_take_id` now holds a `stop_order_id`. Every cancel of it goes through `cancel_stop_order()` / `CancelStopOrder`, never `cancel_order()`.
+- The #175 OCO pass reads `GetStopOrders` for BOTH legs; `GetOrders` is no longer consulted for the take.
+- `_classify_exit_reason` (decision D2) reads the status of both stops, so a hand close in the broker app is `closed_broker`, not `closed_take` (§24.6).
+- The #199 orphan sweep now also nets an orphaned TAKE_PROFIT stop, because its eligibility chain checks direction and status, not the stop type. A take belonging to a live position is still kept: `_owned_instrument_keys()` matches on ticker / FIGI / uid for every `pending`/`open` row, so the sweep skips it with `reason=position_row_exists` even though `_recent_stop_ids` is only fed by `_arm_broker_stop()`.

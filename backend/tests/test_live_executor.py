@@ -218,6 +218,22 @@ class FakeBroker:
         self.calls.append(("cancel_order", {"order_id": order_id}))
         return SimpleNamespace(order_id=order_id)
 
+    def post_stop_order(self, **kwargs):
+        self.calls.append(("post_stop_order", kwargs))
+        self.order_number += 1
+        return SimpleNamespace(
+            stop_order_id=f"stop-{self.order_number}",
+            order_request_id="req-1",
+        )
+
+    def get_stop_orders(self, **kwargs):
+        self.calls.append(("get_stop_orders", kwargs))
+        return []
+
+    def cancel_stop_order(self, stop_order_id):
+        self.calls.append(("cancel_stop_order", {"stop_order_id": stop_order_id}))
+        return SimpleNamespace(stop_order_id=stop_order_id, cancelled_at=None)
+
 
 def make_executor(
     *,
@@ -356,10 +372,18 @@ def test_buy_flow_checks_balance_sizes_entry_and_places_take_limit(caplog):
             "order_type": "market",
         },
     )
-    take = broker.calls[2]
+    stop = broker.calls[2]
+    assert stop[0] == "post_stop_order"
+    assert stop[1]["stop_order_type"] == "stop_loss"
+    take = broker.calls[3]
+    assert take[0] == "post_stop_order"
     assert take[1]["direction"] == "sell"
-    assert take[1]["order_type"] == "limit"
-    assert take[1]["price"] == 110
+    # Issue #222 (D1): the take is a TAKE_PROFIT stop with no limit price -
+    # the broker activates a market order, so it never blocks the shares
+    # the STOP_LOSS needs.
+    assert take[1]["stop_order_type"] == "take_profit"
+    assert take[1]["stop_price"] == 110
+    assert "price" not in take[1]
     assert all(
         call[1].get("price") != 95
         for call in broker.calls
@@ -549,13 +573,19 @@ def test_stop_is_submitted_only_after_price_crosses_trigger():
         current_price=Decimal("94"),
     )
     broker = FakeBroker(positions=[broker_position])
-    executor = make_executor(db=db, broker=broker)
+    # Issue #222: broker_stop_enabled=False isolates the pre-#175 synthetic
+    # fallback this test pins. With broker stops on, the reconcile pass would
+    # (correctly) replace the synthetic limit id with a real STOP_LOSS and
+    # count a second change.
+    executor = make_executor(db=db, broker=broker, broker_stop_enabled=False)
 
     changes = executor.monitor_positions()
 
     assert changes == 1
     assert broker.calls[0][0] == "get_positions"
-    assert broker.calls[1] == ("cancel_order", {"order_id": "take-1"})
+    # Issue #222: the take is a broker stop order, so even the synthetic path
+    # cancels it through the stop API.
+    assert broker.calls[1] == ("cancel_stop_order", {"stop_order_id": "take-1"})
     stop = broker.calls[2]
     assert stop[1]["direction"] == "sell"
     assert stop[1]["order_type"] == "limit"
@@ -1846,11 +1876,12 @@ def test_shutdown_still_flattens_when_explicitly_requested():
     executor.request_shutdown()
     executor.shutdown()
 
-    # Cancel stop and take before market sell
+    # Issue #222: both legs are broker stop orders now, so flattening cancels
+    # them through the stop API before the market sell.
     cancelled = [
-        call[1]["order_id"]
+        call[1]["stop_order_id"]
         for call in broker.calls
-        if call[0] == "cancel_order"
+        if call[0] == "cancel_stop_order"
     ]
     assert "stop-1" in cancelled
     assert "take-1" in cancelled
@@ -1959,7 +1990,7 @@ def test_error_in_one_position_does_not_break_others():
     # Verify GAZP was processed despite SBER error
     # GAZP has broker_take_id=None, so _place_take_order should be called
     assert any(
-        call[0] == "execute_order" and call[1]["direction"] == "sell"
+        call[0] == "post_stop_order" and call[1].get("stop_order_type") == "take_profit"
         for call in broker.calls
     )
     assert changes >= 1
@@ -2161,7 +2192,7 @@ class StopFakeBroker(FakeBroker):
 
     def post_stop_order(self, **kwargs):
         self.calls.append(("post_stop_order", kwargs))
-        if self.stop_error is not None:
+        if self.stop_error is not None and kwargs.get('stop_order_type') == 'stop_loss':
             raise self.stop_error
         self.stop_number += 1
         stop_id = f"stop-{self.stop_number}"
@@ -2232,7 +2263,7 @@ def test_entry_arms_broker_stop_before_take_limit(caplog):
         "check_balance",
         "execute_order",
         "post_stop_order",
-        "execute_order",
+        "post_stop_order",
     ]
     stop_call = broker.calls[2][1]
     assert stop_call["instrument_id"] == "figi-sber"
@@ -2268,10 +2299,11 @@ def test_entry_stop_failure_alerts_and_schedules_backoff(caplog):
             imbalance=1.5,
         )
 
-    # The entry still completed and the take-profit limit is armed.
+    # The entry still completed and the take-profit stop is armed.
     assert result["reason"] == "open"
     assert any(
-        call[0] == "execute_order" and call[1]["order_type"] == "limit"
+        call[0] == "post_stop_order"
+        and call[1].get("stop_order_type") == "take_profit"
         for call in broker.calls
     )
     assert "protection_failed ticker=SBER position_id=41" in caplog.text
@@ -2506,7 +2538,7 @@ def test_vanished_position_is_closed_with_real_broker_fill(caplog):
     assert close[7] == pytest.approx(-52.6316, abs=1e-4)  # slippage_bp
     assert close[8] is None  # slippage_r needs risk_r on the row
     assert close[9] == 10  # 100 shares / lot_size 10
-    assert ("cancel_order", {"order_id": "take-1"}) in broker.calls
+    assert ("cancel_stop_order", {"stop_order_id": "take-1"}) in broker.calls
     assert "fill_reconciled ticker=SBER position_id=41" in caplog.text
     metrics = executor.get_metrics()
     assert metrics["fills_reconciled_total"] == 1
@@ -2605,8 +2637,8 @@ def test_shutdown_cancels_broker_stop_through_the_stop_api():
 
     executor.shutdown()
 
-    assert broker.cancelled_stops == ["stop-1"]
-    assert ("cancel_order", {"order_id": "take-1"}) in broker.calls
+    assert set(broker.cancelled_stops) == {"stop-1", "take-1"}
+    assert ("cancel_stop_order", {"stop_order_id": "take-1"}) in broker.calls
     assert any(
         call[0] == "execute_order" and call[1]["direction"] == "sell"
         for call in broker.calls
@@ -2622,8 +2654,8 @@ def test_handle_sell_signal_cancels_broker_stop():
     closed = executor.handle_sell_signal("SBER")
 
     assert closed == 1
-    assert broker.cancelled_stops == ["stop-1"]
-    assert ("cancel_order", {"order_id": "take-1"}) in broker.calls
+    assert set(broker.cancelled_stops) == {"stop-1", "take-1"}
+    assert ("cancel_stop_order", {"stop_order_id": "take-1"}) in broker.calls
 
 
 
@@ -3621,7 +3653,7 @@ def test_the_canary_enters_one_lot_after_two_yes_answers():
         "check_balance",
         "execute_order",
         "post_stop_order",
-        "execute_order",
+        "post_stop_order",
     ]
     assert broker.calls[1][1]["quantity"] == 1
     # the broker stop covers exactly the capped lot, not the sizer's 10
@@ -3680,11 +3712,12 @@ def test_the_first_pause_gives_up_after_the_retry_limit(caplog):
 class NoTakeBroker(StopFakeBroker):
     """Arms stops normally but never lets the take-profit leg through."""
 
-    def execute_order(self, **kwargs):
-        if kwargs.get("order_type") == "limit":
-            self.calls.append(("execute_order", kwargs))
+    def post_stop_order(self, **kwargs):
+        # Issue #222: the take-profit leg is a TAKE_PROFIT stop order now.
+        if kwargs.get("stop_order_type") == "take_profit":
+            self.calls.append(("post_stop_order", kwargs))
             raise SandboxAPIError("take outage")
-        return super().execute_order(**kwargs)
+        return super().post_stop_order(**kwargs)
 
 
 def test_the_second_pause_retry_arms_the_protection_the_fill_missed(caplog):
@@ -3701,8 +3734,10 @@ def test_the_second_pause_retry_arms_the_protection_the_fill_missed(caplog):
         "position_id": 41,
         "size_lots": 1,
     }
-    assert broker.stop_attempts == 2
-    assert broker.posted_stops == ["stop-1"]
+    assert broker.stop_attempts == 3
+    # Issue #222: the take-profit is a stop order too, so it takes stop-1;
+    # the retried STOP_LOSS is stop-2.
+    assert broker.posted_stops == ["stop-1", "stop-2"]
     assert len(executor.canary_prompts) == 3
     assert "стоп=95.0000 (НЕ у брокера)" in executor.canary_prompts[1]
     assert "стоп=95.0000 (у брокера)" in executor.canary_prompts[2]
@@ -3772,9 +3807,13 @@ def test_a_retry_never_duplicates_an_armed_stop():
     )
 
     assert protection == {"stop_armed": True, "take_placed": True}
-    assert [c[0] for c in broker.calls] == ["execute_order"]
-    assert broker.calls[0][1]["order_type"] == "limit"
-    assert broker.posted_stops == []
+    assert [c[0] for c in broker.calls] == ["post_stop_order"]
+    # Issue #222: the re-posted leg is the TAKE_PROFIT stop (market on
+    # activation, D1); the armed STOP_LOSS is never duplicated.
+    assert broker.calls[0][1]["stop_order_type"] == "take_profit"
+    assert broker.calls[0][1]["stop_price"] == 110.0
+    assert "price" not in broker.calls[0][1]
+    assert broker.posted_stops == ["stop-1"]
 
 
 def test_a_refused_second_pause_stops_the_stream_without_flattening(caplog):

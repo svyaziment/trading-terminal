@@ -6,7 +6,7 @@ only when the deployment sets ``ALLOW_REAL_TRADING=true``,
 :class:`TinkoffLiveClient` for the real T-Bank account. Both expose the same
 duck-typed contract, so nothing below the factory branches on the contour. A
 take-profit
-is submitted as a resting sell limit. Since Issue #175 the stop-loss is a real
+is submitted as a broker TAKE_PROFIT stop order (Issue #222, decision D1: market order on activation, no limit price). Since Issue #175 the stop-loss is a real
 broker ``STOP_LOSS`` stop order: it is armed as soon as the entry fills, amended
 by duplication on every trailing step (post the higher stop -> verify through
 ``GetStopOrders`` -> cancel the older, lower one) and reconciled against real
@@ -2720,24 +2720,34 @@ class LiveExecutor:
         size_lots: int,
         take_price: float,
     ) -> str:
-        order = self._broker_call(
-            "execute_order",
+        """Post a broker TAKE_PROFIT stop order (Issue #222).
+        Decision D1: no limit price — the broker activates a MARKET order
+        when the trigger fires, so assets are never blocked under a resting
+        sell limit that would prevent the stop-loss from executing.
+        """
+        self._stop_attempt_seq += 1
+        order_key = str(uuid.uuid4())
+        stop = self._broker_call(
+            "post_stop_order",
             instrument_id=instrument_id,
             quantity=size_lots,
+            stop_price=take_price,
             direction="sell",
-            order_type="limit",
-            price=take_price,
+            stop_order_type="take_profit",
+            order_id=order_key,
         )
-        order_id = str(order.order_id)
+        stop_id = self._text_or_none(getattr(stop, "stop_order_id", None))
+        if stop_id is None:
+            raise RuntimeError("post_stop_order returned empty stop_order_id")
         self.db.execute(
             """
             UPDATE trading.live_positions
             SET broker_take_id=%s, updated_at=now()
             WHERE id=%s
             """,
-            (order_id, position_id),
+            (stop_id, position_id),
         )
-        return order_id
+        return stop_id
 
     # ------------------------------------------------------------------
     # Issue #194: the canary contour — one ticker, one lot, two confirmations
@@ -3337,10 +3347,10 @@ class LiveExecutor:
                         if stop_exit
                         else row.get("broker_stop_id")
                     )
-                    if stop_exit:
-                        self._safe_cancel(sibling)
-                    else:
-                        self._safe_cancel_stop(sibling)
+                    # Issue #222: both legs are broker stop orders now (D1),
+                    # so whichever sibling survives is cancelled through the
+                    # stop API regardless of which exit fired.
+                    self._safe_cancel_stop(sibling)
                     if stop_exit:
                         model_stop = row.get("current_stop_price")
                         if model_stop is None or pd.isna(model_stop):
@@ -3388,7 +3398,7 @@ class LiveExecutor:
                     and float(current_price) <= effective_stop
                     and pd.isna(row.get("broker_stop_id"))
                 ):
-                    self._safe_cancel(row.get("broker_take_id"))
+                    self._safe_cancel_stop(row.get("broker_take_id"))
                     # Issue #151: Use non-blocking broker call for trailing exits.
                     # If rate limit exhausted, defer to next iteration (state already in DB).
                     stop_order = self._broker_call(
@@ -4812,8 +4822,17 @@ class LiveExecutor:
         if status == "STOP_ORDER_STATUS_EXECUTED":
             return "trailing" if ratcheted else "stop"
         if status == "STOP_ORDER_STATUS_ACTIVE":
-            # The stop never fired, so the take (or an external close) did.
-            return "take" if take_id else "broker"
+            # Issue #222 (D2): the stop never fired. Since the take is now
+            # also a broker stop order, its own status decides the reason:
+            # an executed or vanished take means the take-profit fired; a
+            # still-active take means the position was closed externally
+            # (manual close at the broker).
+            if take_id:
+                take_status = self._broker_stop_status(take_id)
+                if take_status != "STOP_ORDER_STATUS_ACTIVE":
+                    return "take"
+                return "broker"
+            return "broker"
         actual = fill.get("exit_price_actual")
         if actual is not None:
             take_price = row.get("take_price")
@@ -4898,11 +4917,16 @@ class LiveExecutor:
                         }
                     orphaned = order_id in stop_ids
                 else:
+                    # Issue #222: the take-profit is a broker TAKE_PROFIT stop
+                    # order, not a resting limit. Verify it through
+                    # GetStopOrders (same surface as the stop leg).
                     if order_ids is None:
-                        orders = self._broker_call("get_orders", priority="protection")
+                        stops = self._broker_call(
+                            "get_stop_orders", status="active", priority="protection"
+                        )
                         order_ids = {
-                            str(getattr(order, "order_id", ""))
-                            for order in (orders or [])
+                            str(getattr(stop, "stop_order_id", ""))
+                            for stop in (stops or [])
                         }
                     orphaned = order_id in order_ids
             except (SandboxAPIError, AttributeError) as exc:
@@ -4914,11 +4938,9 @@ class LiveExecutor:
                     type(exc).__name__,
                 )
             if orphaned:
-                cancelled = (
-                    self._safe_cancel_stop(order_id)
-                    if kind == "stop"
-                    else self._safe_cancel(order_id)
-                )
+                # Issue #222: both legs are broker stop orders now (D1),
+                # so the surviving take is cancelled through the stop API.
+                cancelled = self._safe_cancel_stop(order_id)
                 if cancelled:
                     self.oco_orphans_cancelled_total += 1
                 logger.critical(
@@ -5030,7 +5052,7 @@ class LiveExecutor:
         closed = 0
         for _, row in active.iterrows():
             self._safe_cancel_stop(row.get("broker_stop_id"))
-            self._safe_cancel(row.get("broker_take_id"))
+            self._safe_cancel_stop(row.get("broker_take_id"))
             if str(row["status"]) == "pending":
                 self._safe_cancel(row.get("broker_order_id"))
                 self._mark_cancelled(int(row["id"]), "sell_signal")
@@ -5209,7 +5231,7 @@ class LiveExecutor:
                 # Always cancel pending entry/take/stop orders on shutdown:
                 # there is no broker-side protection to preserve.
                 self._safe_cancel(row.get("broker_order_id"))
-                self._safe_cancel(row.get("broker_take_id"))
+                self._safe_cancel_stop(row.get("broker_take_id"))
                 self._safe_cancel_stop(row.get("broker_stop_id"))
                 self._mark_cancelled(int(row["id"]), "shutdown")
                 continue
@@ -5217,7 +5239,7 @@ class LiveExecutor:
             if close_positions:
                 # Flatten: cancel protections and market-sell the position
                 self._safe_cancel_stop(row.get("broker_stop_id"))
-                self._safe_cancel(row.get("broker_take_id"))
+                self._safe_cancel_stop(row.get("broker_take_id"))
                 order = self._broker_call(
                     "execute_order",
                     instrument_id=str(row["instrument_id"]),
