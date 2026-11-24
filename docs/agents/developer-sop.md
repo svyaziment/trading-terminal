@@ -2,6 +2,63 @@
 
 Mandatory for all developers (human and AI agents). Any deviation without TeamLead approval results in PR rejection.
 
+## 🤖 Agent Execution Model (READ FIRST)
+
+**The AI agent has NO access to the project filesystem, shell or environment.**
+Its only instrument is a bash script that the **user** copies and runs in Git Bash
+(Windows / MSYS) on the project machine. Everything the agent knows about the
+repository arrives as files the user uploads back.
+
+Non-negotiable consequences:
+
+- The agent never reads, creates, edits or executes anything by itself. Every file
+  read and every command runs **inside a script the user executes**.
+- Never claim "I ran it", "I checked the file", "the tests passed" without the user's
+  actual log or artifact. Never invent log output, file sizes or test results.
+- Never assume a path, an anchor or an indentation. Discover them with a script and
+  patch only from that fresh diagnostic: rendered uploads distort whitespace (CRLF,
+  NBSP, spaces inside inline code), which is how anchors silently miss.
+- Cycle: agent delivers a script -> user runs it -> user returns `log.txt` and the
+  artifacts -> only then does the agent take the next step.
+
+### Script delivery: three actions, ONE `text` block
+
+Every script is delivered as a file, made executable, and run - in that order:
+
+1. `cat > scripts/<NNN>-<issue-name>.sh <<'SCRIPT_EOF' ... SCRIPT_EOF` - create the file
+2. `chmod +x scripts/<NNN>-<issue-name>.sh` - make it executable
+3. `bash scripts/<NNN>-<issue-name>.sh` - run the file
+
+**All three commands go into a SINGLE fenced block tagged `text`.** The user copies
+once and pastes once. Splitting them into two or three blocks, or asking the user to
+run `chmod` / `bash` separately, is forbidden.
+
+Canonical shape of every deliverable (the whole thing is one ```text fence):
+
+    cat > scripts/<NNN>-<issue-name>.sh <<'SCRIPT_EOF'
+    #!/usr/bin/env bash
+    set -uo pipefail
+    export MSYS_NO_PATHCONV=1
+    export MSYS2_ARG_CONV_EXCL="*"
+    ...body...
+    SCRIPT_EOF
+    chmod +x scripts/<NNN>-<issue-name>.sh && bash scripts/<NNN>-<issue-name>.sh
+
+Forbidden:
+
+- pasting the script body into the interactive terminal (large pastes crash Git Bash);
+- delivering the work as a direct `python - <<EOF` / `bash -c '...'` invocation instead
+  of a `scripts/*.sh` file;
+- skipping `chmod +x`, or running the body without creating the file first.
+
+### Environment facts that bite
+
+- The interpreter is `python`, **not** `python3` (`python3: command not found`).
+- Print `PATCH_OK` only inside the branch where the replacement actually happened; an
+  unconditional success print hides a regex that never matched.
+- Docs are CRLF: read binary, normalise to `\n` for patching, restore `\r\n` on write,
+  and verify the CRLF count afterwards.
+
 ## 🦊 Team Roster
 
 | Role | Name | Agent |
@@ -144,6 +201,9 @@ python docs/refresh/context_collector.py \
 
 **Script delivery — `.sh` file only:** the bash-script body is created in `scripts/<NNN>-<issue-name>.sh` via heredoc (`cat > scripts/<NNN>-<issue-name>.sh <<'TASK_EOF' … TASK_EOF`), then `chmod +x scripts/<NNN>-<issue-name>.sh` and run `bash scripts/<NNN>-<issue-name>.sh`. Pasting the script body directly into the interactive terminal is forbidden: large pastes crash the Git Bash session (lost blocks, session aborts). Verify results by reading files (`cat reports/<NNN>-<issue-name>/…`), not by watching the paste output.
 
+**Delivery format is mandatory: see "Agent Execution Model". The agent has no
+filesystem access, and `cat` + `chmod +x` + `bash` must be ONE `text` block.**
+
 **Logging files — `.txt` only:** all task and run logs are written with the `.txt` extension (`log.txt`, `run_v4.txt`, `shards.txt`); the `.log` extension is not used for logging files.
 
 **Rule:** After collecting context the developer **MUST** produce an execution plan for the Issue and split it into the required number of steps.
@@ -187,6 +247,8 @@ python docs/refresh/context_collector.py \
 
 - Start with `export MSYS_NO_PATHCONV=1` and `export MSYS2_ARG_CONV_EXCL="*"`.
 - Use quoted heredocs (`<<'PYEOF'`) for code.
+- Deliver the script as ONE `text` block: `cat > scripts/....sh` + `chmod +x` +
+  `bash scripts/....sh` (see the Agent Execution Model). Use `python`, not `python3`.
 - Atomic patches: verify each regex anchor finds **EXACTLY 1** match before applying. If 0 or >1 — abort with `PATCH_FAIL`.
 - After file creation/modification: `wc -c path/to/file`.
 - After backend changes: `docker compose up -d --build backend`.
@@ -262,6 +324,9 @@ detached run, cache `cache/<book>/<TICKER>.json`, `--workers`, PID-file guard.
 - [ ] Script contains `MSYS_NO_PATHCONV=1` and `MSYS2_ARG_CONV_EXCL="*"`.
 - [ ] All code heredocs use quotes (`<<'EOF'`).
 - [ ] Bash-script delivered as `scripts/<NNN>-<issue-name>.sh` and run via `bash scripts/<NNN>-<issue-name>.sh` (body not pasted into the terminal).
+[ ] The three commands (`cat` -> `chmod +x` -> `bash`) were delivered as ONE `text`
+    block, not split into separate blocks.
+[ ] No claim of direct filesystem access, and no result reported without the user's log.
 - [ ] Logging files use the `.txt` extension (not `.log`).
 - [ ] Long run (>10 min) executed detached: `nohup` + `<reports-dir>/run.pid`, resumable cache and `--workers`; liveness and progress verified with the standard monitor block (log tail, cache counters, `kill -0` PID).
 - [ ] Regex patches verified (exactly 1 match) before write.
@@ -274,6 +339,10 @@ detached run, cache `cache/<book>/<TICKER>.json`, `--workers`, PID-file guard.
 ## ⛔ Red Lines (Instant Reject)
 
 - Editing code without context collection.
+Claiming direct access to the filesystem/environment, or reporting results without
+the user's actual log.
+Delivering a script as anything other than a `scripts/*.sh` file, or splitting
+`cat` / `chmod +x` / `bash` into separate blocks instead of ONE `text` block.
 - Hardcoding tickers/params outside `trading_config.py` / `trading_universe`.
 - Modifying `StrategyEvaluator` logic without bit-for-bit regression test (`regression_match: true`).
 - Missing file size check (`wc -c`) after heredoc.
